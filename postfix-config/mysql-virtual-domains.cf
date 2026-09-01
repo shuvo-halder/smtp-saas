@@ -1,0 +1,9 @@
+# =============================================================================
+# mysql-virtual-domains.cf — Virtual Domain Lookup
+# Credentials injected by install.sh
+# =============================================================================
+user     = __DB_USER__
+password = __DB_PASS__
+hosts    = 127.0.0.1
+dbname   = __DB_NAME__
+query    = SELECT name FROM virtual_domains WHERE name='%s' AND is_active=1

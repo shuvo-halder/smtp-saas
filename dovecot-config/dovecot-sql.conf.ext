@@ -1,0 +1,29 @@
+# =============================================================================
+# dovecot-sql.conf.ext — MySQL Authentication Backend
+# Credentials injected by install.sh
+# =============================================================================
+
+driver = mysql
+connect = host=127.0.0.1 dbname=__DB_NAME__ user=__DB_USER__ password=__DB_PASS__
+
+# Hashing scheme
+default_pass_scheme = SHA512-CRYPT
+
+# Password lookup
+password_query = \
+    SELECT email AS username, password \
+    FROM virtual_users \
+    WHERE email='%u' AND is_active=1
+
+# User lookup — returns quota and mailbox location
+user_query = \
+    SELECT \
+        CONCAT('/var/mail/vhosts/', SUBSTRING_INDEX(email,'@',-1),'/',SUBSTRING_INDEX(email,'@',1)) AS home, \
+        'vmail' AS uid, \
+        'vmail' AS gid, \
+        CONCAT('*:bytes=', quota) AS quota_rule \
+    FROM virtual_users \
+    WHERE email='%u' AND is_active=1
+
+# Quota update
+iterate_query = SELECT email AS username FROM virtual_users WHERE is_active=1

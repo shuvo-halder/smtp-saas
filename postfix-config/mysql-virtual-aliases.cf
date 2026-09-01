@@ -1,0 +1,8 @@
+# =============================================================================
+# mysql-virtual-aliases.cf — Virtual Alias Lookup
+# =============================================================================
+user     = __DB_USER__
+password = __DB_PASS__
+hosts    = 127.0.0.1
+dbname   = __DB_NAME__
+query    = SELECT destination FROM virtual_aliases WHERE source='%s'

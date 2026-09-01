@@ -1,0 +1,8 @@
+# =============================================================================
+# mysql-virtual-mailboxes.cf — Virtual Mailbox Lookup
+# =============================================================================
+user     = __DB_USER__
+password = __DB_PASS__
+hosts    = 127.0.0.1
+dbname   = __DB_NAME__
+query    = SELECT CONCAT(SUBSTRING_INDEX(email,'@',-1),'/',SUBSTRING_INDEX(email,'@',1),'/') FROM virtual_users WHERE email='%s' AND is_active=1

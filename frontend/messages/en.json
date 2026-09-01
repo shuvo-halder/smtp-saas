@@ -1,0 +1,23 @@
+{
+  "Auth": {
+    "login": "Login",
+    "register": "Register",
+    "logout": "Logout",
+    "email": "Email Address",
+    "password": "Password",
+    "submit": "Sign In"
+  },
+  "Navigation": {
+    "dashboard": "Dashboard",
+    "domains": "Domains",
+    "billing": "Billing",
+    "settings": "Settings"
+  },
+  "Actions": {
+    "save": "Save",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "edit": "Edit",
+    "confirm": "Confirm"
+  }
+}
