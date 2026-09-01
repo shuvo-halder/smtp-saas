@@ -15,8 +15,11 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::post('/auth/login', [AuthController::class, 'login']);
 
-    // Public Webhook
+    // Public Webhooks & Callbacks (Disable CSRF for these in middleware if necessary, though api.php has no CSRF)
     Route::post('/billing/ipn', [BillingApiController::class, 'ipn']);
+    Route::post('/billing/success', [BillingApiController::class, 'success']);
+    Route::post('/billing/fail', [BillingApiController::class, 'fail']);
+    Route::post('/billing/cancel', [BillingApiController::class, 'cancel']);
 
     // Authenticated Routes
     Route::middleware('auth:sanctum')->group(function () {

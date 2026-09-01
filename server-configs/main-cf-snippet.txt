@@ -1,0 +1,19 @@
+# Snippet to add to /etc/postfix/main.cf
+
+# Virtual Mailbox settings
+virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-mailbox-domains.cf
+virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox-maps.cf
+# If you have email forwarding/aliases configured later, you would add:
+# virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf
+
+# Tell Postfix where to store the mail locally
+virtual_mailbox_base = /var/vmail
+virtual_minimum_uid = 5000
+virtual_uid_maps = static:5000
+virtual_gid_maps = static:5000
+
+# Use Dovecot's LMTP or LDA to deliver mail (optional but recommended for quotas/Sieve)
+# virtual_transport = lmtp:unix:private/dovecot-lmtp
+
+# Or use default virtual delivery agent
+# virtual_transport = virtual

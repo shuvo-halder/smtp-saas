@@ -43,11 +43,13 @@ class MailboxApiController extends Controller
             return response()->json(['message' => __('api.email_exists')], 422);
         }
 
+        $salt = \Illuminate\Support\Str::random(16);
+        $dovecotPassword = crypt($validated['password'], '$6$' . $salt . '$');
+
         $mailbox = $domain->mailboxes()->create([
-            'user_id' => $request->user()->id,
             'local_part' => strtolower($validated['local_part']),
             'email' => $email,
-            'password_hash' => bcrypt($validated['password']), // Postfix typically needs specific hash, assuming service handles or model handles
+            'password' => $dovecotPassword, // Hashed specifically for Dovecot SHA512-CRYPT
             'display_name' => $validated['display_name'] ?? null,
             'quota_mb' => $validated['quota_mb'] ?? $request->user()->plan->storage_mb_per_mailbox,
             'is_active' => true,
@@ -68,9 +70,9 @@ class MailboxApiController extends Controller
 
         $postfixService->changeMailboxPassword($mailbox, $validated['password']);
 
-        // Update local hash if needed
+        $salt = \Illuminate\Support\Str::random(16);
         $mailbox->update([
-            'password_hash' => bcrypt($validated['password'])
+            'password' => crypt($validated['password'], '$6$' . $salt . '$')
         ]);
 
         return response()->json(['message' => __('messages.mailbox_password_changed')]);

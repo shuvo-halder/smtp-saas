@@ -124,6 +124,19 @@ class BillingService
         }
 
         if ($data['status'] === 'VALID' || $data['status'] === 'VALIDATED') {
+            // Security Check: Verify the amount paid matches the invoice total
+            $paidAmount = (float) ($data['amount'] ?? 0);
+            $invoiceTotal = (float) $invoice->total;
+            
+            if (abs($paidAmount - $invoiceTotal) > 0.01) {
+                Log::error('SSLCommerz IPN Amount Mismatch', [
+                    'expected' => $invoiceTotal,
+                    'received' => $paidAmount,
+                    'tran_id'  => $data['tran_id']
+                ]);
+                return false;
+            }
+
             $this->markInvoicePaid($invoice, $data);
             return true;
         }

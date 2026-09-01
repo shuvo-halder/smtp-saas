@@ -60,4 +60,24 @@ class BillingApiController extends Controller
         
         return response()->json(['message' => __('messages.ipn_processed')]);
     }
+
+    public function success(Request $request)
+    {
+        // Typically SSLCommerz posts transaction details here.
+        // IPN handles the actual DB update asynchronously.
+        $frontendUrl = env('FRONTEND_URL', 'https://' . config('app.base_domain')) . '/billing/success';
+        return redirect()->away($frontendUrl);
+    }
+
+    public function fail(Request $request)
+    {
+        $frontendUrl = env('FRONTEND_URL', 'https://' . config('app.base_domain')) . '/billing/fail';
+        return redirect()->away($frontendUrl);
+    }
+
+    public function cancel(Request $request)
+    {
+        $frontendUrl = env('FRONTEND_URL', 'https://' . config('app.base_domain')) . '/billing/fail';
+        return redirect()->away($frontendUrl);
+    }
 }

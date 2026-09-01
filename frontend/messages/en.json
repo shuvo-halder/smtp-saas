@@ -107,6 +107,26 @@
       "table_usage": "Usage",
       "table_status": "Status",
       "table_actions": "Actions"
+    },
+    "billing": {
+      "title": "Billing & Plans",
+      "current_plan": "Current Plan",
+      "upgrade_plan": "Upgrade Plan",
+      "choose_plan": "Choose Plan",
+      "monthly": "Monthly",
+      "yearly": "Yearly",
+      "save_yearly": "Save up to",
+      "features": "Features",
+      "invoice_history": "Invoice History",
+      "invoice_number": "Invoice #",
+      "amount": "Amount",
+      "date": "Date",
+      "status": "Status",
+      "download": "Download",
+      "status_paid": "Paid",
+      "status_pending": "Pending",
+      "status_failed": "Failed",
+      "unlimited": "Unlimited"
     }
   }
 }

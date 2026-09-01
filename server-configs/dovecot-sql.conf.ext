@@ -1,0 +1,16 @@
+# /etc/dovecot/dovecot-sql.conf.ext
+driver = mysql
+connect = host=127.0.0.1 dbname=email_saas_db user=laravel_db_user password=laravel_db_password
+
+# The default password scheme used by Laravel/Dovecot.
+# We are assuming SHA512-CRYPT as requested. 
+# You can change this to BCRYPT if your Laravel backend generates bcrypt passwords natively for mailboxes.
+default_pass_scheme = SHA512-CRYPT
+
+# Authentication Query
+# Returns password for Dovecot to verify. Ensures both mailbox and domain are active.
+password_query = SELECT mailboxes.password FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%u' AND mailboxes.is_active = 1 AND domains.status = 'active'
+
+# User Query
+# Returns the physical mail location (home/mail) and the UID/GID for permission handling.
+user_query = SELECT CONCAT('/var/vmail/', domains.domain_name, '/', mailboxes.local_part) AS home, 5000 AS uid, 5000 AS gid FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%u' AND mailboxes.is_active = 1 AND domains.status = 'active'

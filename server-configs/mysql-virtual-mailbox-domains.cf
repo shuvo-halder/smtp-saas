@@ -1,0 +1,6 @@
+# /etc/postfix/mysql-virtual-mailbox-domains.cf
+user = laravel_db_user
+password = laravel_db_password
+hosts = 127.0.0.1
+dbname = email_saas_db
+query = SELECT domain_name FROM domains WHERE domain_name='%s' AND status='active'

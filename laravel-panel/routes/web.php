@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', fn() => view('welcome'))->name('home');
 
 // ─── Authentication (Laravel Breeze / Fortify) ─────────────────────────────────
-require __DIR__.'/auth.php';
+// require __DIR__.'/auth.php';
 
 // ─── Billing IPN (no auth - called by SSLCommerz) ─────────────────────────────
 Route::post('/billing/ipn', [BillingController::class, 'ipn'])->name('billing.ipn');

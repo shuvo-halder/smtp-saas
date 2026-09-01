@@ -1,0 +1,8 @@
+# /etc/postfix/mysql-virtual-mailbox-maps.cf
+user = laravel_db_user
+password = laravel_db_password
+hosts = 127.0.0.1
+dbname = email_saas_db
+# This query returns the relative path where mail will be stored (e.g., domain.com/user/)
+# We join with the domains table to ensure the parent domain is also active.
+query = SELECT CONCAT(domains.domain_name, '/', mailboxes.local_part, '/') FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email='%s' AND mailboxes.is_active=1 AND domains.status='active'
