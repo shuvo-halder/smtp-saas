@@ -159,4 +159,50 @@ class AdminApiController extends Controller
             'imap_connections' => $imapConnections,
         ]);
     }
+
+    public function chartData()
+    {
+        // 1. Monthly Revenue (Last 6 Months)
+        $sixMonthsAgo = now()->subMonths(5)->startOfMonth();
+        
+        $revenueData = Invoice::where('status', 'paid')
+            ->where('paid_at', '>=', $sixMonthsAgo)
+            ->select(
+                DB::raw("DATE_FORMAT(paid_at, '%Y-%m') as month"),
+                DB::raw('SUM(total) as revenue')
+            )
+            ->groupBy('month')
+            ->orderBy('month')
+            ->get();
+
+        // 2. Monthly User Signups (Last 6 Months)
+        $signupsData = User::where('created_at', '>=', $sixMonthsAgo)
+            ->select(
+                DB::raw("DATE_FORMAT(created_at, '%Y-%m') as month"),
+                DB::raw('COUNT(id) as signups')
+            )
+            ->groupBy('month')
+            ->orderBy('month')
+            ->get();
+
+        // 3. Mailbox Status Distribution
+        $mailboxesStatus = Mailbox::select(
+                DB::raw('is_active'),
+                DB::raw('COUNT(id) as count')
+            )
+            ->groupBy('is_active')
+            ->get()
+            ->mapWithKeys(function ($item) {
+                return [$item->is_active ? 'active' : 'suspended' => $item->count];
+            });
+
+        return response()->json([
+            'revenue_by_month' => $revenueData,
+            'signups_by_month' => $signupsData,
+            'mailboxes_status' => [
+                'active' => $mailboxesStatus->get('active', 0),
+                'suspended' => $mailboxesStatus->get('suspended', 0)
+            ],
+        ]);
+    }
 }

@@ -19,5 +19,94 @@
     "cancel": "Cancel",
     "edit": "Edit",
     "confirm": "Confirm"
+  },
+  "Admin": {
+    "title": "Platform Administration",
+    "dashboard": {
+      "title": "Admin Overview",
+      "total_tenants": "Total Tenants",
+      "active_mailboxes": "Active Mailboxes",
+      "system_health": "System Health",
+      "monthly_revenue": "Monthly Revenue"
+    },
+    "sidebar": {
+      "dashboard": "Dashboard",
+      "tenants": "Tenants",
+      "plans": "Plans",
+      "settings": "System Settings"
+    },
+    "tenants": {
+      "title": "Tenants Management",
+      "table": {
+        "name": "Tenant Name",
+        "email": "Email",
+        "domains": "Domains",
+        "status": "Status",
+        "actions": "Actions"
+      },
+      "actions": {
+        "view": "View",
+        "suspend": "Suspend",
+        "activate": "Activate",
+        "delete": "Delete"
+      },
+      "status": {
+        "active": "Active",
+        "suspended": "Suspended",
+        "pending": "Pending"
+      }
+    },
+    "plans": {
+      "title": "Subscription Plans"
+    }
+  },
+  "Tenant": {
+    "sidebar": {
+      "dashboard": "Dashboard",
+      "domains": "Domains",
+      "mailboxes": "Mailboxes",
+      "billing": "Billing",
+      "webmail": "Webmail"
+    },
+    "dashboard": {
+      "title": "Overview",
+      "domains_connected": "Domains Connected",
+      "active_mailboxes": "Active Mailboxes",
+      "storage_used": "Storage Used",
+      "plan_status": "Plan Status",
+      "recent_activity": "Recent Activity"
+    },
+    "domains": {
+      "title": "Domain Management",
+      "add_domain": "Add Domain",
+      "domain_name": "Domain Name",
+      "status": "Status",
+      "mailboxes": "Mailboxes",
+      "dns_config": "DNS Configuration",
+      "dns_instructions": "Add the following records to your DNS provider to verify your domain and enable email delivery.",
+      "verify_dns": "Verify DNS",
+      "mx_record": "MX Record",
+      "spf_record": "SPF Record",
+      "dkim_record": "DKIM Record",
+      "dmarc_record": "DMARC Record",
+      "record_type": "Type",
+      "record_host": "Host/Name",
+      "record_value": "Value/Data",
+      "record_verified": "Verified"
+    },
+    "mailboxes": {
+      "title": "Mailboxes",
+      "add_mailbox": "Create Mailbox",
+      "select_domain": "Select Domain",
+      "email_prefix": "Email Prefix",
+      "display_name": "Display Name",
+      "password": "Password",
+      "generate_password": "Generate",
+      "quota": "Storage Quota (MB)",
+      "table_email": "Email Address",
+      "table_usage": "Usage",
+      "table_status": "Status",
+      "table_actions": "Actions"
+    }
   }
 }

@@ -7,6 +7,7 @@ return [
     'validation_failed' => 'The given data was invalid.',
     'server_error' => 'A server error occurred. Please try again later.',
     'subscription_required' => 'An active subscription is required to perform this action.',
+    'no_mailbox_found' => 'You have not created an active mailbox yet. Please create an inbox first.',
     'domain_limit_reached' => 'Domain limit reached for your current plan.',
     'mailbox_limit_reached' => 'Mailbox limit reached for this domain.',
     'email_exists' => 'Email address already exists.',

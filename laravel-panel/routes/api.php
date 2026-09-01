@@ -24,6 +24,7 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
         // Auth Routes
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/auth/user', [AuthController::class, 'user']);
+        Route::post('/webmail/sso', [\App\Http\Controllers\Api\SsoController::class, 'webmailSso']);
         
         // Billing Plans (Active Subscription not required)
         Route::get('/billing/plans', [BillingApiController::class, 'plans']);
@@ -48,6 +49,7 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
         // Admin Routes
         Route::middleware(EnsureAdmin::class)->prefix('admin')->group(function () {
             Route::get('/stats', [AdminApiController::class, 'stats']);
+            Route::get('/charts', [AdminApiController::class, 'chartData']);
             
             Route::get('/users', [AdminApiController::class, 'users']);
             Route::post('/users/{user}/suspend', [AdminApiController::class, 'suspendUser']);
