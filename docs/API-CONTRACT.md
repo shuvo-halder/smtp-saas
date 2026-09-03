@@ -40,6 +40,22 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | POST | `/billing/ipn` | SSLCommerz Server-to-Server webhook. | `IdentifyTenant` (No CSRF) |
 | POST | `/webmail/sso` | Generate 60s Redis OTP for Roundcube. | `IdentifyTenant`, `auth:sanctum` |
 
+## Admin API
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/admin/stats` | Global platform metrics and charts data. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/charts` | Revenue and signup timeseries data. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/server-stats`| Mail queue, IMAP connections, disk usage. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/users` | Paginated list of all tenants. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/users/{id}` | Single tenant drill-down (with relations). | `auth:sanctum`, `EnsureAdmin` |
+| POST | `/admin/users/{id}/suspend`| Suspend a tenant and their domains. | `auth:sanctum`, `EnsureAdmin` |
+| POST | `/admin/users/{id}/activate`| Reactivate a tenant and their domains. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/domains` | Paginated list of all domains. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/mailboxes` | Paginated list of all mailboxes. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/plans` | List available subscription plans. | `auth:sanctum`, `EnsureAdmin` |
+| POST | `/admin/plans` | Create a new subscription plan. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/invoices` | Paginated list of all invoices. | `auth:sanctum`, `EnsureAdmin` |
+
 ## Security & Tenant Isolation
 - **Tenant Isolation:** Explicitly enforced via Eloquent Route Model Binding intersecting with `DomainPolicy` and `InvoicePolicy`.
 - **Ghost Record Protection:** Endpoints modifying databases and file systems simultaneously (`DomainApiController@store`, `MailboxApiController@store`) are wrapped in `DB::transaction`.

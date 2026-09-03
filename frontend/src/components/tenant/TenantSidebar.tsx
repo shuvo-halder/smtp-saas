@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl';
 import { LayoutDashboard, Globe, Mail, CreditCard, Inbox, LogOut, Loader2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
-import { api } from '@/lib/api';
+import api from '@/lib/api';
 
 export function TenantSidebar() {
   const t = useTranslations('Tenant.sidebar');

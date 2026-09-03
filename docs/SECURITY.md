@@ -28,3 +28,7 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 ## 6. Payment Security (SSLCommerz)
 - **Hash Validation:** The IPN webhook calculates an MD5 hash of the incoming payload using the `store_passwd` secret and compares it against the gateway's signature.
 - **Amount Validation:** The system strictly verifies that `paid_amount == invoice_total`. If they mismatch, the invoice is NOT marked paid.
+
+## 7. Admin Control Plane
+- **Enforcement:** Admin routes (`/api/admin/*`) are globally isolated behind `EnsureAdmin` middleware.
+- **Metrics Safety:** Server metrics (like `postqueue -p`) execute safe, static string queries via `shell_exec`. Command injection is impossible by design, as no user input is passed to the shell.

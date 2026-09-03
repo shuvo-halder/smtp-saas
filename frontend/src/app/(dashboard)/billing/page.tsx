@@ -1,11 +1,11 @@
 'use client';
 
 import React from 'react';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/lib/auth';
 import { useInvoices } from '@/hooks/useBilling';
 import InvoiceTable from '@/components/billing/InvoiceTable';
-import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
 export default function BillingPage() {

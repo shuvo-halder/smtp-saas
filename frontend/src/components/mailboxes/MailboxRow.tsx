@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import api from '@/lib/api';
-import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import ChangePasswordModal from './ChangePasswordModal';
 
 interface MailboxRowProps {

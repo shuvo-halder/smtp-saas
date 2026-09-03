@@ -62,5 +62,9 @@
 - `[x]` Tenant Details (Drilldown into Domains/Mailboxes/Invoices)
 - `[x]` Global Domains Datatable
 - `[x]` Global Mailboxes Datatable
-- `[x]` Plans Datatable
+- `[/]` Plans Datatable (Listing implemented, CRUD missing)
 - `[x]` Invoices Datatable
+- `[ ]` Subscription Management (Admin override/upgrade)
+- `[ ]` SMTP Management (Credential listing/revocation)
+- `[ ]` Admin Audit Logs
+- `[ ]` Granular RBAC (Roles/Permissions)

@@ -2,7 +2,7 @@
 
 import { useTranslations } from 'next-intl';
 import useSWR from 'swr';
-import { api } from '@/lib/api';
+import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, Server, Mail, DollarSign, Globe, FileText, Database } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';

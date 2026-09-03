@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { usePlans } from '@/hooks/useBilling';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth } from '@/lib/auth';
 import PlanCard from '@/components/billing/PlanCard';
 import api from '@/lib/api';
 
