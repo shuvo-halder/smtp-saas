@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
 export default function BillingPage() {
-  const { user, isLoading: isUserLoading } = useAuth();
+  const { user, loading: isUserLoading } = useAuth();
   const { invoices, isLoading: isInvoicesLoading } = useInvoices(1);
 
   if (isUserLoading) return <div className="p-8">Loading...</div>;

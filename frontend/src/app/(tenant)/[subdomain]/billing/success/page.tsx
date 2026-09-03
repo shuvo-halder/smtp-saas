@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 
 export default function PaymentSuccessPage() {
   const t = useTranslations('Tenant.billing');
@@ -21,12 +21,12 @@ export default function PaymentSuccessPage() {
             Thank you for your purchase. Your subscription has been successfully upgraded and your new limits are now active.
           </p>
           <div className="w-full flex gap-3">
-            <Button asChild className="w-full bg-indigo-600 hover:bg-indigo-700">
-              <Link href="/dashboard">Return to Dashboard</Link>
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/billing">View Invoice</Link>
-            </Button>
+            <Link href="/dashboard" className={buttonVariants({ variant: 'default', className: "w-full bg-indigo-600 hover:bg-indigo-700" })}>
+              Return to Dashboard
+            </Link>
+            <Link href="/billing" className={buttonVariants({ variant: 'outline', className: "w-full" })}>
+              View Invoice
+            </Link>
           </div>
         </CardContent>
       </Card>

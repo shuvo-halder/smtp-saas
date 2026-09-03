@@ -4,6 +4,7 @@ export interface User {
   email: string;
   phone: string | null;
   company_name: string | null;
+  address: string | null;
   status: 'active' | 'suspended' | 'pending';
   is_admin: boolean;
   plan: Plan | null;

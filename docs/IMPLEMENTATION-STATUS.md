@@ -23,6 +23,10 @@
 - [x] `/var/vmail` and `/var/vmail_archive` standardization
 - [x] DKIM generation (`setup_dkim.sh`)
 
+## Legacy Cleanup
+- [x] Remove obsolete Laravel web controllers and Blade files
+- [x] Clear unused `routes/web.php` authenticated endpoints
+
 ## Domains & Mailboxes
 - [x] Domain CRUD API
 - [x] Domain DNS verification API

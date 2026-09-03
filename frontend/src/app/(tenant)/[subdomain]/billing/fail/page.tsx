@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { XCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 
 export default function PaymentFailedPage() {
   const t = useTranslations('Tenant.billing');
@@ -21,12 +21,12 @@ export default function PaymentFailedPage() {
             Unfortunately, your payment could not be processed. Please check your payment method and try again. No charges were made.
           </p>
           <div className="w-full flex gap-3">
-            <Button asChild className="w-full bg-indigo-600 hover:bg-indigo-700">
-              <Link href="/billing">Try Again</Link>
-            </Button>
-            <Button asChild variant="outline" className="w-full">
-              <Link href="/dashboard">Return to Dashboard</Link>
-            </Button>
+            <Link href="/billing" className={buttonVariants({ variant: 'default', className: "w-full bg-indigo-600 hover:bg-indigo-700" })}>
+              Try Again
+            </Link>
+            <Link href="/dashboard" className={buttonVariants({ variant: 'outline', className: "w-full" })}>
+              Return to Dashboard
+            </Link>
           </div>
         </CardContent>
       </Card>
