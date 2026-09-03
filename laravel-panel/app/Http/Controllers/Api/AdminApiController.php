@@ -51,7 +51,7 @@ class AdminApiController extends Controller
 
     public function users(Request $request)
     {
-        $query = User::query();
+        $query = User::query()->with('plan');
         
         if ($request->has('search')) {
             $search = $request->input('search');
@@ -67,6 +67,50 @@ class AdminApiController extends Controller
 
         $users = $query->latest()->paginate(15);
         return UserResource::collection($users);
+    }
+
+    public function showUser(User $user)
+    {
+        $user->load(['plan', 'domains', 'domains.mailboxes', 'invoices' => function($q) {
+            $q->latest()->take(10);
+        }]);
+        $user->loadCount(['domains', 'mailboxes']);
+        return response()->json(new UserResource($user));
+    }
+
+    public function domains(Request $request)
+    {
+        $query = Domain::with('user');
+        
+        if ($request->has('search')) {
+            $search = $request->input('search');
+            $query->where('domain_name', 'like', "%{$search}%");
+        }
+        
+        if ($request->has('status')) {
+            $query->where('status', $request->input('status'));
+        }
+
+        $domains = $query->latest()->paginate(15);
+        return \App\Http\Resources\DomainResource::collection($domains);
+    }
+
+    public function mailboxes(Request $request)
+    {
+        $query = Mailbox::with(['domain', 'domain.user']);
+        
+        if ($request->has('search')) {
+            $search = $request->input('search');
+            $query->where('email', 'like', "%{$search}%");
+        }
+
+        if ($request->has('status')) {
+            $status = $request->input('status') === 'active' ? 1 : 0;
+            $query->where('is_active', $status);
+        }
+
+        $mailboxes = $query->latest()->paginate(15);
+        return \App\Http\Resources\MailboxResource::collection($mailboxes);
     }
 
     public function suspendUser(User $user)

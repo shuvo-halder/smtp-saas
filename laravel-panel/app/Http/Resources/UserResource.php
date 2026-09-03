@@ -19,6 +19,10 @@ class UserResource extends JsonResource
             'is_admin' => $this->is_admin,
             'plan' => new PlanResource($this->whenLoaded('plan')),
             'plan_expires_at' => $this->plan_expires_at,
+            'domains_count' => $this->whenCounted('domains'),
+            'mailboxes_count' => $this->whenCounted('mailboxes'),
+            'domains' => DomainResource::collection($this->whenLoaded('domains')),
+            'invoices' => InvoiceResource::collection($this->whenLoaded('invoices')),
             'created_at' => $this->created_at,
         ];
     }

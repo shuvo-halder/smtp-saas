@@ -35,8 +35,10 @@ There is no active work pending execution. The architecture has just undergone a
 - **Zero hardcoded English strings** are allowed in the Next.js frontend (`messages/en.json` must be used).
 
 ## Last Implementation
-- Executed P0 architectural audit. Stripped `mysql` instructions from bash scripts, wrapped provisioning endpoints in DB transactions, extracted i18n strings, generated documentation system. (See `CHANGELOG.md` for 2026-09-04).
+- Executed P0 architectural audit. Stripped `mysql` instructions from bash scripts, wrapped provisioning endpoints in DB transactions, extracted i18n strings, generated documentation system.
+- **Admin Control Plane Implemented**: Added missing Laravel APIs (`AdminApiController` enhancements) and built Next.js pages for global monitoring (Dashboard, Tenants, Domains, Mailboxes, Plans, Invoices) following P0/P1 production requirements.
 
 ## Next Recommended Work
-- Implement the offsite backup strategies.
+- Implement the offsite backup strategies (MariaDB dump and `/var/vmail/` S3 sync).
 - Configure server monitoring (e.g., Prometheus / Grafana).
+- Implement Support Tickets or Audit Logs UI if requested (requires DB Schema extensions).

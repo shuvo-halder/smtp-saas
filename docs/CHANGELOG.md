@@ -10,6 +10,12 @@
 - **i18n:** Removed hardcoded English strings from `frontend/src/app/(tenant)/[subdomain]/dashboard/page.tsx` and moved them to `messages/en.json`.
 - **Documentation:** Created comprehensive `docs/AUDIT-REPORT.md` and initialized the Master Implementation Documentation System.
 
+## [Unreleased]
+### Added
+- **Admin Control Plane (P0/P1):** Implemented global dashboard, tenant list/drilldown, domains list, mailboxes list, plans list, and invoices list in Next.js using `shadcn/ui`.
+- **Admin API Extensions:** Added `GET /admin/users/{user}`, `GET /admin/domains`, and `GET /admin/mailboxes` to Laravel `AdminApiController` for global resource observation.
+- **Admin i18n:** Added full localization mapping for all Admin metrics and datatables in `messages/en.json`.
+
 ## 2026-09-02 (Prior)
 - Implemented SSLCommerz Billing integration API and frontend.
 - Implemented Roundcube Webmail SSO using Dovecot Master User pattern and Redis OTP caching.

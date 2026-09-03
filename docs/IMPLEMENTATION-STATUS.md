@@ -53,5 +53,14 @@
 - [x] Supervisor queue worker (`mailsaas-worker.conf`)
 
 ## Backup & Disaster Recovery
-- [ ] Database backup pipeline
-- [ ] `/var/vmail` offsite sync pipeline
+- `[ ]` Database backup pipeline
+- `[ ]` `/var/vmail` offsite sync pipeline
+
+## Admin Control Plane
+- `[x]` Admin Dashboard (Stats, System Health, Revenue)
+- `[x]` Tenants Datatable & Toggle (Suspend/Activate)
+- `[x]` Tenant Details (Drilldown into Domains/Mailboxes/Invoices)
+- `[x]` Global Domains Datatable
+- `[x]` Global Mailboxes Datatable
+- `[x]` Plans Datatable
+- `[x]` Invoices Datatable

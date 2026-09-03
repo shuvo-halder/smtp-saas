@@ -72,7 +72,10 @@ export default function AdminTenantsPage() {
                         {tStatus(user.status)}
                       </Badge>
                     </td>
-                    <td className="px-6 py-4 text-right space-x-2">
+                    <td className="px-6 py-4 text-right space-x-3">
+                      <a href={`/admin/tenants/${user.id}`} className="font-medium text-indigo-600 hover:underline">
+                        {tActions('view')}
+                      </a>
                       <button
                         onClick={() => toggleStatus(user)}
                         className={`font-medium hover:underline ${

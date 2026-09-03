@@ -27,12 +27,27 @@
       "total_tenants": "Total Tenants",
       "active_mailboxes": "Active Mailboxes",
       "system_health": "System Health",
-      "monthly_revenue": "Monthly Revenue"
+      "monthly_revenue": "Monthly Revenue",
+      "active_tenants": "Active Tenants",
+      "total_domains": "Total Domains",
+      "active_domains": "Active Domains",
+      "pending_invoices": "Pending Invoices",
+      "total_revenue": "Total Revenue",
+      "recent_signups": "Recent Signups",
+      "recent_invoices": "Recent Invoices",
+      "mail_queue": "Mail Queue",
+      "disk_usage": "Disk Usage",
+      "imap_connections": "IMAP Connections",
+      "server_stats": "Server Status",
+      "view_all": "View All"
     },
     "sidebar": {
       "dashboard": "Dashboard",
       "tenants": "Tenants",
+      "domains": "Domains",
+      "mailboxes": "Mailboxes",
       "plans": "Plans",
+      "invoices": "Invoices",
       "settings": "System Settings"
     },
     "tenants": {
@@ -42,7 +57,9 @@
         "email": "Email",
         "domains": "Domains",
         "status": "Status",
-        "actions": "Actions"
+        "actions": "Actions",
+        "plan": "Plan",
+        "created_at": "Created At"
       },
       "actions": {
         "view": "View",
@@ -54,10 +71,74 @@
         "active": "Active",
         "suspended": "Suspended",
         "pending": "Pending"
+      },
+      "details": {
+        "title": "Tenant Details",
+        "back": "Back to Tenants",
+        "overview": "Overview",
+        "contact_info": "Contact Info",
+        "subscription": "Subscription",
+        "domains_list": "Domains",
+        "mailboxes_list": "Mailboxes",
+        "invoices_list": "Recent Invoices",
+        "company": "Company",
+        "phone": "Phone",
+        "plan_expires": "Expires At"
+      }
+    },
+    "domains": {
+      "title": "Global Domains",
+      "search_placeholder": "Search domains...",
+      "table": {
+        "domain": "Domain Name",
+        "tenant": "Tenant",
+        "status": "Status",
+        "created_at": "Created At",
+        "verified": "Verified"
+      }
+    },
+    "mailboxes": {
+      "title": "Global Mailboxes",
+      "search_placeholder": "Search emails...",
+      "table": {
+        "email": "Email Address",
+        "domain": "Domain",
+        "tenant": "Tenant",
+        "status": "Status",
+        "quota": "Quota",
+        "created_at": "Created At"
       }
     },
     "plans": {
-      "title": "Subscription Plans"
+      "title": "Subscription Plans",
+      "add_plan": "Add Plan",
+      "table": {
+        "name": "Plan Name",
+        "price_monthly": "Monthly",
+        "price_yearly": "Yearly",
+        "max_domains": "Domains",
+        "max_mailboxes": "Mailboxes"
+      }
+    },
+    "invoices": {
+      "title": "Global Invoices",
+      "table": {
+        "invoice_number": "Invoice #",
+        "tenant": "Tenant",
+        "plan": "Plan",
+        "amount": "Amount",
+        "status": "Status",
+        "date": "Date"
+      }
+    },
+    "common": {
+      "loading": "Loading...",
+      "error": "An error occurred.",
+      "search": "Search...",
+      "all": "All",
+      "active": "Active",
+      "suspended": "Suspended",
+      "unlimited": "Unlimited"
     }
   },
   "Tenant": {

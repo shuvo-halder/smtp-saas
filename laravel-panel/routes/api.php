@@ -55,8 +55,12 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             Route::get('/charts', [AdminApiController::class, 'chartData']);
             
             Route::get('/users', [AdminApiController::class, 'users']);
+            Route::get('/users/{user}', [AdminApiController::class, 'showUser']);
             Route::post('/users/{user}/suspend', [AdminApiController::class, 'suspendUser']);
             Route::post('/users/{user}/activate', [AdminApiController::class, 'activateUser']);
+            
+            Route::get('/domains', [AdminApiController::class, 'domains']);
+            Route::get('/mailboxes', [AdminApiController::class, 'mailboxes']);
             
             Route::get('/plans', [AdminApiController::class, 'plans']);
             Route::post('/plans', [AdminApiController::class, 'storePlan']);
