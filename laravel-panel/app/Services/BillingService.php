@@ -156,34 +156,36 @@ class BillingService
      */
     public function markInvoicePaid(Invoice $invoice, array $gatewayData = []): void
     {
-        $invoice->update([
-            'status'                  => 'paid',
-            'gateway_transaction_id'  => $gatewayData['bank_tran_id'] ?? null,
-            'payment_response'        => $gatewayData,
-            'paid_at'                 => now(),
-            'period_start'            => now()->toDateString(),
-            'period_end'              => $invoice->billing_cycle === 'yearly'
-                                            ? now()->addYear()->toDateString()
-                                            : now()->addMonth()->toDateString(),
-        ]);
+        \DB::transaction(function () use ($invoice, $gatewayData, &$user) {
+            $invoice->update([
+                'status'                  => 'paid',
+                'gateway_transaction_id'  => $gatewayData['bank_tran_id'] ?? null,
+                'payment_response'        => $gatewayData,
+                'paid_at'                 => now(),
+                'period_start'            => now()->toDateString(),
+                'period_end'              => $invoice->billing_cycle === 'yearly'
+                                                ? now()->addYear()->toDateString()
+                                                : now()->addMonth()->toDateString(),
+            ]);
 
-        // Activate user subscription
-        $user = $invoice->user;
-        $user->update([
-            'plan_id'         => $invoice->plan_id,
-            'status'          => 'active',
-            'plan_expires_at' => $invoice->billing_cycle === 'yearly'
-                                    ? now()->addYear()
-                                    : now()->addMonth(),
-        ]);
+            // Activate user subscription
+            $user = $invoice->user;
+            $user->update([
+                'plan_id'         => $invoice->plan_id,
+                'status'          => 'active',
+                'plan_expires_at' => $invoice->billing_cycle === 'yearly'
+                                        ? now()->addYear()
+                                        : now()->addMonth(),
+            ]);
+        });
 
         Log::info('Invoice paid and subscription activated', [
             'invoice_id' => $invoice->id,
             'user_id'    => $user->id,
         ]);
 
-        // Send confirmation email
-        $user->notify(new \App\Notifications\PaymentConfirmed($invoice));
+        // Send confirmation email (TODO: Implement notification)
+        // $user->notify(new \App\Notifications\PaymentConfirmed($invoice));
     }
 
     private function validateIpnHash(array $data): bool

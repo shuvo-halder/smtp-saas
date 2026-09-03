@@ -15,11 +15,11 @@ export default function TenantDashboardPage() {
   const { data: stats, error, isLoading } = useSWR<DashboardStats>('/api/dashboard', fetcher);
 
   if (isLoading) return <div className="flex h-64 items-center justify-center"><Spinner /></div>;
-  if (error || !stats) return <div className="text-red-500">Error loading dashboard</div>;
+  if (error || !stats) return <div className="text-red-500">{t('error_loading')}</div>;
 
   const plan = stats.user.plan;
-  const maxDomains = plan?.max_domains === -1 ? 'Unlimited' : (plan?.max_domains ?? 0);
-  const maxMailboxes = plan?.max_mailboxes_per_domain === -1 ? 'Unlimited' : (plan?.max_mailboxes_per_domain ?? 0);
+  const maxDomains = plan?.max_domains === -1 ? t('unlimited') : (plan?.max_domains ?? 0);
+  const maxMailboxes = plan?.max_mailboxes_per_domain === -1 ? t('unlimited') : (plan?.max_mailboxes_per_domain ?? 0);
 
   return (
     <div className="space-y-6">
@@ -34,7 +34,7 @@ export default function TenantDashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">{stats.domains_count}</div>
             <p className="text-xs text-gray-500 mt-1">
-              Limit: {maxDomains}
+              {t('limit')}: {maxDomains}
             </p>
           </CardContent>
         </Card>
@@ -47,7 +47,7 @@ export default function TenantDashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">{stats.mailboxes_count}</div>
             <p className="text-xs text-gray-500 mt-1">
-              Limit: {maxMailboxes} per domain
+              {t('limit')}: {maxMailboxes} {t('per_domain')}
             </p>
           </CardContent>
         </Card>
@@ -63,7 +63,7 @@ export default function TenantDashboardPage() {
                0 GB
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              {plan?.storage_mb_per_mailbox ? `${(plan.storage_mb_per_mailbox / 1024).toFixed(1)} GB per mailbox` : 'N/A'}
+              {plan?.storage_mb_per_mailbox ? `${(plan.storage_mb_per_mailbox / 1024).toFixed(1)} GB ${t('per_mailbox')}` : t('na')}
             </p>
           </CardContent>
         </Card>
@@ -75,10 +75,10 @@ export default function TenantDashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-xl font-bold text-indigo-900">
-               {plan?.name ?? 'Free Tier'}
+               {plan?.name ?? t('free_tier')}
             </div>
             <p className="text-xs text-indigo-600 mt-1">
-              {stats.user.status === 'active' ? 'Active Subscription' : 'Pending/Suspended'}
+              {stats.user.status === 'active' ? t('active_subscription') : t('pending_suspended')}
             </p>
           </CardContent>
         </Card>

@@ -32,12 +32,16 @@ class DomainApiController extends Controller
             return response()->json(['message' => __('api.domain_limit_reached')], 403);
         }
 
-        $domain = $user->domains()->create([
-            'domain_name' => strtolower($validated['domain_name']),
-            'status' => 'pending',
-        ]);
+        $domain = \DB::transaction(function () use ($user, $validated, $postfixService) {
+            $dom = $user->domains()->create([
+                'domain_name' => strtolower($validated['domain_name']),
+                'status' => 'pending',
+            ]);
 
-        $postfixService->addDomain($domain);
+            $postfixService->addDomain($dom);
+
+            return $dom;
+        });
 
         return new DomainResource($domain);
     }

@@ -9,13 +9,9 @@ set -euo pipefail
 
 DOMAIN="${1:-}"
 USER_ID="${2:-}"
-MAIL_VHOSTS_DIR="/var/mail/vhosts"
-
-# Load DB credentials from env file
-source /etc/emailsaas/.env
+MAIL_VHOSTS_DIR="/var/vmail"
 
 [[ -z "$DOMAIN" ]]   && echo "ERROR: Domain required"  && exit 1
-[[ -z "$USER_ID" ]]  && echo "ERROR: User ID required" && exit 1
 
 # Validate domain format
 if ! echo "$DOMAIN" | grep -qP '^[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$'; then
@@ -23,12 +19,7 @@ if ! echo "$DOMAIN" | grep -qP '^[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]\.[a-z
     exit 1
 fi
 
-echo "[add_domain] Adding domain: $DOMAIN (user_id=$USER_ID)"
-
-# 1. Insert into MySQL virtual_domains
-mysql -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" << SQLEOF
-INSERT IGNORE INTO virtual_domains (name, user_id) VALUES ('${DOMAIN}', ${USER_ID});
-SQLEOF
+echo "[add_domain] Adding domain: $DOMAIN"
 
 # 2. Create mailbox directory
 DOMAIN_DIR="${MAIL_VHOSTS_DIR}/${DOMAIN}"

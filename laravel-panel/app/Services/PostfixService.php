@@ -39,7 +39,6 @@ class PostfixService
 
         $output = $this->runScript('add_domain.sh', [
             escapeshellarg($domain->domain_name),
-            escapeshellarg((string) $domain->user_id),
         ]);
 
         Log::info("PostfixService: Domain added", [
@@ -51,7 +50,6 @@ class PostfixService
         if (preg_match('/DKIM_TXT_VALUE=(.+)/', $output, $matches)) {
             $domain->update([
                 'dkim_public_key' => trim($matches[1]),
-                'server_domain_id' => $this->getServerDomainId($domain->domain_name),
             ]);
         }
 
@@ -78,15 +76,12 @@ class PostfixService
     /**
      * Create a new virtual mailbox
      */
-    public function addMailbox(Mailbox $mailbox, string $password): bool
+    public function addMailbox(Mailbox $mailbox): bool
     {
         $this->validateEmail($mailbox->email);
 
         $output = $this->runScript('add_mailbox.sh', [
             escapeshellarg($mailbox->email),
-            escapeshellarg($password),
-            escapeshellarg((string) $mailbox->domain_id),
-            escapeshellarg((string) $mailbox->quota_mb),
         ]);
 
         Log::info("PostfixService: Mailbox created", ['email' => $mailbox->email]);
@@ -106,15 +101,6 @@ class PostfixService
 
         Log::info("PostfixService: Mailbox removed", ['email' => $mailbox->email]);
         return true;
-    }
-
-    /**
-     * Change mailbox password
-     */
-    public function changeMailboxPassword(Mailbox $mailbox, string $newPassword): bool
-    {
-        // Re-run add_mailbox which does ON DUPLICATE KEY UPDATE
-        return $this->addMailbox($mailbox, $newPassword);
     }
 
     // ─── Private Helpers ────────────────────────────────────────────────────────
@@ -160,13 +146,5 @@ class PostfixService
         }
     }
 
-    private function getServerDomainId(string $domainName): ?int
-    {
-        // Query the mail DB directly to get the auto-increment ID
-        $result = \DB::connection('mail_db')
-            ->table('virtual_domains')
-            ->where('name', $domainName)
-            ->value('id');
-        return $result;
-    }
+
 }

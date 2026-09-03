@@ -74,7 +74,16 @@
       "active_mailboxes": "Active Mailboxes",
       "storage_used": "Storage Used",
       "plan_status": "Plan Status",
-      "recent_activity": "Recent Activity"
+      "recent_activity": "Recent Activity",
+      "limit": "Limit",
+      "unlimited": "Unlimited",
+      "per_domain": "per domain",
+      "per_mailbox": "per mailbox",
+      "free_tier": "Free Tier",
+      "active_subscription": "Active Subscription",
+      "pending_suspended": "Pending/Suspended",
+      "error_loading": "Error loading dashboard",
+      "na": "N/A"
     },
     "domains": {
       "title": "Domain Management",

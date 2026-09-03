@@ -46,29 +46,31 @@ class MailboxApiController extends Controller
         $salt = \Illuminate\Support\Str::random(16);
         $dovecotPassword = crypt($validated['password'], '$6$' . $salt . '$');
 
-        $mailbox = $domain->mailboxes()->create([
-            'local_part' => strtolower($validated['local_part']),
-            'email' => $email,
-            'password' => $dovecotPassword, // Hashed specifically for Dovecot SHA512-CRYPT
-            'display_name' => $validated['display_name'] ?? null,
-            'quota_mb' => $validated['quota_mb'] ?? $request->user()->plan->storage_mb_per_mailbox,
-            'is_active' => true,
-        ]);
+        $mailbox = \DB::transaction(function () use ($domain, $validated, $email, $request, $dovecotPassword, $postfixService) {
+            $mb = $domain->mailboxes()->create([
+                'local_part' => strtolower($validated['local_part']),
+                'email' => $email,
+                'password' => $dovecotPassword, // Hashed specifically for Dovecot SHA512-CRYPT
+                'display_name' => $validated['display_name'] ?? null,
+                'quota_mb' => $validated['quota_mb'] ?? $request->user()->plan->storage_mb_per_mailbox,
+                'is_active' => true,
+            ]);
 
-        $postfixService->addMailbox($mailbox, $validated['password']);
+            $postfixService->addMailbox($mb);
+
+            return $mb;
+        });
 
         return response()->json(new MailboxResource($mailbox), 201);
     }
 
-    public function changePassword(Request $request, Mailbox $mailbox, PostfixService $postfixService)
+    public function changePassword(Request $request, Mailbox $mailbox)
     {
         $this->authorize('update', $mailbox->domain);
 
         $validated = $request->validate([
             'password' => 'required|string|min:8',
         ]);
-
-        $postfixService->changeMailboxPassword($mailbox, $validated['password']);
 
         $salt = \Illuminate\Support\Str::random(16);
         $mailbox->update([

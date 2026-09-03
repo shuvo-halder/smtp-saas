@@ -770,14 +770,13 @@ NEXT_PUBLIC_WEBMAIL_URL=https://webmail.mailsaas.com
 
 ## 37. Architectural Inconsistencies & Findings
 
-1.  **Dual-Table Schema Discrepancy:** Shell scripts (`add_domain.sh`, `add_mailbox.sh`) target `virtual_domains`/`virtual_users` tables while Laravel migrations and `server-configs/` bind directly to `domains` and `mailboxes` tables.
+*(All previously identified P0 inconsistencies regarding shell script vs ORM DB handling were resolved in the September 4, 2026 Audit)*
 
 ---
 
 ## 38. Architectural Risks
 
-1.  Desynchronization risk if shell scripts and direct SQL lookups are mixed.
-2.  Single VPS point of failure for all components.
+1.  Single VPS point of failure for all components.
 
 ---
 
@@ -790,7 +789,6 @@ NEXT_PUBLIC_WEBMAIL_URL=https://webmail.mailsaas.com
 
 ## 40. Recommended Improvements
 
-*   **P0 (Critical):** Standardize `PostfixService.php` to write directly to Laravel's native `domains` and `mailboxes` tables instead of delegating to helper scripts that target `virtual_domains`/`virtual_users`.
 *   **P1 (High):** Provision automated S3 backups for MariaDB dumps and `/var/vmail`.
 
 ---
@@ -806,7 +804,7 @@ NEXT_PUBLIC_WEBMAIL_URL=https://webmail.mailsaas.com
 | **Mail Infrastructure** | 8 / 10 | Full Postfix/Dovecot SQL integration with `/var/vmail` permissions. |
 | **Database** | 8 / 10 | Proper indexes, foreign keys, and unique constraints across entities. |
 | **Billing** | 9 / 10 | Fully functional SSLCommerz integration with hash/amount verification. |
-| **Reliability** | 7 / 10 | Automated cron suspension works; single server remains single point of failure. |
+| **Reliability** | 8 / 10 | Provisioning flows use DB transactions; single server remains single point of failure. |
 | **Observability** | 6 / 10 | Standard file logging in place; APM/Prometheus monitoring absent. |
 | **Backup / DR** | 3 / 10 | Currently missing automated offsite backup pipeline. |
 | **Scalability** | 6 / 10 | Excellent single-server efficiency; requires horizontal refactoring for multi-node. |

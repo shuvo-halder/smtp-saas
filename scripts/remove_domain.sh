@@ -7,24 +7,12 @@
 set -euo pipefail
 
 DOMAIN="${1:-}"
-MAIL_VHOSTS_DIR="/var/mail/vhosts"
-ARCHIVE_DIR="/var/mail/archive"
-
-source /etc/emailsaas/.env
+MAIL_VHOSTS_DIR="/var/vmail"
+ARCHIVE_DIR="/var/vmail_archive"
 
 [[ -z "$DOMAIN" ]] && echo "ERROR: Domain required" && exit 1
 
 echo "[remove_domain] Removing domain: $DOMAIN"
-
-# 1. Deactivate all mailboxes for this domain
-mysql -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" << SQLEOF
-UPDATE virtual_users u
-JOIN virtual_domains d ON u.domain_id = d.id
-SET u.is_active = 0
-WHERE d.name = '${DOMAIN}';
-
-UPDATE virtual_domains SET is_active = 0 WHERE name = '${DOMAIN}';
-SQLEOF
 
 # 2. Archive domain mailbox directory
 DOMAIN_DIR="${MAIL_VHOSTS_DIR}/${DOMAIN}"

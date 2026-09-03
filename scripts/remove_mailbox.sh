@@ -7,10 +7,8 @@
 set -euo pipefail
 
 EMAIL="${1:-}"
-MAIL_VHOSTS_DIR="/var/mail/vhosts"
-ARCHIVE_DIR="/var/mail/archive"
-
-source /etc/emailsaas/.env
+MAIL_VHOSTS_DIR="/var/vmail"
+ARCHIVE_DIR="/var/vmail_archive"
 
 [[ -z "$EMAIL" ]] && echo "ERROR: Email required" && exit 1
 
@@ -18,11 +16,6 @@ DOMAIN="${EMAIL#*@}"
 LOCAL="${EMAIL%@*}"
 
 echo "[remove_mailbox] Removing mailbox: $EMAIL"
-
-# 1. Deactivate in MySQL (soft delete — keep data 30 days)
-mysql -u"${DB_USER}" -p"${DB_PASS}" "${DB_NAME}" << SQLEOF
-UPDATE virtual_users SET is_active = 0 WHERE email = '${EMAIL}';
-SQLEOF
 
 # 2. Archive mailbox directory (don't immediately delete)
 MAILDIR="${MAIL_VHOSTS_DIR}/${DOMAIN}/${LOCAL}"
