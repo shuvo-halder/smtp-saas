@@ -1,0 +1,20 @@
+# Project Implementation Overview
+
+This document describes the current implementation state of the EmailSaaS project.
+
+| Feature | Status | Implementation | Notes |
+|---|---|---|---|
+| Frontend Framework | IMPLEMENTED | Next.js 14 App Router | Located in `frontend/` |
+| Edge Subdomain Routing | IMPLEMENTED | Next.js Edge Middleware | `tenant.mailsaas.com` -> `/(tenant)/[subdomain]` |
+| Strict UI Localization | IMPLEMENTED | `next-intl` (en.json) | Zero hardcoded strings |
+| Backend Framework | IMPLEMENTED | Laravel 11 REST API | Located in `laravel-panel/` |
+| Authentication | IMPLEMENTED | Laravel Sanctum | Stateful cookie-based authentication |
+| Multi-tenancy | IMPLEMENTED | Hostname + tenant context | `IdentifyTenant` middleware enforces isolation |
+| Mail Infrastructure | IMPLEMENTED | Postfix + Dovecot + MariaDB | Shell scripts refactored to ORM native DB logic |
+| Mailbox Provisioning | IMPLEMENTED | Laravel + Dovecot SHA512-CRYPT | Provisioning strictly in `DB::transaction` |
+| Webmail SSO | IMPLEMENTED | Roundcube + Redis OTP | Dovecot Master User login via 60s OTP |
+| Billing / SSLCommerz | IMPLEMENTED | SSLCommerz IPN | DB transactions protect payment vs. activation |
+| Scheduled Automation | IMPLEMENTED | Laravel Cron | `tenant:suspend-expired` suspends overdue accounts |
+| Queue Workers | IMPLEMENTED | Redis + Supervisor | `mailsaas-worker.conf` manages 8 processes |
+| Offsite Backups | PENDING | S3 sync script | Recommended architectural addition |
+| Multi-server scaling | PENDING | Load Balancer + NFS | Currently single-node VPS architecture |

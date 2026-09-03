@@ -271,7 +271,17 @@ Cron (* * * * *) ──> php artisan schedule:run ──> tenant:suspend-expired
 
 | Document | File Path | Description |
 | :--- | :--- | :--- |
-| **System Architecture** | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Complete technical architecture, sequence diagrams, security matrix, and ERD. |
+| **AI Handoff** | [`docs/AI-HANDOFF.md`](docs/AI-HANDOFF.md) | **Mandatory starting point for AI Coding Agents.** |
+| **Implementation Status** | [`docs/IMPLEMENTATION-STATUS.md`](docs/IMPLEMENTATION-STATUS.md) | Current implementation checklist. |
+| **System Architecture** | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Locked technical architecture and data flow. |
+| **Implementation Overview** | [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | High-level summary of what is implemented. |
+| **Modules Reference** | [`docs/MODULES.md`](docs/MODULES.md) | Technical module breakdown. |
+| **API Contract** | [`docs/API-CONTRACT.md`](docs/API-CONTRACT.md) | REST API endpoints and authorization rules. |
+| **Database Schema** | [`docs/DATABASE.md`](docs/DATABASE.md) | MariaDB schema and Mail Server coupling rules. |
+| **Infrastructure** | [`docs/INFRASTRUCTURE.md`](docs/INFRASTRUCTURE.md) | Deployment, Paths, and File permissions. |
+| **Security Boundaries** | [`docs/SECURITY.md`](docs/SECURITY.md) | Multi-tenancy, Privilege Escalation, Password Security. |
+| **Technical Decisions** | [`docs/DECISIONS.md`](docs/DECISIONS.md) | TDRs (Technical Decision Records). |
+| **Changelog** | [`docs/CHANGELOG.md`](docs/CHANGELOG.md) | Implementation history. |
 
 ---
 
@@ -280,7 +290,7 @@ Cron (* * * * *) ──> php artisan schedule:run ──> tenant:suspend-expired
 1.  Maintain strict tenant isolation and policy checks on all new endpoints.
 2.  Do not include hardcoded user-facing English strings in the frontend; update `frontend/messages/en.json`.
 3.  Ensure mailbox password modifications preserve the `SHA512-CRYPT` hashing format.
-4.  Keep `docs/ARCHITECTURE.md` updated whenever making architectural changes.
+4.  Before implementing changes, consult `docs/AI-HANDOFF.md` and strictly follow the Master Implementation Documentation System. You MUST update `IMPLEMENTATION.md`, `IMPLEMENTATION-STATUS.md`, and `CHANGELOG.md` upon completion.
 
 ---
 
