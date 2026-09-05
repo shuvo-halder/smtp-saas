@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'sslcommerz' => [
+        'store_id' => env('SSLC_STORE_ID'),
+        'store_pass' => env('SSLC_STORE_PASS'),
+        'sandbox' => env('SSLC_IS_SANDBOX', true),
+    ],
+
 ];

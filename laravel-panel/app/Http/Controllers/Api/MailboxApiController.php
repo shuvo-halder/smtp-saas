@@ -33,7 +33,7 @@ class MailboxApiController extends Controller
             'quota_mb' => 'nullable|integer|min:1',
         ]);
 
-        if (!$domain->canAddMailbox()) {
+        if (!$request->user()->canAddMailbox($domain)) {
             return response()->json(['message' => __('api.mailbox_limit_reached')], 403);
         }
 

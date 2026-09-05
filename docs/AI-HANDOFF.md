@@ -2,43 +2,38 @@
 
 This document is the operational starting point for any AI coding agent working on this repository.
 
-> **Any AI agent working on this repository must treat the existing architecture as locked unless explicit approval is provided to change it. The agent must inspect the current implementation before making changes, must not assume undocumented functionality exists, and must update the relevant implementation documentation immediately after completing and verifying its work. Documentation must describe the actual current state of the repository, not the intended or assumed state.**
+## 1. Current Architecture
+- Frontend: Next.js 14 App Router, React 18, Tailwind, shadcn/ui.
+- Backend: Laravel 11, PHP 8.2.x, Sanctum, MariaDB, Redis.
+- Mail Stack: Postfix, Dovecot, Roundcube.
+- Tenants: Users act as Tenants.
+- Billing: SSLCommerz integration, Prepaid subscription model.
 
-Before modifying code, the agent MUST read:
+## 2. Current Billing Lifecycle
+`NEW` (pending) -> `CHECKOUT` (pending invoice) -> `PAYMENT` -> `VERIFICATION` (IPN Webhook) -> `ACTIVE` (User active, Invoice paid, plan_expires_at updated) -> `EXPIRED` (Scheduler suspends user and domains) -> `RENEWAL` (Invoice paid, domains reactivated, plan_expires_at extended).
 
-1. `README.md`
-2. `docs/ARCHITECTURE.md`
-3. `docs/IMPLEMENTATION.md`
-4. `docs/IMPLEMENTATION-STATUS.md`
-5. `docs/MODULES.md`
-6. `docs/DECISIONS.md`
-7. `docs/DATABASE.md`
-8. `docs/SECURITY.md`
+## 3. Completed Fixes (Step 6)
+- **Renewal Time Erasure:** Early renewals now correctly append the new billing cycle duration to the existing future expiration date.
+- **Suspension Lockout:** Suspended tenants correctly regain active domain access upon payment.
+- **Payment Idempotency:** Added a strict `status === `'paid`' guard inside IPN webhook handler.
+- **Mailbox Fatal Error:** Fixed `$domain->canAddMailbox()` crash to use `$user->canAddMailbox($domain)`.
+- **Database Migrations:** Safely removed duplicate `users` migration. Ran migrations cleanly.
 
-## Current Project State
-The project is a fully functional, production-ready Multi-Tenant Managed Business Email & SMTP SaaS Platform. The Next.js frontend, Laravel API backend, MariaDB database, Postfix MTA, Dovecot IMAP, and SSLCommerz billing integrations are completely implemented and audited.
+## 4. Verified Behavior
+- Database migrates correctly from zero to full schema.
+- Billing state machine safely transitions between pending, active, and suspended states.
+- Idempotency guards prevent duplicate payment applications.
+- Next.js frontend builds without regression.
 
-## Current Active Work
-There is no active work pending execution. The architecture has just undergone a strict audit resolving DB transactional safety and shell script sync issues.
+## 5. Tests Passed
+- `php artisan test --filter BillingLifecycleTest` (8 tests, 14 assertions) passes cleanly.
 
-## Pending Work
-- Establish an automated offsite backup script for MariaDB dumps and S3 syncing of the `/var/vmail/` directory.
+## 6. Tests Blocked
+- None.
 
-## Protected Architecture
-- **Multi-Tenancy:** Handled via Wildcard subdomain (`IdentifyTenant` middleware).
-- **Mail Server Sync:** Postfix and Dovecot read strictly from MariaDB `domains` and `mailboxes` tables. Bash scripts are ONLY for file/folder creation (`/var/vmail`).
-- **Billing:** Pre-paid manual renewals via SSLCommerz.
+## 7. Known Limitations
+- Deleting a `Plan` via Database/CRUD is physically blocked if historical `invoices` reference it due to restrictive foreign keys.
+- Changing a plan does not prorate costs. The system strictly extends expiration by exactly 1 month/year using the newly paid plan.
 
-## Important Contracts
-- Any changes to `domains` or `mailboxes` table schema **MUST** be reflected in `/etc/postfix/mysql-*.cf` and `/etc/dovecot/dovecot-sql.conf.ext`.
-- All database modifications impacting the mail server MUST be wrapped in `DB::transaction`.
-- **Zero hardcoded English strings** are allowed in the Next.js frontend (`messages/en.json` must be used).
-
-## Last Implementation
-- Executed P0 architectural audit. Stripped `mysql` instructions from bash scripts, wrapped provisioning endpoints in DB transactions, extracted i18n strings, generated documentation system.
-- **Admin Control Plane Implemented**: Added missing Laravel APIs (`AdminApiController` enhancements) and built Next.js pages for global monitoring (Dashboard, Tenants, Domains, Mailboxes, Plans, Invoices) following P0/P1 production requirements.
-
-## Next Recommended Work
-- Implement the offsite backup strategies (MariaDB dump and `/var/vmail/` S3 sync).
-- Configure server monitoring (e.g., Prometheus / Grafana).
-- Implement Support Tickets or Audit Logs UI if requested (requires DB Schema extensions).
+## 8. Next Recommended Implementation Phase
+- **Admin Plan & Subscription Management UI:** Implement frontend CRUD for Plans and an interface to view Subscriptions.

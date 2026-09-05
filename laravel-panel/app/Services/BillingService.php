@@ -123,6 +123,11 @@ class BillingService
             return false;
         }
 
+        // Idempotency check: if invoice is already paid, do nothing but return true.
+        if ($invoice->status === 'paid') {
+            return true;
+        }
+
         if ($data['status'] === 'VALID' || $data['status'] === 'VALIDATED') {
             // Security Check: Verify the amount paid matches the invoice total
             $paidAmount = (float) ($data['amount'] ?? 0);
@@ -156,36 +161,46 @@ class BillingService
      */
     public function markInvoicePaid(Invoice $invoice, array $gatewayData = []): void
     {
-        \DB::transaction(function () use ($invoice, $gatewayData, &$user) {
+        \DB::transaction(function () use ($invoice, $gatewayData) {
+            $user = $invoice->user;
+
+            // Calculate new expiration date
+            $currentExpires = $user->plan_expires_at ?? now();
+            // If already expired, start from now
+            if ($currentExpires->isPast()) {
+                $currentExpires = now();
+            }
+
+            $newExpires = $invoice->billing_cycle === 'yearly'
+                ? (clone $currentExpires)->addYear()
+                : (clone $currentExpires)->addMonth();
+
             $invoice->update([
                 'status'                  => 'paid',
                 'gateway_transaction_id'  => $gatewayData['bank_tran_id'] ?? null,
                 'payment_response'        => $gatewayData,
                 'paid_at'                 => now(),
-                'period_start'            => now()->toDateString(),
-                'period_end'              => $invoice->billing_cycle === 'yearly'
-                                                ? now()->addYear()->toDateString()
-                                                : now()->addMonth()->toDateString(),
+                'period_start'            => $currentExpires->toDateString(),
+                'period_end'              => $newExpires->toDateString(),
             ]);
 
+            // Reactivate suspended domains if the user was suspended
+            if ($user->status === 'suspended') {
+                $user->domains()->where('status', 'suspended')->update(['status' => 'active']);
+            }
+
             // Activate user subscription
-            $user = $invoice->user;
             $user->update([
                 'plan_id'         => $invoice->plan_id,
                 'status'          => 'active',
-                'plan_expires_at' => $invoice->billing_cycle === 'yearly'
-                                        ? now()->addYear()
-                                        : now()->addMonth(),
+                'plan_expires_at' => $newExpires,
+            ]);
+
+            Log::info('Invoice paid and subscription activated', [
+                'invoice_id' => $invoice->id,
+                'user_id'    => $user->id,
             ]);
         });
-
-        Log::info('Invoice paid and subscription activated', [
-            'invoice_id' => $invoice->id,
-            'user_id'    => $user->id,
-        ]);
-
-        // Send confirmation email (TODO: Implement notification)
-        // $user->notify(new \App\Notifications\PaymentConfirmed($invoice));
     }
 
     private function validateIpnHash(array $data): bool

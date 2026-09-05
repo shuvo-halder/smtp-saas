@@ -36,10 +36,10 @@ class BillingApiController extends Controller
 
         $plan = Plan::findOrFail($validated['plan_id']);
         
-        $redirectUrl = $billingService->initiatePayment($request->user(), $plan, $validated['billing_cycle']);
+        $paymentData = $billingService->initiatePayment($request->user(), $plan, $validated['billing_cycle']);
 
         return response()->json([
-            'redirect_url' => $redirectUrl
+            'redirect_url' => $paymentData['redirect_url']
         ]);
     }
 

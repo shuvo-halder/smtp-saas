@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Route;
 
 // ─── Public Routes ─────────────────────────────────────────────────────────────
 
-Route::get('/', fn() => view('welcome'))->name('home');
+Route::get('/', fn() => response()->json(['status' => 'API is running']))->name('home');
 
 // ─── Authentication (Laravel Breeze / Fortify) ─────────────────────────────────
 // require __DIR__.'/auth.php';

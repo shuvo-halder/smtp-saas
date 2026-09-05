@@ -12,7 +12,7 @@
 
 The platform separates responsibilities into a decoupled architecture:
 1.  **Frontend:** Next.js 14 (App Router) Single Page Application (SPA) with Edge Middleware for dynamic wildcard subdomain routing (`{tenant}.mailsaas.com`), strict English localization (`next-intl`), and Shadcn UI components.
-2.  **Backend API:** Laravel 11 RESTful API executing on PHP 8.2/8.3, utilizing Laravel Sanctum for stateful session/cookie authentication, custom middleware for container-bound tenant identification, and Eloquent ORM.
+2.  **Backend API:** Laravel 11 RESTful API executing on PHP 8.2.x (Explicitly Supported Runtime), utilizing Laravel Sanctum for stateful session/cookie authentication, custom middleware for container-bound tenant identification, and Eloquent ORM.
 3.  **Mail Stack & Storage:** Ubuntu Linux VPS running Postfix (MTA), Dovecot (IMAP/POP3/MDA), MariaDB (shared relational store), Redis (caching, queueing, and short-lived SSO OTP tokens), and Roundcube Webmail.
 
 ---

@@ -50,12 +50,7 @@ class SuspendExpiredTenants extends Command
                 // Suspend all domains associated with the tenant
                 // Postfix/Dovecot are configured to instantly reject/disable mail 
                 // for domains where status != 'active'
-                $tenant->domains()->update(['status' => 'suspended']);
-
-                // Explicitly disable mailboxes as well for thoroughness
-                foreach ($tenant->domains as $domain) {
-                    $domain->mailboxes()->update(['is_active' => false]);
-                }
+                $tenant->domains()->where('status', 'active')->update(['status' => 'suspended']);
 
                 Log::info("Suspended expired tenant ID: {$tenant->id}, Email: {$tenant->email}");
                 $this->info("Suspended tenant: {$tenant->email}");
