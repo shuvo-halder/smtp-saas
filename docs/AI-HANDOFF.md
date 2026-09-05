@@ -23,17 +23,19 @@ This document is the operational starting point for any AI coding agent working 
 - Database migrates correctly from zero to full schema.
 - Billing state machine safely transitions between pending, active, and suspended states.
 - Idempotency guards prevent duplicate payment applications.
-- Next.js frontend builds without regression.
+- Next.js frontend builds cleanly and zero hardcoded English strings exist in new UIs.
+- Admin Plan CRUD is safely implemented (prevents deletion of Plans historically used by tenants).
 
 ## 5. Tests Passed
 - `php artisan test --filter BillingLifecycleTest` (8 tests, 14 assertions) passes cleanly.
+- `php artisan test --filter AdminPlanTest` (7 tests, 17 assertions) passes cleanly.
 
 ## 6. Tests Blocked
 - None.
 
 ## 7. Known Limitations
-- Deleting a `Plan` via Database/CRUD is physically blocked if historical `invoices` reference it due to restrictive foreign keys.
-- Changing a plan does not prorate costs. The system strictly extends expiration by exactly 1 month/year using the newly paid plan.
+- Deleting a `Plan` via Database/CRUD is safely blocked if historical `invoices` or `users` reference it, due to strict data integrity design.
+- The Admin interface does not allow manual updating of a tenant's Plan because the platform operates strictly on a pre-paid SSLCommerz model without proration logic. Display-only Subscription logic is strictly enforced.
 
 ## 8. Next Recommended Implementation Phase
-- **Admin Plan & Subscription Management UI:** Implement frontend CRUD for Plans and an interface to view Subscriptions.
+- **Admin Tenant Actions:** Implement Admin features for Tenants (Reset Password, Delete Tenant, etc.) or any remaining administrative dashboard elements.

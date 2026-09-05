@@ -64,6 +64,9 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             
             Route::get('/plans', [AdminApiController::class, 'plans']);
             Route::post('/plans', [AdminApiController::class, 'storePlan']);
+            Route::get('/plans/{plan}', [AdminApiController::class, 'showPlan']);
+            Route::put('/plans/{plan}', [AdminApiController::class, 'updatePlan']);
+            Route::delete('/plans/{plan}', [AdminApiController::class, 'destroyPlan']);
             
             Route::get('/invoices', [AdminApiController::class, 'invoices']);
             

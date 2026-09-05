@@ -57,6 +57,9 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | GET | `/admin/mailboxes` | Paginated list of all mailboxes. | `auth:sanctum`, `EnsureAdmin` |
 | GET | `/admin/plans` | List available subscription plans. | `auth:sanctum`, `EnsureAdmin` |
 | POST | `/admin/plans` | Create a new subscription plan. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/plans/{plan}` | Retrieve specific plan details. | `auth:sanctum`, `EnsureAdmin` |
+| PUT | `/admin/plans/{plan}` | Update a specific plan. | `auth:sanctum`, `EnsureAdmin` |
+| DELETE | `/admin/plans/{plan}` | Delete an unused plan. | `auth:sanctum`, `EnsureAdmin` |
 | GET | `/admin/invoices` | Paginated list of all invoices. | `auth:sanctum`, `EnsureAdmin` |
 
 ## Security & Tenant Isolation

@@ -23,6 +23,7 @@ export interface Plan {
   max_aliases_per_domain: number;
   price_monthly: number;
   price_yearly: number;
+  is_active: boolean;
   features: string[];
   is_featured: boolean;
   yearly_discount: number;

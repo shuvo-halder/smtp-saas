@@ -159,6 +159,46 @@ class AdminApiController extends Controller
         return response()->json(new PlanResource($plan), 201);
     }
 
+    public function showPlan(Plan $plan)
+    {
+        return response()->json(new PlanResource($plan));
+    }
+
+    public function updatePlan(Request $request, Plan $plan)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'slug' => 'required|string|unique:plans,slug,' . $plan->id,
+            'description' => 'nullable|string',
+            'max_domains' => 'required|integer',
+            'max_mailboxes_per_domain' => 'required|integer',
+            'storage_mb_per_mailbox' => 'required|integer',
+            'max_aliases_per_domain' => 'required|integer',
+            'price_monthly' => 'required|numeric|min:0',
+            'price_yearly' => 'required|numeric|min:0',
+            'features' => 'nullable|array',
+            'is_featured' => 'boolean',
+            'is_active' => 'boolean',
+        ]);
+
+        $plan->update($validated);
+        
+        return response()->json(new PlanResource($plan));
+    }
+
+    public function destroyPlan(Plan $plan)
+    {
+        // Check if plan has related users or invoices before deleting
+        if (User::where('plan_id', $plan->id)->exists() || Invoice::where('plan_id', $plan->id)->exists()) {
+            return response()->json([
+                'message' => __('messages.plan_in_use')
+            ], 422);
+        }
+
+        $plan->delete();
+        return response()->json(null, 204);
+    }
+
     public function invoices(Request $request)
     {
         $query = Invoice::with(['user', 'plan']);

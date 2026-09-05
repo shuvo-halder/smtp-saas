@@ -51,7 +51,7 @@ export default function TenantDetailsPage({ params }: { params: { id: string } }
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-500">Email:</span>
+              <span className="text-gray-500">{t('email')}</span>
               <span className="font-medium text-gray-900">{user.email}</span>
             </div>
             <div className="flex justify-between">
@@ -71,16 +71,16 @@ export default function TenantDetailsPage({ params }: { params: { id: string } }
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-500">Plan:</span>
-              <span className="font-medium text-gray-900">{user.plan?.name || 'Free Tier'}</span>
+              <span className="text-gray-500">{t('plan')}</span>
+              <span className="font-medium text-gray-900">{user.plan?.name || t('free_tier')}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">{t('plan_expires')}:</span>
               <span className="font-medium text-gray-900">{user.plan_expires_at ? new Date(user.plan_expires_at).toLocaleDateString() : 'N/A'}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-500">Usage:</span>
-              <span className="font-medium text-gray-900">{user.domains_count} Domains / {user.mailboxes_count} Mailboxes</span>
+              <span className="text-gray-500">{t('usage')}</span>
+              <span className="font-medium text-gray-900">{user.domains_count} / {user.mailboxes_count}</span>
             </div>
           </CardContent>
         </Card>
@@ -95,10 +95,10 @@ export default function TenantDetailsPage({ params }: { params: { id: string } }
             <table className="w-full text-sm text-left text-gray-500">
               <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
                 <tr>
-                  <th className="px-6 py-3">Domain</th>
-                  <th className="px-6 py-3">Mailboxes</th>
-                  <th className="px-6 py-3">Status</th>
-                  <th className="px-6 py-3">Created</th>
+                  <th className="px-6 py-3">{t('domain_name')}</th>
+                  <th className="px-6 py-3">{t('domain_mailboxes')}</th>
+                  <th className="px-6 py-3">{t('status')}</th>
+                  <th className="px-6 py-3">{t('created_at')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -107,7 +107,7 @@ export default function TenantDetailsPage({ params }: { params: { id: string } }
                     <td className="px-6 py-4 font-medium text-gray-900">{domain.domain_name}</td>
                     <td className="px-6 py-4">{domain.mailboxes?.length || 0}</td>
                     <td className="px-6 py-4">
-                      <Badge variant={domain.status === 'active' ? 'success' : 'warning'}>{domain.status}</Badge>
+                      <Badge variant={domain.status === 'active' ? 'success' : 'warning'}>{tStatus(domain.status)}</Badge>
                     </td>
                     <td className="px-6 py-4">{new Date(domain.created_at).toLocaleDateString()}</td>
                   </tr>
@@ -115,7 +115,7 @@ export default function TenantDetailsPage({ params }: { params: { id: string } }
                 {(!user.domains || user.domains.length === 0) && (
                   <tr>
                     <td colSpan={4} className="px-6 py-10 text-center text-gray-500">
-                      No domains connected
+                      {t('no_domains')}
                     </td>
                   </tr>
                 )}
@@ -134,10 +134,10 @@ export default function TenantDetailsPage({ params }: { params: { id: string } }
             <table className="w-full text-sm text-left text-gray-500">
               <thead className="text-xs text-gray-700 uppercase bg-gray-50 border-b">
                 <tr>
-                  <th className="px-6 py-3">Invoice #</th>
-                  <th className="px-6 py-3">Amount</th>
-                  <th className="px-6 py-3">Status</th>
-                  <th className="px-6 py-3">Date</th>
+                  <th className="px-6 py-3">{t('invoice_number')}</th>
+                  <th className="px-6 py-3">{t('amount')}</th>
+                  <th className="px-6 py-3">{t('status')}</th>
+                  <th className="px-6 py-3">{t('date')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -156,7 +156,7 @@ export default function TenantDetailsPage({ params }: { params: { id: string } }
                 {(!user.invoices || user.invoices.length === 0) && (
                   <tr>
                     <td colSpan={4} className="px-6 py-10 text-center text-gray-500">
-                      No invoices found
+                      {t('no_invoices')}
                     </td>
                   </tr>
                 )}

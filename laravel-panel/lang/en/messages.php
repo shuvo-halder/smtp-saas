@@ -10,4 +10,5 @@ return [
     'payment_initiated' => 'Payment initiated successfully.',
     'payment_success' => 'Payment processed successfully. Subscription active.',
     'ipn_processed' => 'IPN Processed',
+    'plan_in_use' => 'Plan is currently in use and cannot be deleted.',
 ];
