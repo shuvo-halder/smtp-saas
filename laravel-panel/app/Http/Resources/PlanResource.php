@@ -18,6 +18,8 @@ class PlanResource extends JsonResource
             'max_mailboxes_per_domain' => $this->max_mailboxes_per_domain,
             'storage_mb_per_mailbox' => $this->storage_mb_per_mailbox,
             'max_aliases_per_domain' => $this->max_aliases_per_domain,
+            'daily_outbound_recipients' => $this->daily_outbound_recipients,
+            'mailbox_daily_outbound_recipients' => $this->mailbox_daily_outbound_recipients,
             'price_monthly' => $this->price_monthly,
             'price_yearly' => $this->price_yearly,
             'features' => $this->features,

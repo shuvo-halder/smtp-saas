@@ -11,6 +11,7 @@ class Plan extends Model
         'name', 'slug', 'description',
         'max_domains', 'max_mailboxes_per_domain',
         'storage_mb_per_mailbox', 'max_aliases_per_domain',
+        'daily_outbound_recipients', 'mailbox_daily_outbound_recipients',
         'price_monthly', 'price_yearly',
         'features', 'is_active', 'is_featured', 'sort_order',
     ];
@@ -21,6 +22,8 @@ class Plan extends Model
             'features'    => 'array',
             'is_active'   => 'boolean',
             'is_featured' => 'boolean',
+            'daily_outbound_recipients' => 'integer',
+            'mailbox_daily_outbound_recipients' => 'integer',
             'price_monthly' => 'decimal:2',
             'price_yearly'  => 'decimal:2',
         ];

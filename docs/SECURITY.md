@@ -32,3 +32,8 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 ## 7. Admin Control Plane
 - **Enforcement:** Admin routes (`/api/admin/*`) are globally isolated behind `EnsureAdmin` middleware.
 - **Metrics Safety:** Server metrics (like `postqueue -p`) execute safe, static string queries via `shell_exec`. Command injection is impossible by design, as no user input is passed to the shell.
+
+## 8. SMTP & Mail Delivery Threat Model
+- **Cross-Tenant Sender Spoofing:** (SECURE) Postfix utilizes `smtpd_sender_login_maps` mapped to MySQL (`mailboxes` and `email_aliases`) and `reject_sender_login_mismatch`, preventing authenticated SASL users from spoofing other tenants' sender addresses.
+- **Outbound Spam Abuse:** (GAP) There are no per-mailbox or per-tenant daily sending quotas. Only global IP connection limits exist (`smtpd_client_message_rate_limit = 30`).
+- **Suspension Enforcement:** (SECURE) Dovecot's `user_query` strictly enforces `domains.status = 'active'`, guaranteeing that suspended tenants instantly lose SASL/SMTP sending capabilities without requiring background daemon reloading.

@@ -11,8 +11,17 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 
 ### `plans`
 - **Primary Key:** `id`
-- **Fields:** `name`, `max_domains`, `max_mailboxes_per_domain`, `storage_mb_per_mailbox`, `price_monthly`, `price_yearly`
-- **Role:** Defines subscription constraints. `-1` denotes unlimited.
+- **Fields:** `name`, `max_domains`, `max_mailboxes_per_domain`, `storage_mb_per_mailbox`, `price_monthly`, `price_yearly`, `daily_outbound_recipients`, `mailbox_daily_outbound_recipients`
+- **Role:** Defines subscription constraints.
+- **Quota Semantics:** `-1` denotes unlimited. `0` denotes disabled. Positive integers denote the finite daily UTC window limit.
+
+### `tenant_outbound_usage`
+- **Primary Key:** `id`
+- **Foreign Key:** `user_id` (Belongs to `User`)
+- **Fields:** `usage_date`, `recipient_count`
+- **Unique Constraint:** `(user_id, usage_date)`
+- **Role:** Durable historical reporting ledger for outbound SMTP quota usage. 
+- **Note:** Real-time quota enforcement runs in Redis. This table is strictly for historical ledger/billing visibility synced via Laravel Scheduler.
 
 ### `domains` (Virtual Domains)
 - **Primary Key:** `id`

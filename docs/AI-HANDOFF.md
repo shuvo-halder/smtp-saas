@@ -31,11 +31,29 @@ This document is the operational starting point for any AI coding agent working 
 - `php artisan test --filter AdminPlanTest` (7 tests, 17 assertions) passes cleanly.
 
 ## 6. Tests Blocked
-- None.
+- Mailbox Creation (`MailboxApiController@store`) is fundamentally untested and currently broken due to an Eloquent mass-assignment omission.
 
-## 7. Known Limitations
+## 7. Known Limitations & Vulnerabilities
 - Deleting a `Plan` via Database/CRUD is safely blocked if historical `invoices` or `users` reference it, due to strict data integrity design.
 - The Admin interface does not allow manual updating of a tenant's Plan because the platform operates strictly on a pre-paid SSLCommerz model without proration logic. Display-only Subscription logic is strictly enforced.
+- **SECURITY VULNERABILITY:** Postfix is missing `smtpd_sender_login_maps`, allowing an authenticated mailbox to spoof ANY sender address across the platform.
+- **CRITICAL BUG:** `Mailbox` model is missing `'password'` in `$fillable` and `$hidden`, causing Mailbox creation to silently drop the generated Dovecot hashed password.
 
 ## 8. Next Recommended Implementation Phase
-- **Admin Tenant Actions:** Implement Admin features for Tenants (Reset Password, Delete Tenant, etc.) or any remaining administrative dashboard elements.
+- **Security & Stability Patching:** Fix the critical `Mailbox` mass-assignment bug and patch the Postfix `main.cf` spoofing vulnerability BEFORE proceeding to build any new SMTP Management features or Admin UI.
+
+## 5. Security Patches (Step 8)
+- **Mailbox Password Mass-Assignment:** Fixed Mailbox model so Dovecot passwords are saved properly and hidden from API output.
+- **Postfix Cross-Tenant Spoofing:** Configured Postfix smtpd_sender_login_maps and 
+eject_sender_login_mismatch to prevent authenticated users from spoofing other tenants' addresses.
+
+
+## 6. Architecture Audits (Step 9)
+- **SMTP Quotas & Abuse:** Completed architecture audit (rtifacts/smtp_architecture_audit.md). Implementing outbound quotas requires database migrations (plans table) and a new Policy Daemon integrating Postfix with Redis. Marked as REQUIRES ARCHITECTURE APPROVAL.
+
+
+## 7. Outbound Quota Database Schema (Step 11)
+- **Plan Quotas:** Added daily_outbound_recipients and mailbox_daily_outbound_recipients to the plans table and Admin API. Semantics: -1 (unlimited), 0 (disabled), positive integer (finite).
+- **Usage Ledger:** Created 	enant_outbound_usage table to durably store historical daily recipient counts synced from Redis.
+- **Status:** Database layer is IMPLEMENTED. Real-time Redis enforcement and Policy Daemon are PENDING.
+

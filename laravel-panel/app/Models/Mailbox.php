@@ -11,9 +11,13 @@ class Mailbox extends Model
     use SoftDeletes;
 
     protected $fillable = [
-        'domain_id', 'local_part', 'email',
+        'domain_id', 'local_part', 'email', 'password',
         'display_name', 'quota_mb', 'is_active',
         'is_catchall', 'server_user_id', 'last_login_at',
+    ];
+
+    protected $hidden = [
+        'password',
     ];
 
     protected function casts(): array

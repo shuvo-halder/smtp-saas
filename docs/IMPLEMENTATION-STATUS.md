@@ -66,9 +66,18 @@
 - `[x]` Tenant Details (Drilldown into Domains/Mailboxes/Invoices)
 - `[x]` Global Domains Datatable
 - `[x]` Global Mailboxes Datatable
-- `[/]` Plans Datatable (Listing implemented, CRUD missing)
+- `[x]` Plans Datatable (CRUD fully implemented)
 - `[x]` Invoices Datatable
-- `[ ]` Subscription Management (Admin override/upgrade)
+- `[x]` Subscription Management (Display-only view enforced)
 - `[ ]` SMTP Management (Credential listing/revocation)
 - `[ ]` Admin Audit Logs
 - `[ ]` Granular RBAC (Roles/Permissions)
+
+## SMTP Architecture & Management
+- `[x]` Direct Dovecot/Postfix SQL Binding
+- `[x]` Suspension / Active State Enforcement
+- `[x]` Postfix `smtpd_sender_login_maps` implementation (Vulnerability Fix)
+- `[x]` Mailbox Creation API Password Fix (Mass Assignment Bug Fix)
+- `[ ]` SMTP Hourly/Daily Outbound Quotas (REQUIRES ARCHITECTURE APPROVAL)
+- `[ ]` Outbound Bounce / Usage Log Parsing (REQUIRES ARCHITECTURE APPROVAL)
+- `[ ]` Admin SMTP UI Controls (BLOCKED)

@@ -1,0 +1,5 @@
+user = laravel_db_user
+password = laravel_db_password
+hosts = 127.0.0.1
+dbname = email_saas_db
+query = SELECT mailboxes.email FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email='%s' AND mailboxes.is_active=1 AND domains.status='active' UNION SELECT email_aliases.destination_email FROM email_aliases INNER JOIN domains ON email_aliases.domain_id = domains.id WHERE email_aliases.source_email='%s' AND email_aliases.is_active=1 AND domains.status='active'

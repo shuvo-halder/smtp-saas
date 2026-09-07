@@ -37,6 +37,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 1,
             'price_yearly' => 10,
         ]);
@@ -47,6 +49,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 1,
             'price_yearly' => 10,
         ]);
@@ -57,6 +61,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 1,
             'price_yearly' => 10,
         ]);
@@ -82,6 +88,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 50,
             'storage_mb_per_mailbox' => 5120,
             'max_aliases_per_domain' => 100,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 200,
             'price_yearly' => 2000,
             'is_active' => true,
@@ -104,6 +112,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 1,
             'price_yearly' => 10,
         ]);
@@ -115,6 +125,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 10,
             'price_yearly' => 100,
             'is_active' => true,
@@ -134,6 +146,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 1,
             'price_yearly' => 10,
         ]);
@@ -145,6 +159,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 2,
             'storage_mb_per_mailbox' => 2,
             'max_aliases_per_domain' => 2,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 20,
             'price_yearly' => 200,
             'is_active' => false,
@@ -167,6 +183,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 1,
             'price_yearly' => 10,
         ]);
@@ -186,6 +204,8 @@ class AdminPlanTest extends TestCase
             'max_mailboxes_per_domain' => 1,
             'storage_mb_per_mailbox' => 1,
             'max_aliases_per_domain' => 1,
+            'daily_outbound_recipients' => -1,
+            'mailbox_daily_outbound_recipients' => -1,
             'price_monthly' => 1,
             'price_yearly' => 10,
         ]);
@@ -199,5 +219,52 @@ class AdminPlanTest extends TestCase
                  ->assertJsonPath('message', __('messages.plan_in_use'));
                  
         $this->assertDatabaseHas('plans', ['id' => $plan->id]);
+    }
+
+    public function test_admin_can_create_plan_with_quotas()
+    {
+        $payload = [
+            'name' => 'Quota Plan',
+            'slug' => 'quota-plan',
+            'max_domains' => 10,
+            'max_mailboxes_per_domain' => 50,
+            'storage_mb_per_mailbox' => 5120,
+            'max_aliases_per_domain' => 100,
+            'daily_outbound_recipients' => 1000,
+            'mailbox_daily_outbound_recipients' => 100,
+            'price_monthly' => 200,
+            'price_yearly' => 2000,
+            'is_active' => true,
+        ];
+
+        $response = $this->actingAs($this->admin)->postJson('/api/admin/plans', $payload);
+        
+        $response->assertStatus(201)
+                 ->assertJsonPath('daily_outbound_recipients', 1000)
+                 ->assertJsonPath('mailbox_daily_outbound_recipients', 100);
+                 
+        $this->assertDatabaseHas('plans', ['daily_outbound_recipients' => 1000]);
+    }
+
+    public function test_invalid_quotas_rejected()
+    {
+        $payload = [
+            'name' => 'Invalid Plan',
+            'slug' => 'invalid-plan',
+            'max_domains' => 10,
+            'max_mailboxes_per_domain' => 50,
+            'storage_mb_per_mailbox' => 5120,
+            'max_aliases_per_domain' => 100,
+            'daily_outbound_recipients' => -2, // Invalid
+            'mailbox_daily_outbound_recipients' => 1.5, // Invalid (decimal)
+            'price_monthly' => 200,
+            'price_yearly' => 2000,
+            'is_active' => true,
+        ];
+
+        $response = $this->actingAs($this->admin)->postJson('/api/admin/plans', $payload);
+        
+        $response->assertStatus(422)
+                 ->assertJsonValidationErrors(['daily_outbound_recipients', 'mailbox_daily_outbound_recipients']);
     }
 }

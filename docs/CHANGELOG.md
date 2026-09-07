@@ -1,6 +1,33 @@
 # Changelog
 
+### SMTP Outbound Quotas Database Foundation (Step 11)
+- **Added:** daily_outbound_recipients and mailbox_daily_outbound_recipients quota fields to plans table and AdminApiController. Default set to -1 (unlimited) for backward compatibility.
+- **Added:** 	enant_outbound_usage table to serve as a durable historical reporting ledger for outbound SMTP quotas.
+- **Tested:** Implemented test coverage ensuring idempotency and duplication prevention for usage ledger inserts.
+
+
+### SMTP Outbound Quota & Abuse Prevention Architecture Audit
+- **Architecture Audit:** Traced current Postfix/Dovecot implementation. Confirmed Postfix natively enforces IP connection rate limits via nvil but lacks outbound message volume quotas per tenant or mailbox.
+- **Gap Analysis:** Verified the system requires an architectural change (database migrations for Plan quotas + a new Policy Daemon) to durably track and enforce outbound sending limits.
+- **Reporting:** Created rtifacts/smtp_architecture_audit.md detailing the required architecture and implementation plan for billing-grade quotas.
+
+
+## 2026-09-07
+
+### SMTP Security & Mailbox Stability Patching
+- **Mailbox Password Mass-Assignment:** Added 'password' to $fillable and $hidden arrays in Mailbox.php to correctly save and obscure Dovecot hashes.
+- **Postfix Cross-Tenant Spoofing patched:** Added mysql-virtual-sender-login-maps.cf and updated main.cf with smtpd_sender_login_maps and 
+eject_sender_login_mismatch to tie the SASL username to the authorized sender.
+- **Mailbox Creation Tests:** Created 	ests/Feature/MailboxApiTest.php to securely verify password persistence, serialization, and tenant quota isolation.
+
+
 ## 2026-09-04
+
+### SMTP Management Architecture & Production Gap Audit
+- **Threat Model Audit:** Identified missing `smtpd_sender_login_maps` in Postfix config allowing cross-tenant sender spoofing.
+- **Code Audit:** Identified missing `$fillable` for `'password'` in `Mailbox` model, preventing Mailbox creation from saving Dovecot credentials correctly. Identified missing `$hidden` array.
+- **Quota & Metrics Gap:** Confirmed no DB migrations or logs exist for outbound SMTP tracking. Admin UI for SMTP configuration is missing.
+- **Reporting:** Created `artifacts/smtp_audit_report.md` detailing all gaps and required next steps.
 
 ### Admin Plan CRUD & Subscription Management UI
 - **Plan Management API:** Added `AdminApiController` methods to completely manage Plan lifecycle (`showPlan`, `updatePlan`, `destroyPlan`). Protected by `EnsureAdmin`.

@@ -10,7 +10,7 @@ This document describes the current implementation state of the EmailSaaS projec
 | Backend Framework | IMPLEMENTED | Laravel 11 REST API | Located in `laravel-panel/` |
 | Authentication | IMPLEMENTED | Laravel Sanctum | Stateful cookie-based authentication |
 | Multi-tenancy | IMPLEMENTED | Hostname + tenant context | `IdentifyTenant` middleware enforces isolation |
-| Mail Infrastructure | IMPLEMENTED | Postfix + Dovecot + MariaDB | Shell scripts refactored to ORM native DB logic |
+| Mail Infrastructure | IMPLEMENTED | Postfix + Dovecot + MariaDB | Shell scripts refactored to ORM native DB logic. SQL maps securely isolate tenants. |
 | Mailbox Provisioning | IMPLEMENTED | Laravel + Dovecot SHA512-CRYPT | Provisioning strictly in `DB::transaction` |
 | Webmail SSO | IMPLEMENTED | Roundcube + Redis OTP | Dovecot Master User login via 60s OTP |
 | Billing / SSLCommerz | IMPLEMENTED | SSLCommerz IPN | DB transactions protect payment vs. activation |
