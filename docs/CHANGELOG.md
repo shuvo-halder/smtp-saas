@@ -1,5 +1,12 @@
 # Changelog
 
+### SMTP Outbound Quotas Redis Service (Step 12)
+- **Added:** OutboundQuotaService providing an atomic, Lua-script based quota validation engine in Redis.
+- **Added:** Support for tenant and mailbox dual-layer validation without partial consumption bugs.
+- **Added:** Fail-open Redis error handling to ensure transient cache outages do not block valid email.
+- **Tested:** Comprehensive test suite mapping unlimited, disabled, finite, and multi-layer quota permutations using mock Redis execution.
+
+
 ### SMTP Outbound Quotas Database Foundation (Step 11)
 - **Added:** daily_outbound_recipients and mailbox_daily_outbound_recipients quota fields to plans table and AdminApiController. Default set to -1 (unlimited) for backward compatibility.
 - **Added:** 	enant_outbound_usage table to serve as a durable historical reporting ledger for outbound SMTP quotas.

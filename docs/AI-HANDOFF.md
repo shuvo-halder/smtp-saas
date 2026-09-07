@@ -57,3 +57,8 @@ eject_sender_login_mismatch to prevent authenticated users from spoofing other t
 - **Usage Ledger:** Created 	enant_outbound_usage table to durably store historical daily recipient counts synced from Redis.
 - **Status:** Database layer is IMPLEMENTED. Real-time Redis enforcement and Policy Daemon are PENDING.
 
+
+## 8. Redis Atomic Quota Service (Step 12)
+- **Redis Quota Service:** Implemented OutboundQuotaService to track and validate tenant/mailbox limits atomically using a Lua script in Redis. Supported semantics: -1 (unlimited), 0 (disabled), positive integer. Enforces a 48h TTL on a fixed UTC daily window.
+- **Status:** Redis quota service is IMPLEMENTED. Postfix Policy Daemon, Postfix integration, and MariaDB usage synchronization are PENDING.
+
