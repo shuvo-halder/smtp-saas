@@ -1,5 +1,13 @@
 # Changelog
 
+### Redis → MariaDB Historical Usage Synchronization (Step 14)
+- **Added:** `TenantOutboundUsage` Eloquent model (`App\Models\TenantOutboundUsage`) bound to `tenant_outbound_usage` table.
+- **Added:** `OutboundUsageSyncService` (`App\Services\OutboundUsageSyncService`) implementing bounded Redis `SCAN` (`outbound:tenant:*:recipients:daily:*`), regex key parsing, strict date and counter sanitization, tenant verification, and monotonic ledger upsert.
+- **Added:** Monotonic reconciliation logic: MariaDB counts only update upward when Redis counts increase; never decrements historical ledger data even if Redis is flushed or restarted mid-day.
+- **Added:** `php artisan outbound:usage-sync` command (`App\Console\Commands\SyncOutboundUsageCommand`) supporting `--date=`, `--days=`, `--dry-run`, and protected by atomic lock (`Cache::lock('outbound_usage_sync_lock', 600)`).
+- **Added:** Hourly scheduling in `routes/console.php` with `withoutOverlapping(15)` mutex.
+- **Added:** Comprehensive test suite in `tests/Feature/OutboundUsageSyncTest.php` covering basic sync, idempotency, monotonic update retention, unlimited plan usage recording, zero handling, Redis failure safety, malformed key skipping, invalid counter handling, missing tenant safety, sliding window filtering, specific date targeting, dry-run, and concurrency lock behavior (18 tests, 116 assertions; full suite 72 tests, 263 assertions).
+
 ### Laravel SMTP Policy Daemon & Postfix Quota Integration (Step 13)
 - **Added:** `PolicyRequest` and `PolicyResponse` DTOs modeling the Postfix SMTP policy delegation protocol.
 - **Added:** `PostfixPolicyParser` streaming parser with protection against buffer overflows (64KB max).
@@ -8,7 +16,9 @@
 - **Added:** Supervisor worker configuration `server-configs/mailsaas-policy.conf`.
 - **Added:** Postfix integration in `postfix-config/main.cf` under `smtpd_data_restrictions` with `check_policy_service inet:127.0.0.1:10031` and fail-open default (`smtpd_policy_service_default_action = DUNNO`).
 - **Added:** Dedicated daily logging channel `policy` in `config/logging.php`.
-- **Tested:** Comprehensive unit and integration test suite (`PolicyParserTest`, `PolicyDecisionServiceTest`, `PolicyDaemonIntegrationTest`) verifying policy parsing, identity resolution, quota enforcement, fail-open resilience, and socket communication.
+- **Hardened:** Idempotency cache payload binding in `PolicyDecisionService` (verifying `sasl_username` and `recipient_count` match prior to replaying cached action).
+- **Hardened:** Preserved raw non-positive/non-numeric `recipient_count` in `PolicyRequest` to explicitly reject invalid/zero/negative recipient requests rather than coercing to 1.
+- **Tested:** Comprehensive unit and integration test suite (`PolicyParserTest`, `PolicyDecisionServiceTest`, `PolicyDaemonIntegrationTest`) verifying policy parsing, identity resolution, quota enforcement, fail-open resilience, idempotency context-matching, and socket communication (54 tests, 147 assertions).
 
 ### SMTP Outbound Quotas Redis Service (Step 12)
 - **Added:** OutboundQuotaService providing an atomic, Lua-script based quota validation engine in Redis.

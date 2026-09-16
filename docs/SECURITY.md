@@ -40,3 +40,10 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Fail-Open Policy:** If the policy daemon or Redis encounters an outage, Postfix and the Policy Daemon fail-open (`DUNNO`) to avoid blocking mission-critical business email, while emitting structured alerts to `storage/logs/policy.log`.
 - **Suspension Enforcement:** (SECURE) Dovecot's `user_query` strictly enforces `domains.status = 'active'`, and `PolicyDecisionService` independently verifies active domain and tenant subscription status before quota evaluation.
 - **Input Sanitization:** Policy protocol requests are bounded to 64KB buffers to prevent memory exhaustion; fields are strongly typed, and no shell commands are executed based on SMTP input.
+
+## 9. Historical Usage Ledger Security & Data Integrity
+- **Tenant Isolation during Sync:** `OutboundUsageSyncService` validates that every discovered tenant ID exists in the `users` table before attempting to persist records into `tenant_outbound_usage`. Orphan or arbitrary Redis tenant IDs are rejected without crashing execution.
+- **Strict Data Sanitization:** Redis counters are validated with strict regex (`/^[0-9]+$/`) and integer range bounds (`0` to `2147483647`). Non-numeric, negative, or overflow values are discarded with warning logs.
+- **Fail-Safe Persistence:** Redis connection drops or timeouts abort synchronization immediately with a non-zero exit code, guaranteeing zero fabricated or guessed rows in MariaDB.
+- **Monotonic Ledger Protection:** The database ledger never decrements existing recipient counts on sync, protecting durable billing metrics against unexpected Redis cache flushes or service restarts.
+- **Log Privacy:** Synchronization logs record operational summaries, key counts, and tenant IDs without recording any credentials, message content, passwords, or tokens.

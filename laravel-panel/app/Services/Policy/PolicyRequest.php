@@ -30,9 +30,8 @@ class PolicyRequest
         }
 
         $recipientCount = 1;
-        if (isset($normalized['recipient_count']) && is_numeric($normalized['recipient_count'])) {
-            $parsed = (int)$normalized['recipient_count'];
-            $recipientCount = $parsed > 0 ? $parsed : 1;
+        if (isset($normalized['recipient_count'])) {
+            $recipientCount = is_numeric($normalized['recipient_count']) ? (int)$normalized['recipient_count'] : 0;
         }
 
         return new self(

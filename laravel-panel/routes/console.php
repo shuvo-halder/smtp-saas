@@ -12,3 +12,6 @@ use Illuminate\Support\Facades\Schedule;
 
 Schedule::command('tenant:suspend-expired')->everyMinute();
 
+// Schedule Redis -> MariaDB outbound recipient usage synchronization hourly
+Schedule::command('outbound:usage-sync')->hourly()->withoutOverlapping(15);
+

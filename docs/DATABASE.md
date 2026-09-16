@@ -18,10 +18,12 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 ### `tenant_outbound_usage`
 - **Primary Key:** `id`
 - **Foreign Key:** `user_id` (Belongs to `User`)
-- **Fields:** `usage_date`, `recipient_count`
+- **Fields:** `usage_date`, `recipient_count`, `created_at`, `updated_at`
 - **Unique Constraint:** `(user_id, usage_date)`
-- **Role:** Durable historical reporting ledger for outbound SMTP quota usage. 
-- **Note:** Real-time quota enforcement runs in Redis. This table is strictly for historical ledger/billing visibility synced via Laravel Scheduler.
+- **Role:** Durable historical reporting ledger for outbound SMTP quota usage.
+- **Synchronization Engine:** Populated and maintained by `OutboundUsageSyncService` / `php artisan outbound:usage-sync` running on an hourly schedule.
+- **Ledger Semantics:** Monotonic update (`recipient_count` only increases as Redis counter rises; never decrements even if Redis cache resets/flushes). Idempotent on repeated executions. Missing Redis keys do not fabricate zero rows.
+- **Model:** `App\Models\TenantOutboundUsage`.
 
 ### `domains` (Virtual Domains)
 - **Primary Key:** `id`

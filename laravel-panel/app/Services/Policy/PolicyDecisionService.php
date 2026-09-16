@@ -39,10 +39,20 @@ class PolicyDecisionService
         $recipientCount = $request->recipientCount;
         $instance = $request->instance;
 
+        // Recipient count bounds validation (must be positive integer <= 100,000)
+        if ($recipientCount <= 0 || $recipientCount > 100000) {
+            $this->log('warning', 'Invalid recipient count received', [
+                'recipient_count' => $recipientCount,
+                'sasl_username'   => $saslUsername,
+            ]);
+            return PolicyResponse::invalid('Recipient count must be a positive integer within valid limits');
+        }
+
         // 3. Transaction Idempotency Check
-        // If Postfix re-evaluates the same message transaction within 5 minutes, replay the decision.
+        // If Postfix re-evaluates the same message transaction within 5 minutes, replay the decision
+        // only if the authenticated sender and recipient count match the cached transaction.
         if ($instance !== null) {
-            $cachedAction = $this->getCachedTransactionAction($instance);
+            $cachedAction = $this->getCachedTransactionAction($instance, $saslUsername, $recipientCount);
             if ($cachedAction !== null) {
                 $this->log('info', 'Replaying cached policy decision for transaction instance', [
                     'instance' => $instance,
@@ -114,7 +124,7 @@ class PolicyDecisionService
 
             // 6. Cache Transaction Decision for Idempotency
             if ($instance !== null && !$response->isFailOpen) {
-                $this->cacheTransactionAction($instance, $response->action);
+                $this->cacheTransactionAction($instance, $response->action, $saslUsername, $recipientCount);
             }
 
             // Log quota rejections
@@ -143,24 +153,50 @@ class PolicyDecisionService
         }
     }
 
-    private function getCachedTransactionAction(string $instance): ?string
+    private function getCachedTransactionAction(string $instance, string $expectedUser, int $expectedRecipients): ?string
     {
         try {
             $key = "outbound:policy:tx:{$instance}";
             $cached = Redis::get($key);
-            return $cached !== null && $cached !== false ? (string)$cached : null;
+            if ($cached === null || $cached === false) {
+                return null;
+            }
+
+            $data = json_decode((string)$cached, true);
+            if (is_array($data) && isset($data['action'])) {
+                if (($data['sasl_username'] ?? null) === $expectedUser && ($data['recipient_count'] ?? null) === $expectedRecipients) {
+                    return (string)$data['action'];
+                }
+
+                $this->log('warning', 'Transaction cache context mismatch for instance', [
+                    'instance'            => $instance,
+                    'cached_user'         => $data['sasl_username'] ?? null,
+                    'expected_user'       => $expectedUser,
+                    'cached_recipients'   => $data['recipient_count'] ?? null,
+                    'expected_recipients' => $expectedRecipients,
+                ]);
+                return null;
+            }
+
+            // Plain string fallback
+            return is_string($cached) ? (string)$cached : null;
         } catch (Throwable $e) {
             // If Redis fails during idempotency check, proceed to normal evaluation
             return null;
         }
     }
 
-    private function cacheTransactionAction(string $instance, string $action): void
+    private function cacheTransactionAction(string $instance, string $action, string $saslUsername, int $recipientCount): void
     {
         try {
             $key = "outbound:policy:tx:{$instance}";
+            $payload = json_encode([
+                'action'          => $action,
+                'sasl_username'   => $saslUsername,
+                'recipient_count' => $recipientCount,
+            ]);
             // Cache for 300 seconds (5 minutes)
-            Redis::setex($key, 300, $action);
+            Redis::setex($key, 300, $payload);
         } catch (Throwable $e) {
             // Non-fatal if cache write fails
         }

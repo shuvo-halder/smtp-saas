@@ -55,3 +55,31 @@ The SaaS uses a manual pre-paid billing model (Monthly/Yearly) instead of automa
 Local market limitations in Bangladesh make recurring card tokenization difficult. Pre-paid manual renewals via MFS (bKash/Nagad) via SSLCommerz provides higher conversion.
 ### DO NOT CHANGE WITHOUT APPROVAL
 Yes
+
+---
+
+## Decision: Redis Atomic Quota Enforcement & Postfix Policy Daemon
+### Status
+ACCEPTED
+### Date
+2026-09-07 (Step 12 & Step 13)
+### Decision
+Outbound SMTP volume limits are enforced in real time using Redis atomic counters (`OutboundQuotaService` via Lua script) connected to Postfix via a native Laravel Policy Daemon (`policy:serve`) at `smtpd_data_restrictions`.
+### Reason
+Guarantees sub-millisecond evaluation without database locking bottlenecks or race conditions under high concurrent SMTP connections. Fails open (`DUNNO`) to protect legitimate mail flow during cache outages.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes
+
+---
+
+## Decision: Monotonic Historical Usage Synchronization (Redis → MariaDB)
+### Status
+ACCEPTED
+### Date
+2026-09-17 (Step 14)
+### Decision
+Historical outbound recipient metrics are decoupled from runtime enforcement. An hourly scheduled task (`php artisan outbound:usage-sync`) scans Redis keys via bounded `SCAN` and idempotently syncs them to MariaDB `tenant_outbound_usage`. Updates are monotonic (MariaDB counts never decrease even if Redis is flushed or restarted mid-day). Missing Redis keys do not fabricate zero rows.
+### Reason
+MariaDB provides durable auditability and billing reports without burdening real-time SMTP delivery. Monotonic updates prevent data loss if ephemeral Redis state resets.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes

@@ -237,13 +237,34 @@ class PolicyDecisionServiceTest extends TestCase
         $this->assertTrue($response->isFailOpen);
     }
 
+    public function test_invalid_or_zero_recipient_count_returns_reject_invalid()
+    {
+        $request = PolicyRequest::fromAttributes([
+            'request' => 'smtpd_access_policy',
+            'protocol_state' => 'DATA',
+            'sasl_username' => 'sender@example.com',
+            'recipient_count' => '0',
+            'instance' => 'tx_invalid_rcpt',
+        ]);
+
+        $response = $this->service->evaluate($request);
+
+        $this->assertEquals(PolicyResponse::REJECT_INVALID, $response->action);
+        $this->assertEquals('REJECTED_INVALID', $response->status);
+    }
+
     public function test_idempotent_instance_cache_replays_action_without_evaluating_quota()
     {
-        // Redis returns cached action
+        $cachedPayload = json_encode([
+            'action' => PolicyResponse::ACTION_DUNNO,
+            'sasl_username' => 'sender@example.com',
+            'recipient_count' => 5,
+        ]);
+
         Redis::shouldReceive('get')
             ->once()
             ->with('outbound:policy:tx:replayed123')
-            ->andReturn(PolicyResponse::ACTION_DUNNO);
+            ->andReturn($cachedPayload);
 
         // eval should NOT be called because it was cached!
         Redis::shouldReceive('eval')->never();
@@ -260,5 +281,67 @@ class PolicyDecisionServiceTest extends TestCase
 
         $this->assertEquals(PolicyResponse::ACTION_DUNNO, $response->action);
         $this->assertEquals('CACHED', $response->status);
+    }
+
+    public function test_idempotent_instance_cache_does_not_replay_if_sender_mismatches()
+    {
+        $cachedPayload = json_encode([
+            'action' => PolicyResponse::ACTION_DUNNO,
+            'sasl_username' => 'another_sender@example.com',
+            'recipient_count' => 5,
+        ]);
+
+        Redis::shouldReceive('get')
+            ->once()
+            ->with('outbound:policy:tx:mismatched_sender')
+            ->andReturn($cachedPayload);
+
+        // When cache mismatches, it proceeds to normal evaluation which calls eval!
+        Redis::shouldReceive('eval')->once()->andReturn(1);
+        Redis::shouldReceive('setex')->once();
+
+        $request = PolicyRequest::fromAttributes([
+            'request' => 'smtpd_access_policy',
+            'protocol_state' => 'DATA',
+            'sasl_username' => 'sender@example.com',
+            'recipient_count' => '5',
+            'instance' => 'mismatched_sender',
+        ]);
+
+        $response = $this->service->evaluate($request);
+
+        $this->assertEquals(PolicyResponse::ACTION_DUNNO, $response->action);
+        $this->assertEquals('ALLOWED', $response->status); // Normal evaluation, NOT cached!
+    }
+
+    public function test_idempotent_instance_cache_does_not_replay_if_recipient_count_mismatches()
+    {
+        $cachedPayload = json_encode([
+            'action' => PolicyResponse::ACTION_DUNNO,
+            'sasl_username' => 'sender@example.com',
+            'recipient_count' => 5,
+        ]);
+
+        Redis::shouldReceive('get')
+            ->once()
+            ->with('outbound:policy:tx:mismatched_rcpt')
+            ->andReturn($cachedPayload);
+
+        // Proceeds to normal evaluation which calls eval!
+        Redis::shouldReceive('eval')->once()->andReturn(1);
+        Redis::shouldReceive('setex')->once();
+
+        $request = PolicyRequest::fromAttributes([
+            'request' => 'smtpd_access_policy',
+            'protocol_state' => 'DATA',
+            'sasl_username' => 'sender@example.com',
+            'recipient_count' => '20',
+            'instance' => 'mismatched_rcpt',
+        ]);
+
+        $response = $this->service->evaluate($request);
+
+        $this->assertEquals(PolicyResponse::ACTION_DUNNO, $response->action);
+        $this->assertEquals('ALLOWED', $response->status); // Normal evaluation, NOT cached!
     }
 }

@@ -15,6 +15,8 @@ EmailSaaS is deployed as a consolidated stack on an Ubuntu Linux VPS.
 - **Web Server:** Nginx (`panel.mailsaas.com`)
 - **Queue Manager:** Supervisor (`/etc/supervisor/conf.d/mailsaas-worker.conf`)
 - **Scheduler:** Cron (`* * * * * cd /var/www/email-saas/laravel-panel && php artisan schedule:run`)
+  - `tenant:suspend-expired`: Runs every minute to enforce subscription lifecycle.
+  - `outbound:usage-sync`: Runs hourly (`0 * * * *`) with `withoutOverlapping(15)` and atomic lock `Cache::lock('outbound_usage_sync_lock', 600)` to sync Redis counters to MariaDB `tenant_outbound_usage`.
 
 ### Mail Delivery (Postfix MTA)
 - **Ports:** 25 (SMTP), 587 (Submission), 465 (SMTPS)

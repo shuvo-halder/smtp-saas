@@ -92,14 +92,14 @@ class PolicyParserTest extends TestCase
         $this->assertEquals('second@example.com', $requests[1]->saslUsername);
     }
 
-    public function test_defaults_recipient_count_to_one_when_missing_or_invalid()
+    public function test_parses_recipient_count_int_or_defaults_when_missing()
     {
         $raw = "request=smtpd_access_policy\n"
              . "sasl_username=user@example.com\n"
              . "recipient_count=-5\n\n";
 
         $requests = $this->parser->feed($raw);
-        $this->assertEquals(1, $requests[0]->recipientCount);
+        $this->assertEquals(-5, $requests[0]->recipientCount);
 
         $this->parser->clear();
         $raw2 = "request=smtpd_access_policy\n"
@@ -107,7 +107,14 @@ class PolicyParserTest extends TestCase
               . "recipient_count=not_a_number\n\n";
 
         $requests2 = $this->parser->feed($raw2);
-        $this->assertEquals(1, $requests2[0]->recipientCount);
+        $this->assertEquals(0, $requests2[0]->recipientCount);
+
+        $this->parser->clear();
+        $raw3 = "request=smtpd_access_policy\n"
+              . "sasl_username=user@example.com\n\n";
+
+        $requests3 = $this->parser->feed($raw3);
+        $this->assertEquals(1, $requests3[0]->recipientCount);
     }
 
     public function test_unauthenticated_request_detected()

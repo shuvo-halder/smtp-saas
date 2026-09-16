@@ -44,3 +44,13 @@ This document describes the current implementation state of the EmailSaaS projec
 - **Postfix Hook:** Integrated in `postfix-config/main.cf` under `smtpd_data_restrictions` with `check_policy_service inet:127.0.0.1:10031`.
 - **Fail-Open Resilience:** Configured with `smtpd_policy_service_default_action = DUNNO` so Postfix defaults to accepting mail if the policy daemon or Redis is temporarily unavailable.
 - **Process Supervisor:** Managed by `server-configs/mailsaas-policy.conf`.
+
+## 5. Historical Usage Synchronization (Redis → MariaDB)
+- **Synchronization Engine:** `OutboundUsageSyncService` synchronizes runtime daily tenant recipient counters from Redis to the durable MariaDB `tenant_outbound_usage` table.
+- **Key Discovery:** Uses bounded `Redis::scan()` (batch size 100, matching `outbound:tenant:*:recipients:daily:*`). Strictly avoids production-blocking `KEYS`.
+- **Sliding Window Recovery:** Automatically scans recent UTC days (default 2-day lookback: today and yesterday, aligned with Redis 48-hour key TTL), guaranteeing automated recovery after scheduler or node outages without manual database repair.
+- **Monotonic Ledger Semantics:** Preserves confirmed historical counts. If a Redis key counter increases, MariaDB is updated; if a Redis key reset occurs (counter lower than database), the higher MariaDB ledger value is preserved with a warning log.
+- **Strict Idempotency:** Re-running the synchronization command multiple times produces identical recipient counts, preventing double-counting.
+- **Fail-Safe Operation:** Redis unavailability throws an exception that safely aborts the sync without writing fabricated zeros or overwriting existing historical data. Missing Redis keys do not generate dummy zero rows.
+- **Concurrency Protection:** Protected by an atomic lock (`Cache::lock('outbound_usage_sync_lock', 600)`) and scheduled hourly in `routes/console.php` with `withoutOverlapping(15)`.
+- **Artisan Command:** `php artisan outbound:usage-sync {--date=} {--days=2} {--dry-run}`.
