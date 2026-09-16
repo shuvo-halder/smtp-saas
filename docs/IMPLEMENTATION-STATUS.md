@@ -78,6 +78,11 @@
 - `[x]` Suspension / Active State Enforcement
 - `[x]` Postfix `smtpd_sender_login_maps` implementation (Vulnerability Fix)
 - `[x]` Mailbox Creation API Password Fix (Mass Assignment Bug Fix)
-- `[ ]` SMTP Hourly/Daily Outbound Quotas (REQUIRES ARCHITECTURE APPROVAL)
-- `[ ]` Outbound Bounce / Usage Log Parsing (REQUIRES ARCHITECTURE APPROVAL)
-- `[ ]` Admin SMTP UI Controls (BLOCKED)
+- `[x]` SMTP Hourly/Daily Outbound Quotas:
+  - `[x]` MariaDB quota limits & historical usage ledger (Step 11)
+  - `[x]` Redis atomic quota service & Lua enforcement (Step 12)
+  - `[x]` Laravel SMTP Policy Daemon (`policy:serve`) (Step 13)
+  - `[x]` Postfix outbound quota integration at `smtpd_data_restrictions` (Step 13)
+- `[ ]` MariaDB Usage Synchronization (PENDING)
+- `[ ]` Outbound Bounce / Usage Log Parsing / Abuse Detection (PENDING)
+- `[ ]` Admin SMTP UI Controls (PENDING)

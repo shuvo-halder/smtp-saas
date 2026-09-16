@@ -35,5 +35,8 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 
 ## 8. SMTP & Mail Delivery Threat Model
 - **Cross-Tenant Sender Spoofing:** (SECURE) Postfix utilizes `smtpd_sender_login_maps` mapped to MySQL (`mailboxes` and `email_aliases`) and `reject_sender_login_mismatch`, preventing authenticated SASL users from spoofing other tenants' sender addresses.
-- **Outbound Spam Abuse:** (GAP) There are no per-mailbox or per-tenant daily sending quotas. Only global IP connection limits exist (`smtpd_client_message_rate_limit = 30`).
-- **Suspension Enforcement:** (SECURE) Dovecot's `user_query` strictly enforces `domains.status = 'active'`, guaranteeing that suspended tenants instantly lose SASL/SMTP sending capabilities without requiring background daemon reloading.
+- **Outbound Quota Enforcement:** (SECURE) Postfix enforces daily recipient limits via policy delegation to `127.0.0.1:10031` (`smtpd_data_restrictions`). Quotas are tracked atomically in Redis (`OutboundQuotaService`) per Tenant and per Mailbox. Over-quota submissions are permanently rejected (`554 5.7.1`).
+- **Policy Socket Isolation:** The Policy Daemon socket binds strictly to `127.0.0.1:10031` (or local UNIX domain socket with `0660` permissions). It is never exposed publicly or accessible outside the local host.
+- **Fail-Open Policy:** If the policy daemon or Redis encounters an outage, Postfix and the Policy Daemon fail-open (`DUNNO`) to avoid blocking mission-critical business email, while emitting structured alerts to `storage/logs/policy.log`.
+- **Suspension Enforcement:** (SECURE) Dovecot's `user_query` strictly enforces `domains.status = 'active'`, and `PolicyDecisionService` independently verifies active domain and tenant subscription status before quota evaluation.
+- **Input Sanitization:** Policy protocol requests are bounded to 64KB buffers to prevent memory exhaustion; fields are strongly typed, and no shell commands are executed based on SMTP input.

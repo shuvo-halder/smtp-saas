@@ -19,8 +19,15 @@ EmailSaaS is deployed as a consolidated stack on an Ubuntu Linux VPS.
 ### Mail Delivery (Postfix MTA)
 - **Ports:** 25 (SMTP), 587 (Submission), 465 (SMTPS)
 - **Configuration:** `/etc/postfix/main.cf`
-- **Data Source:** MariaDB (`mysql-virtual-mailbox-domains.cf`, `mysql-virtual-mailbox-maps.cf`, `mysql-virtual-alias-maps.cf`)
+- **Data Source:** MariaDB (`mysql-virtual-mailbox-domains.cf`, `mysql-virtual-mailbox-maps.cf`, `mysql-virtual-alias-maps.cf`, `mysql-virtual-sender-login-maps.cf`)
 - **Delivery Path:** Routes virtual mail to `/var/vmail/`
+- **Outbound Quota Enforcement:** `smtpd_data_restrictions` delegates to Laravel Policy Daemon at `127.0.0.1:10031` with `smtpd_policy_service_default_action = DUNNO` (fail-open).
+
+### SMTP Policy Daemon
+- **Command:** `php artisan policy:serve --host=127.0.0.1 --port=10031`
+- **Process Manager:** Supervisor (`/etc/supervisor/conf.d/mailsaas-policy.conf`)
+- **Protocol:** Postfix Policy Delegation Protocol (TCP stream)
+- **Log Path:** `storage/logs/policy.log`
 
 ### Mail Reading (Dovecot MDA/IMAP)
 - **Ports:** 143 (IMAP), 993 (IMAPS)

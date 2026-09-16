@@ -88,6 +88,17 @@ smtpd_helo_restrictions =
     reject_invalid_helo_hostname,
     permit
 
+# ─── Outbound Quota Policy Service ─────────────────────────────────────────────
+smtpd_data_restrictions =
+    reject_unauth_pipelining,
+    check_policy_service inet:127.0.0.1:10031,
+    permit
+
+smtpd_policy_service_default_action = DUNNO
+smtpd_policy_service_timeout = 30s
+smtpd_policy_service_max_idle = 300s
+smtpd_policy_service_max_ttl = 1000s
+
 # ─── Rate Limiting ─────────────────────────────────────────────────────────────
 smtpd_client_connection_rate_limit = 30
 smtpd_client_message_rate_limit    = 30

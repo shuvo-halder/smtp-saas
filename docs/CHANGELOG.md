@@ -1,5 +1,15 @@
 # Changelog
 
+### Laravel SMTP Policy Daemon & Postfix Quota Integration (Step 13)
+- **Added:** `PolicyRequest` and `PolicyResponse` DTOs modeling the Postfix SMTP policy delegation protocol.
+- **Added:** `PostfixPolicyParser` streaming parser with protection against buffer overflows (64KB max).
+- **Added:** `PolicyDecisionService` resolving `sasl_username` to `Mailbox -> Domain -> Tenant -> Plan`, performing active domain/tenant status validation, transaction idempotency caching (`outbound:policy:tx:{instance}`), and delegating quota deduction to `OutboundQuotaService`.
+- **Added:** `php artisan policy:serve` Artisan command (`PolicyDaemonCommand`) providing a persistent, non-blocking TCP server (`127.0.0.1:10031`) and UNIX domain socket support.
+- **Added:** Supervisor worker configuration `server-configs/mailsaas-policy.conf`.
+- **Added:** Postfix integration in `postfix-config/main.cf` under `smtpd_data_restrictions` with `check_policy_service inet:127.0.0.1:10031` and fail-open default (`smtpd_policy_service_default_action = DUNNO`).
+- **Added:** Dedicated daily logging channel `policy` in `config/logging.php`.
+- **Tested:** Comprehensive unit and integration test suite (`PolicyParserTest`, `PolicyDecisionServiceTest`, `PolicyDaemonIntegrationTest`) verifying policy parsing, identity resolution, quota enforcement, fail-open resilience, and socket communication.
+
 ### SMTP Outbound Quotas Redis Service (Step 12)
 - **Added:** OutboundQuotaService providing an atomic, Lua-script based quota validation engine in Redis.
 - **Added:** Support for tenant and mailbox dual-layer validation without partial consumption bugs.
