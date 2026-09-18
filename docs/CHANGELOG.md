@@ -1,5 +1,9 @@
 # Changelog
 
+### Pre-Step 15 Test Suite Restoration & Migration Cleanup
+- **Fixed:** Removed duplicate boilerplate migration `0001_01_01_000000_create_users_table.php` which had remained tracked in git, colliding with canonical `2024_01_01_000002_create_users_table.php` during `RefreshDatabase` in Feature tests.
+- **Verified:** Restored clean test baseline: 72 tests, 263 assertions passing cleanly across all Unit and Feature suites (including full regression verification for Step 13 SMTP Policy Daemon and Step 14 Redis-MariaDB historical usage sync).
+
 ### Redis → MariaDB Historical Usage Synchronization (Step 14)
 - **Added:** `TenantOutboundUsage` Eloquent model (`App\Models\TenantOutboundUsage`) bound to `tenant_outbound_usage` table.
 - **Added:** `OutboundUsageSyncService` (`App\Services\OutboundUsageSyncService`) implementing bounded Redis `SCAN` (`outbound:tenant:*:recipients:daily:*`), regex key parsing, strict date and counter sanitization, tenant verification, and monotonic ledger upsert.

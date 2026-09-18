@@ -31,6 +31,9 @@ This document is the operational starting point for any AI coding agent working 
   - Implemented `php artisan outbound:usage-sync` command (`SyncOutboundUsageCommand`) with atomic lock `Cache::lock('outbound_usage_sync_lock', 600)`.
   - Registered hourly schedule in `routes/console.php` with `withoutOverlapping(15)` mutex.
   - Full test suite: 72 tests, 263 assertions passing.
+- **Pre-Step 15 Baseline Restoration:**
+  - Removed duplicate boilerplate migration `0001_01_01_000000_create_users_table.php` which conflicted with canonical `2024_01_01_000002_create_users_table.php` on `users` table creation during `RefreshDatabase`.
+  - Verified full test suite execution: 72 tests, 263 assertions passing (Unit: 8 tests/30 assertions, Feature: 64 tests/233 assertions).
 
 ## 5. Next Recommended Implementation Phase
 - **Step 15 — Outbound Abuse & Bounce Detection:** Implement asynchronous log tailing / bounce queue parsing for spam classification and high bounce threshold mitigation.

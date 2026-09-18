@@ -26,6 +26,7 @@
 ## Legacy Cleanup
 - [x] Remove obsolete Laravel web controllers and Blade files
 - [x] Clear unused `routes/web.php` authenticated endpoints
+- [x] Remove duplicate legacy migration `0001_01_01_000000_create_users_table.php` (restoring clean test suite)
 
 ## Domains & Mailboxes
 - [x] Domain CRUD API
