@@ -15,3 +15,6 @@ Schedule::command('tenant:suspend-expired')->everyMinute();
 // Schedule Redis -> MariaDB outbound recipient usage synchronization hourly
 Schedule::command('outbound:usage-sync')->hourly()->withoutOverlapping(15);
 
+// Schedule Postfix mail log parsing and abuse detection every 5 minutes
+Schedule::command('mail:process-log')->everyFiveMinutes()->withoutOverlapping(10);
+

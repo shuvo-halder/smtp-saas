@@ -1,5 +1,18 @@
 # Changelog
 
+### Outbound Bounce Tracking & SMTP Abuse Detection (Step 15)
+- **Added:** `NormalizedMailEvent` immutable DTO (`App\Services\Abuse\NormalizedMailEvent`) capturing timestamp, queue ID, daemon, event type, sender, recipient, status, DSN code, SMTP code, and message.
+- **Added:** `PostfixLogParserService` (`App\Services\Abuse\PostfixLogParserService`) streaming incremental parser with chunk-based file reading, max line capping (4096 bytes), line buffer management, inode and file offset cursor tracking in Redis (`outbound:abuse:parser:cursor`), log rotation / truncation detection, and regex tokenization for `qmgr`, `smtp`, `submission`, and `bounce`.
+- **Added:** `BounceClassificationService` (`App\Services\Abuse\BounceClassificationService`) implementing deterministic RFC 3463 and RFC 5321 bounce classification (`SUCCESS`, `HARD_BOUNCE`, `SOFT_BOUNCE`, `UNKNOWN`).
+- **Added:** `AbuseAttributionService` (`App\Services\Abuse\AbuseAttributionService`) resolving envelope senders to `Mailbox -> Domain -> Tenant (User)` models, with domain-only and unknown system fallbacks.
+- **Added:** `AbuseDetectionService` (`App\Services\Abuse\AbuseDetectionService`) managing queue ID correlation (`outbound:abuse:qid:*`), atomic daily Redis counters (`outbound:abuse:tenant:{id}:bounces:daily:{date}`, `outbound:abuse:mailbox:{id}:bounces:daily:{date}`), consecutive mailbox hard bounces with success reset, non-destructive threshold checks (10% hard bounce rate on $\ge 20$ attempts, 50 daily hard bounces, 15 consecutive hard bounces), race-safe alert cooldowns (`SET NX` with 24h TTL), and structured logging.
+- **Added:** `php artisan mail:process-log` command (`App\Console\Commands\ProcessMailLogCommand`) with `--lines=1000`, `--dry-run`, `--path=`, atomic lock (`Cache::lock('mail_process_log_lock', 300)`), and graceful permission-error reporting.
+- **Added:** Dedicated daily logging channel `'abuse'` in `config/logging.php` writing structured JSON alerts to `storage/logs/abuse.log`.
+- **Added:** Centralized configuration file `config/mail_abuse.php` for abuse thresholds, log path, and Redis TTL settings.
+- **Added:** Console scheduling in `routes/console.php` executing `mail:process-log` every 5 minutes (`everyFiveMinutes()->withoutOverlapping(10)`).
+- **Added:** Comprehensive test suites in `tests/Unit/PostfixLogParserTest.php`, `tests/Unit/BounceClassificationTest.php`, `tests/Feature/AbuseAttributionTest.php`, `tests/Feature/AbuseDetectionServiceTest.php`, and `tests/Feature/ProcessMailLogCommandTest.php` (37 new tests, 141 assertions; entire suite 109 tests, 404 assertions passing).
+- **Deployment Requirement:** Production Ubuntu requires `/var/log/mail.log` read access granted to `www-data` (via `adm` group membership or POSIX ACL `setfacl -m u:www-data:r /var/log/mail.log`).
+
 ### Pre-Step 15 Test Suite Restoration & Migration Cleanup
 - **Fixed:** Removed duplicate boilerplate migration `0001_01_01_000000_create_users_table.php` which had remained tracked in git, colliding with canonical `2024_01_01_000002_create_users_table.php` during `RefreshDatabase` in Feature tests.
 - **Verified:** Restored clean test baseline: 72 tests, 263 assertions passing cleanly across all Unit and Feature suites (including full regression verification for Step 13 SMTP Policy Daemon and Step 14 Redis-MariaDB historical usage sync).

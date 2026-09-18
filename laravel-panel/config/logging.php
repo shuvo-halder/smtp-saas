@@ -60,6 +60,14 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'abuse' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/abuse.log'),
+            'level' => env('LOG_LEVEL', 'debug'),
+            'days' => env('LOG_DAILY_DAYS', 14),
+            'replace_placeholders' => true,
+        ],
+
         'stack' => [
             'driver' => 'stack',
             'channels' => explode(',', (string) env('LOG_STACK', 'single')),

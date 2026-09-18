@@ -85,5 +85,14 @@
   - `[x]` Laravel SMTP Policy Daemon (`policy:serve`) (Step 13)
   - `[x]` Postfix outbound quota integration at `smtpd_data_restrictions` (Step 13)
   - `[x]` Redis -> MariaDB Usage Synchronization (`outbound:usage-sync` hourly scheduler & idempotent monotonic ledger sync) (Step 14)
-- `[ ]` Outbound Bounce / Usage Log Parsing / Abuse Detection (Step 15 PENDING)
+- `[x]` Outbound Bounce / Usage Log Parsing / Abuse Detection (Step 15 IMPLEMENTED WITH DEPLOYMENT REQUIREMENT)
+  - `[x]` Streaming log parser with inode + offset cursor persistence in Redis (`outbound:abuse:parser:cursor`)
+  - `[x]` Deterministic RFC 3463 bounce classifier (`SUCCESS`, `HARD_BOUNCE`, `SOFT_BOUNCE`, `UNKNOWN`)
+  - `[x]` Sender-to-tenant attribution (`Mailbox -> Domain -> User`) with system fallbacks
+  - `[x]` Atomic Redis counters (`outbound:abuse:tenant:*`, `outbound:abuse:mailbox:*`) with 48h TTL
+  - `[x]` Abuse threshold detection (10% bounce rate on >=20 attempts, 50 daily hard bounces, 15 consecutive hard bounces)
+  - `[x]` Race-safe alert cooldown (`SET NX` 24h) and structured logging (`storage/logs/abuse.log`)
+  - `[x]` Artisan command `mail:process-log` (`--lines=1000`, `--dry-run`, `--path=`) scheduled every 5 minutes with overlap protection
+  - `[x]` Deployment requirement: Ubuntu `/var/log/mail.log` requires read permissions (`adm` group or POSIX ACL for `www-data`)
 - `[ ]` Admin SMTP UI Controls (Step 16 PENDING)
+

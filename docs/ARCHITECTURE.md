@@ -760,11 +760,49 @@ NEXT_PUBLIC_WEBMAIL_URL=https://webmail.mailsaas.com
 
 ---
 
+## 35b. Outbound SMTP Architecture: Policy Enforcement, Usage Sync & Abuse Tracking
+
+### 1. Synchronous Outbound Policy Daemon (Step 13)
+- **Protocol:** Postfix SMTP Policy Delegation Protocol over TCP socket (`127.0.0.1:10031`).
+- **Trigger Point:** `smtpd_data_restrictions` in Postfix `main.cf`.
+- **Identity Resolution:** Validates authenticated SASL user against MariaDB (`mailboxes` -> `domains` -> `users` -> `plans`).
+- **Quota Checking:** Atomic Lua script execution against Redis counter `outbound:tenant:{id}:recipients:daily:{YYYY-MM-DD}` (and mailbox counter) with 48h TTL.
+- **Fail-Open Resilience:** Redis/daemon connection failures return `DUNNO` to avoid interrupting legitimate business email.
+
+### 2. Monotonic Usage Synchronization (Step 14)
+- **Engine:** Scheduled Artisan command `outbound:usage-sync` running hourly via Cron/Scheduler with atomic concurrency lock (`outbound_usage_sync_lock`).
+- **Ledger Storage:** MariaDB `tenant_outbound_usage` historical table with `UNIQUE(user_id, usage_date)`.
+- **Reconciliation Guarantee:** Monotonic upsert: database counts are updated if Redis counter exceeds MariaDB value; ledger counts are never decremented if Redis restarts or drops keys.
+
+### 3. Postfix Log Ingestion & Abuse Detection (Step 15)
+- **Engine:** Scheduled Artisan command `mail:process-log` running every 5 minutes (`everyFiveMinutes()->withoutOverlapping(10)`).
+- **Log Streaming & Cursor Tracking:** Reads `/var/log/mail.log` incrementally in chunks up to 1,000 lines per cycle. Maintains cursor state (`inode`, `offset`) in Redis (`outbound:abuse:parser:cursor`). Detects log rotation and file truncation automatically.
+- **Queue ID Correlation:** Caches envelope sender address (`outbound:abuse:qid:{queueId}`, TTL 24h) when `qmgr` / `postfix/cleanup` / `submission` logs arrival, enabling correlation when `smtp` logs final delivery status.
+- **Bounce Classification:** Deterministic RFC 3463 / RFC 5321 classifier categorizing events into `SUCCESS`, `HARD_BOUNCE` (permanent failure, 5.x.x / 550), `SOFT_BOUNCE` (transient failure, 4.x.x / 451), or `UNKNOWN`.
+- **Tenant Attribution:** Maps sender address to `Mailbox -> Domain -> Tenant (User)` models. Unresolvable addresses fall back safely to `domain_only` or `unknown_system`.
+- **Atomic Abuse Metrics:** Redis counters under isolated `outbound:abuse:*` namespace:
+  - Daily tenant bounce counts: `outbound:abuse:tenant:{id}:bounces:daily:{YYYY-MM-DD}` (TTL 48h)
+  - Daily mailbox bounce counts: `outbound:abuse:mailbox:{id}:bounces:daily:{YYYY-MM-DD}` (TTL 48h)
+  - Consecutive mailbox hard bounces: `outbound:abuse:mailbox:{id}:consecutive_hard_bounces` (reset to 0 on successful delivery).
+- **Threshold Evaluation & Alerting:**
+  - **Hard Bounce Rate:** Triggered when rate > 10% after $\ge 20$ recipients sent on current UTC day.
+  - **Daily Hard Bounce Threshold:** Triggered when tenant accumulates > 50 hard bounces in single UTC day.
+  - **Consecutive Hard Bounces:** Triggered when specific mailbox encounters > 15 consecutive hard bounces.
+  - **Alert Cooldown:** Race-safe 24h cooldown key (`SET NX` with 24h TTL) prevents notification storms.
+  - **Non-Destructive Alerting:** Logs structured JSON alert to `storage/logs/abuse.log`. ZERO automated account/domain/mailbox suspensions or DB modifications.
+- **Infrastructure Permission Boundary:** Code adheres strictly to least privilege (no `sudo` or file permission edits). Production Ubuntu hosts require reading `/var/log/mail.log` via group membership (`usermod -aG adm www-data`) or POSIX ACL (`setfacl -m u:www-data:r /var/log/mail.log`).
+
+---
+
 ## 36. Architectural Decision Records (ADRs)
 
 *   **ADR-001 (Decoupled SPA/API):** Use Next.js 14 + Laravel 11 REST API for frontend responsiveness and clean API contracts.
 *   **ADR-002 (Edge Subdomain Rewriting):** Next.js Edge Middleware dynamically rewrites `{tenant}.mailsaas.com` to `/(tenant)/[subdomain]`.
 *   **ADR-003 (Direct Mail Daemon SQL Lookups):** Postfix and Dovecot query MariaDB directly for instant zero-latency auth & path resolution.
+*   **ADR-004 (Postfix Policy Delegation for SMTP Quotas):** Enforce daily outbound recipient quotas at SMTP `DATA` phase via a persistent local socket daemon (`127.0.0.1:10031`) backed by Redis atomic Lua scripts, falling open (`DUNNO`) on cache failure to preserve mail flow reliability.
+*   **ADR-005 (Monotonic Usage Reconciliation):** Synchronize transient Redis outbound counters hourly into MariaDB `tenant_outbound_usage` table using monotonic upserts, ensuring historical billing ledgers are never decremented by cache flushes or restarts.
+*   **ADR-006 (Asynchronous Log Telemetry & Non-Destructive Abuse Alerting):** Process Postfix delivery logs asynchronously via scheduled Artisan command (`mail:process-log`) with Redis cursor tracking and RFC 3463 bounce classification, emitting structured alerts without automated account suspensions or database schema alterations.
+
 
 ---
 
