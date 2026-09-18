@@ -125,7 +125,7 @@ export default function SmtpMailboxesTable({
       if (passwordReason.trim()) payload.reason = passwordReason.trim();
 
       const res = await api.post(`/api/admin/smtp/mailboxes/${passwordTarget.id}/reset-password`, payload);
-      setGeneratedPassword(res.data.temporary_password);
+      setGeneratedPassword(res.data.new_password);
       mutate();
       if (onActionComplete) onActionComplete();
     } catch (err: any) {

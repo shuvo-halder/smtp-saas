@@ -484,28 +484,35 @@ class AdminSmtpService
                 }
             }
 
-            // Check active mailbox consecutive streaks
+            // Check active mailbox consecutive streaks in bounded batches of at most 100 keys
             $mailboxes = Mailbox::where('is_active', true)->with('domain.user')->get(['id', 'email', 'domain_id']);
             if ($mailboxes->isNotEmpty()) {
-                $mbKeys = [];
-                foreach ($mailboxes as $m) {
-                    $mbKeys[] = "outbound:abuse:mailbox:{$m->id}:consecutive_hard";
-                }
+                $mailboxChunks = $mailboxes->chunk(100);
 
-                $mVals = Redis::mget($mbKeys);
-                foreach ($mailboxes as $i => $m) {
-                    $consecutive = isset($mVals[$i]) && is_numeric($mVals[$i]) ? (int) $mVals[$i] : 0;
-                    if ($consecutive >= $consecutiveHardMax) {
-                        $warnings[] = [
-                            'entity_type'   => 'mailbox',
-                            'entity_id'     => $m->id,
-                            'identifier'    => $m->email,
-                            'name'          => $m->domain?->user?->name ?? 'Unknown',
-                            'alert_type'    => 'CONSECUTIVE_HARD_BOUNCES',
-                            'current_value' => $consecutive,
-                            'threshold'     => $consecutiveHardMax,
-                            'message'       => "Mailbox exceeded consecutive hard bounce threshold ({$consecutive} / {$consecutiveHardMax})",
-                        ];
+                foreach ($mailboxChunks as $chunk) {
+                    $mbKeys = [];
+                    foreach ($chunk as $m) {
+                        $mbKeys[] = "outbound:abuse:mailbox:{$m->id}:consecutive_hard";
+                    }
+
+                    $mVals = Redis::mget($mbKeys);
+                    $i = 0;
+                    foreach ($chunk as $m) {
+                        $consecutive = isset($mVals[$i]) && is_numeric($mVals[$i]) ? (int) $mVals[$i] : 0;
+                        $i++;
+
+                        if ($consecutive >= $consecutiveHardMax) {
+                            $warnings[] = [
+                                'entity_type'   => 'mailbox',
+                                'entity_id'     => $m->id,
+                                'identifier'    => $m->email,
+                                'name'          => $m->domain?->user?->name ?? 'Unknown',
+                                'alert_type'    => 'CONSECUTIVE_HARD_BOUNCES',
+                                'current_value' => $consecutive,
+                                'threshold'     => $consecutiveHardMax,
+                                'message'       => "Mailbox exceeded consecutive hard bounce threshold ({$consecutive} / {$consecutiveHardMax})",
+                            ];
+                        }
                     }
                 }
             }

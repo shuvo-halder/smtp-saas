@@ -432,5 +432,68 @@ class AdminSmtpTest extends TestCase
         // Verify historical usage table in MariaDB was not mutated
         $this->assertDatabaseCount('tenant_outbound_usage', 0);
     }
+
+    public function test_abuse_warnings_chunks_mailbox_mget_lookups_bounded_to_100_keys()
+    {
+        // Setup 250 active mailboxes total (1 already created in setUp, create 249 more)
+        $extraMailboxes = [];
+        for ($i = 2; $i <= 250; $i++) {
+            $extraMailboxes[] = [
+                'domain_id'  => $this->domain->id,
+                'local_part' => "user{$i}",
+                'email'      => "user{$i}@clientdomain.com",
+                'password'   => '$6$dummyhash',
+                'quota_mb'   => 1024,
+                'is_active'  => true,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+        }
+        Mailbox::insert($extraMailboxes);
+
+        Redis::shouldReceive('ping')->atLeast()->once()->andReturn(true);
+
+        // Active tenants mget: admin and user (length 4) -> 0
+        Redis::shouldReceive('mget')
+            ->once()
+            ->withArgs(function ($keys) {
+                return count($keys) === 4 && str_starts_with($keys[0], 'outbound:tenant:');
+            })
+            ->andReturn([0, 0, 0, 0]);
+
+        // Expect exactly 3 mailbox MGET calls with bounded batch sizes (100, 100, 50)
+        $recordedBatchSizes = [];
+
+        Redis::shouldReceive('mget')
+            ->times(3)
+            ->withArgs(function ($keys) use (&$recordedBatchSizes) {
+                if (str_starts_with($keys[0], 'outbound:abuse:mailbox:')) {
+                    $recordedBatchSizes[] = count($keys);
+                    return count($keys) <= 100;
+                }
+                return false;
+            })
+            ->andReturnUsing(function ($keys) {
+                $result = array_fill(0, count($keys), 0);
+                if ($keys[0] === "outbound:abuse:mailbox:{$this->mailbox->id}:consecutive_hard") {
+                    $result[0] = 18;
+                }
+                return $result;
+            });
+
+        $response = $this->actingAs($this->admin)->getJson('/api/admin/smtp/abuse');
+        $response->assertStatus(200);
+
+        // Verify bounded batch sizes: exactly 100, 100, 50
+        $this->assertEquals([100, 100, 50], $recordedBatchSizes);
+
+        // Verify warnings remain functionally identical
+        $warnings = $response->json('warnings');
+        $this->assertCount(1, $warnings);
+        $this->assertEquals('CONSECUTIVE_HARD_BOUNCES', $warnings[0]['alert_type']);
+        $this->assertEquals($this->mailbox->id, $warnings[0]['entity_id']);
+        $this->assertEquals(18, $warnings[0]['current_value']);
+    }
 }
+
 
