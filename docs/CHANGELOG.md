@@ -1,5 +1,30 @@
 # Changelog
 
+### Admin SMTP Management & Deliverability Control Plane (Step 16A)
+- **Added:** `AdminSmtpService` (`App\Services\Admin\AdminSmtpService`) managing cluster-wide SMTP overview, safe Redis telemetry availability detection with graceful degradation, bounded batch discovery (prohibiting unindexed `KEYS *`), parent hierarchy invariant validation on mailbox enable, SHA512-CRYPT mailbox password resets, consecutive hard bounce streak resets, and structured operational audit logging.
+- **Added:** `AdminSmtpTenantResource` (`App\Http\Resources\AdminSmtpTenantResource`) serializing tenant details, plan limits, today's outbound recipient consumption, bounce metrics, bounce rate, and abuse states.
+- **Added:** `AdminSmtpMailboxResource` (`App\Http\Resources\AdminSmtpMailboxResource`) serializing mailbox details, domain/tenant names, parent hierarchy states, `can_be_enabled` invariant check, today's usage, and consecutive hard bounce counts.
+- **Added:** `AdminSmtpApiController` (`App\Http\Controllers\Api\AdminSmtpApiController`) exposing 8 endpoints:
+  - `GET /api/admin/smtp/overview`
+  - `GET /api/admin/smtp/tenants`
+  - `GET /api/admin/smtp/tenants/{user}`
+  - `GET /api/admin/smtp/mailboxes`
+  - `GET /api/admin/smtp/abuse`
+  - `POST /api/admin/smtp/mailboxes/{mailbox}/toggle`
+  - `POST /api/admin/smtp/mailboxes/{mailbox}/reset-bounces`
+  - `POST /api/admin/smtp/mailboxes/{mailbox}/reset-password`
+- **Added:** Dedicated daily logging channel `'admin_smtp'` in `config/logging.php` recording operational audit events to `storage/logs/admin-smtp.log` with actor ID, client IP, action, target, reason, and before/after states (credentials redacted).
+- **Added:** Next.js 14 Admin SMTP UI at `/(admin)/admin/smtp`:
+  - `SmtpOverview` component with real-time KPI cards, Redis status indicator, offline degradation warning, and denominator explanatory callout.
+  - `SmtpTenantsTable` component with search, pagination, plan details, live usage progress bars, bounce counts, and abuse status badges.
+  - `SmtpMailboxesTable` component with search, status filters, consecutive bounce tracking, and modals for status toggle (with parent constraint validation), bounce streak reset, and password reset (with copy-to-clipboard).
+  - `SmtpAbuseTable` component displaying active daily threshold breaches with quick "Inspect Mailbox" navigation.
+- **Added:** Frontend TypeScript interfaces in `frontend/src/types/index.ts` (`SmtpOverview`, `SmtpTenant`, `SmtpMailbox`, `AbuseWarning`, `AbuseResponse`).
+- **Added:** Complete UI localization in `frontend/messages/en.json` under `Admin.smtp` and `Admin.sidebar.smtp`.
+- **Added:** Navigation link and `MailCheck` icon in `AdminSidebar.tsx`.
+- **Added:** Comprehensive test suite in `tests/Feature/AdminSmtpTest.php` covering authorization (401/403), overview metrics, zero-denominator bounce rate safety, Redis failure degradation, tenant pagination, 30-day historical usage, mailbox listing (passwords hidden), mailbox disable, mailbox enable parent invariants (domain, tenant, subscription), consecutive bounce streak reset, SHA512-CRYPT password reset, active abuse warnings, and Step 13/14/15 key isolation (18 tests, 97 assertions; entire suite: 136 tests, 555 assertions passing cleanly).
+- **Verified:** Zero database migrations created or executed. Tenant-level suspension, persistent audit log tables, granular RBAC, and persistent abuse incident tables explicitly deferred.
+
 ### Outbound Abuse Detection & Bounce Tracking Production Hardening (Step 15 Hardening)
 - **Hardened:** Intermediate filter hop discrimination in `PostfixLogParserService` and `NormalizedMailEvent`. Postfix delivery to local Amavis content filters (`postfix/smtp-amavis`, `amavis`, or `relay=127.0.0.1:10024`) emits `TYPE_INTERMEDIATE_FILTER_HANDOFF`. Handoffs record queue ID aliases but never increment delivery success or reset consecutive hard bounce metrics.
 - **Hardened:** Queue ID alias correlation across content filters. Extracted `queued as <NEW_QID>` on Amavis handoffs and stored short-lived Redis alias mapping (`outbound:abuse:qid_alias:{newQid} => oldQid`, TTL 24h). Added fallback in `AbuseDetectionService::getQueueSender()` to resolve original sender attribution even when `postfix/qmgr` omits `from=<sender>` on reinjected mail.

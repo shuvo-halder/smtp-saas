@@ -99,3 +99,76 @@ export interface DashboardStats {
   recent_domains: Domain[];
   recent_invoices: Invoice[];
 }
+
+export interface SmtpOverview {
+  telemetry_available: boolean;
+  cluster_recipients_today: number | null;
+  cluster_hard_bounces_today: number | null;
+  cluster_soft_bounces_today: number | null;
+  cluster_bounce_rate: number | null;
+  mail_queue_size: number | null;
+  total_tenants: number;
+  total_mailboxes: number;
+  active_abuse_warnings_count: number | null;
+  checked_at: string;
+}
+
+export interface SmtpTenant {
+  id: number;
+  name: string;
+  email: string;
+  status: 'active' | 'suspended' | 'pending';
+  is_subscription_active: boolean;
+  plan_name: string;
+  daily_quota: number;
+  mailbox_daily_quota: number;
+  domains_count: number;
+  mailboxes_count: number;
+  telemetry_available: boolean;
+  today_recipients: number | null;
+  today_hard_bounces: number | null;
+  today_soft_bounces: number | null;
+  bounce_rate: number | null;
+  abuse_status: 'healthy' | 'warning' | 'critical' | 'unknown';
+  active_alerts: string[];
+  created_at: string;
+}
+
+export interface SmtpMailbox {
+  id: number;
+  local_part: string;
+  email: string;
+  display_name: string | null;
+  domain_id: number;
+  domain_name: string;
+  tenant_id: number | null;
+  tenant_name: string;
+  is_active: boolean;
+  parent_domain_status: string;
+  parent_tenant_status: string;
+  parent_subscription_active: boolean;
+  can_be_enabled: boolean;
+  telemetry_available: boolean;
+  today_recipients: number | null;
+  today_hard_bounces: number | null;
+  today_soft_bounces: number | null;
+  consecutive_hard_bounces: number | null;
+  created_at: string;
+}
+
+export interface AbuseWarning {
+  entity_type: 'tenant' | 'mailbox';
+  entity_id: number;
+  identifier: string;
+  name: string;
+  alert_type: string;
+  current_value: number | string;
+  threshold: number | string;
+  message: string;
+}
+
+export interface AbuseResponse {
+  telemetry_available: boolean;
+  warnings: AbuseWarning[];
+}
+

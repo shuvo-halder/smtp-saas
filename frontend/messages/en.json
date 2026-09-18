@@ -47,6 +47,7 @@
       "domains": "Domains",
       "mailboxes": "Mailboxes",
       "plans": "Plans",
+      "smtp": "SMTP Management",
       "invoices": "Invoices",
       "settings": "System Settings"
     },
@@ -166,6 +167,103 @@
         "amount": "Amount",
         "status": "Status",
         "date": "Date"
+      }
+    },
+    "smtp": {
+      "title": "SMTP & Deliverability Management",
+      "subtitle": "Monitor outbound sending volume, bounce metrics, queue health, and mailbox security controls.",
+      "telemetry_live": "Live Telemetry",
+      "telemetry_unavailable": "Telemetry Unavailable (Redis Disconnected)",
+      "telemetry_warning": "Warning: Real-time Redis telemetry is currently unreachable. Live bounce and quota metrics cannot be retrieved.",
+      "tabs": {
+        "overview": "Overview",
+        "tenants": "Tenants SMTP",
+        "mailboxes": "Mailboxes SMTP",
+        "abuse": "Abuse & Warnings"
+      },
+      "overview": {
+        "outbound_attempts": "Outbound Attempts (Today)",
+        "hard_bounces": "Hard Bounces (Today)",
+        "soft_bounces": "Soft Bounces (Today)",
+        "bounce_rate": "Hard Bounce Rate",
+        "queue_size": "Mail Queue Size",
+        "active_warnings": "Active Abuse Alerts",
+        "total_tenants": "Total Tenants",
+        "total_mailboxes": "Total Mailboxes",
+        "denominator_note": "Note: Bounce rate denominator reflects accepted outbound attempts at SMTP submission stage, not confirmed remote deliveries."
+      },
+      "tenants": {
+        "title": "Tenant SMTP Quotas & Deliverability",
+        "search_placeholder": "Search by tenant name or email...",
+        "table": {
+          "tenant": "Tenant",
+          "plan": "Plan",
+          "daily_quota": "Daily Quota",
+          "today_usage": "Today's Usage",
+          "hard_bounces": "Hard Bounces",
+          "soft_bounces": "Soft Bounces",
+          "bounce_rate": "Bounce Rate",
+          "abuse_status": "Abuse State"
+        },
+        "status": {
+          "healthy": "Healthy",
+          "warning": "Warning",
+          "critical": "Critical",
+          "unknown": "Unknown"
+        }
+      },
+      "mailboxes": {
+        "title": "Mailbox SMTP Security & Controls",
+        "search_placeholder": "Search by mailbox email...",
+        "table": {
+          "email": "Mailbox Email",
+          "domain": "Domain",
+          "tenant": "Tenant",
+          "status": "Status",
+          "today_recipients": "Today's Recipients",
+          "consecutive_bounces": "Consecutive Bounces",
+          "actions": "Actions"
+        },
+        "actions": {
+          "enable": "Enable",
+          "disable": "Disable",
+          "reset_bounces": "Reset Bounces",
+          "reset_password": "Reset Password"
+        },
+        "status": {
+          "active": "Active",
+          "disabled": "Disabled"
+        },
+        "modals": {
+          "toggle_title": "Confirm Mailbox Status Change",
+          "disable_confirm": "Are you sure you want to disable this mailbox? The user will immediately be prevented from sending or receiving email.",
+          "enable_confirm": "Are you sure you want to enable this mailbox? Verification will confirm that the parent domain and tenant subscription are currently active.",
+          "reason_label": "Reason for action (Optional operational note):",
+          "reset_bounces_title": "Reset Consecutive Hard Bounces",
+          "reset_bounces_confirm": "This will clear the consecutive hard bounce failure streak in Redis back to 0. Historical daily bounce counts will not be modified.",
+          "reset_password_title": "Reset Mailbox Password",
+          "reset_password_desc": "Set a new password for this mailbox. The existing password will immediately stop working.",
+          "custom_password_label": "Custom Password (leave blank to auto-generate 16-character secure password):",
+          "password_copied": "Password copied to clipboard!",
+          "new_password_alert": "New Mailbox Password Generated:",
+          "copy_and_close": "Copy & Close",
+          "close": "Close",
+          "confirm": "Confirm",
+          "cancel": "Cancel"
+        }
+      },
+      "abuse": {
+        "title": "Active Deliverability & Abuse Warnings",
+        "subtitle": "Current threshold breaches flagged by Step 15 telemetry for today.",
+        "no_warnings": "No active abuse warnings detected. Cluster deliverability is within standard operational thresholds.",
+        "table": {
+          "type": "Type",
+          "target": "Target Entity",
+          "alert_type": "Alert Trigger",
+          "current_vs_limit": "Current / Threshold",
+          "details": "Details",
+          "actions": "Quick Actions"
+        }
       }
     },
     "common": {

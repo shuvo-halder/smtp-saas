@@ -83,3 +83,23 @@ Historical outbound recipient metrics are decoupled from runtime enforcement. An
 MariaDB provides durable auditability and billing reports without burdening real-time SMTP delivery. Monotonic updates prevent data loss if ephemeral Redis state resets.
 ### DO NOT CHANGE WITHOUT APPROVAL
 Yes
+
+---
+
+## Decision: Admin SMTP Management & Deliverability Control Plane (Step 16A Scope Lock)
+### Status
+ACCEPTED
+### Date
+2026-09-18 (Step 16A)
+### Decision
+Step 16 is implemented in a scoped, architecture-safe phase (Step 16A) restricted to:
+1. SMTP cluster observability (overview, daily quota usage, 30-day historical usage, bounce metrics, queue size, active abuse warnings).
+2. Mailbox-level administrative controls (toggle active/disabled with strict parent domain/tenant/subscription invariant checks, reset consecutive hard bounce failure streak, reset password with SHA512-CRYPT hashing and one-time reveal).
+3. Zero database migrations: MariaDB schema remains 100% untouched.
+4. Tenant-level manual suspension, persistent administrative audit log tables, granular RBAC, and persistent abuse incident tables are explicitly DEFERRED to future architectural phases.
+5. All administrative mutations are recorded to a dedicated operational JSON log (`storage/logs/admin-smtp.log`).
+### Reason
+Guarantees production safety, prevents unapproved database schema changes, prevents race conditions with Step 13/14/15 SMTP subsystems, and delivers rich deliverability management while deferring destructive tenant suspension mechanics until proper schema models are established.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes
+

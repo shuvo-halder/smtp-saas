@@ -64,3 +64,20 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Tenant Attribution Isolation:** Envelope senders are attributed to tenants strictly via indexed database relationships (`mailboxes.username -> domains.domain -> users.id`). In the event of unauthenticated or unresolvable sender addresses, events fall back safely to domain-level or `unknown_system` attribution without leaking data across tenants.
 - **System Privilege Boundary:** The application code adheres strictly to the principle of least privilege. The console command never executes `sudo`, never changes file permissions on `/var/log`, and never attempts to modify system group memberships. On production Linux hosts, `/var/log/mail.log` read permissions must be provisioned by the system administrator (e.g. `usermod -aG adm www-data` or POSIX ACL `setfacl -m u:www-data:r /var/log/mail.log`). If permissions are missing, the command fails gracefully with an informative error log and non-zero exit code without terminating server services.
 
+## 11. Admin SMTP Management & Mailbox Control Security (Step 16A)
+- **Role-Based Isolation:** All administrative SMTP routes (`/api/admin/smtp/*`) are strictly guarded by Laravel Sanctum authentication and the `EnsureAdmin` middleware. Non-admin tenants and unauthenticated requests receive immediate `403 Forbidden` or `401 Unauthorized` responses.
+- **Fail-Safe Telemetry Degradation:** In the event of Redis downtime, the administrative control plane detects the disconnect cleanly (`isRedisAvailable()`), returns `telemetry_available: false`, and marks volatile metrics as `null` rather than fabricating zero counts. The UI displays an explicit warning banner, preventing operators from drawing false conclusions about cluster deliverability health.
+- **Parent Hierarchy Invariant Enforcement:** When an administrator attempts to enable a mailbox (`is_active = true`), the system strictly evaluates three prerequisite invariants:
+  1. The parent domain must have `status === 'active'`.
+  2. The parent tenant must have `status === 'active'`.
+  3. The parent tenant must have an active, non-expired subscription (`isSubscriptionActive() === true`).
+  If any invariant fails, the request is rejected with HTTP 422 and a descriptive message. Disabling a mailbox is always allowed. This guarantees that disabled tenants or suspended domains cannot have active mailboxes provisioned or reactivated out of band.
+- **Credential & Password Secrecy:**
+  - Mailbox passwords are encrypted via SHA512-CRYPT using `crypt($password, '$6$' . Str::random(16) . '$')` prior to database persistence.
+  - The `Mailbox` Eloquent model protects passwords with `$hidden = ['password']`, preventing credential leakage in JSON API responses.
+  - The one-time generated password returned upon password reset is only presented to the administrator in memory in the API response and UI modal; it is never stored in plaintext, never cached in Redis, and never written to logs.
+- **Consecutive Bounce Reset Scope:** Resetting consecutive hard bounces (`/api/admin/smtp/mailboxes/{id}/reset-bounces`) strictly executes `DEL outbound:abuse:mailbox:{id}:consecutive_hard`. It never alters or resets daily tenant or mailbox bounce counters, historical usage ledgers, or abuse alert history.
+- **Structured Operational Audit Logging:** All administrative mutations (toggle mailbox, reset bounces, reset password) are logged to `storage/logs/admin-smtp.log` via the dedicated `admin_smtp` logging channel. Log entries capture the acting administrator ID, client IP, action, target entity, optional reason, and before/after states with all credentials explicitly redacted.
+- **Command Injection Immunity:** Mail queue inspection relies on a safe, hardcoded static command (`postqueue -p | tail -n 1`) executed via `shell_exec`. Zero user input or dynamic parameters are concatenated into shell calls.
+
+

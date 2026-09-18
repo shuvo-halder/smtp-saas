@@ -37,3 +37,36 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 **Components:**
 - `SuspendExpiredTenants`: Cron task.
 - Redis-backed Queue.
+
+## 6. Outbound Quotas & Policy Daemon
+**Status:** IMPLEMENTED
+**Purpose:** Enforce per-tenant and per-mailbox outbound recipient limits in real-time at SMTP submission.
+**Components:**
+- `OutboundQuotaService`: Atomic Redis check+increment via Lua scripts (48h TTL).
+- `PolicyDaemonCommand` (`php artisan policy:serve`): High-throughput TCP/socket daemon on `127.0.0.1:10031`.
+- `PolicyDecisionService`: Evaluates Postfix `DATA` restrictions with transaction idempotency caching.
+
+## 7. Historical Usage Synchronization
+**Status:** IMPLEMENTED
+**Purpose:** Reconcile ephemeral runtime Redis counters into durable MariaDB reporting ledger (`tenant_outbound_usage`).
+**Components:**
+- `OutboundUsageSyncService`: Bounded Redis `SCAN` parser with monotonic upward reconciliation.
+- `SyncOutboundUsageCommand` (`php artisan outbound:usage-sync`): Hourly scheduled command with atomic lock.
+
+## 8. Outbound Bounce Tracking & Abuse Detection
+**Status:** IMPLEMENTED WITH DEPLOYMENT REQUIREMENT (HARDENED)
+**Purpose:** Ingest Postfix delivery logs, classify RFC 3463 bounces, and alert on deliverability threshold breaches without automatic suspension.
+**Components:**
+- `PostfixLogParserService`: Incremental streaming log parser with inode tracking and rotation tail draining.
+- `BounceClassificationService`: Deterministic RFC 3463 / RFC 5321 bounce status mapping.
+- `AbuseDetectionService`: Sender attribution, Redis daily counters, consecutive streak tracking, and alert cooldowns (`storage/logs/abuse.log`).
+- `ProcessMailLogCommand` (`php artisan mail:process-log`): 5-minute scheduled daemon.
+
+## 9. Admin SMTP Management & Deliverability Control Plane
+**Status:** IMPLEMENTED (Step 16A)
+**Purpose:** Administrative cluster-wide deliverability observability, tenant/mailbox quota inspection, and safe mailbox-level operational controls without schema migrations.
+**Components:**
+- `AdminSmtpService`: Aggregates cluster overview, handles fail-safe Redis degradation, enforces parent invariants on mailbox enable, performs SHA512-CRYPT password resets, resets bounce failure streaks, and writes operational audit logs to `storage/logs/admin-smtp.log`.
+- `AdminSmtpApiController`: Exposes 8 RESTful endpoints protected by `EnsureAdmin`.
+- Next.js Admin UI (`/admin/smtp`): Overview KPI cards, Tenants table with quota bars, Mailboxes table with control modals, and Abuse warnings table with inspection shortcuts.
+

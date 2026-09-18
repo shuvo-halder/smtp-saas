@@ -68,6 +68,14 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'admin_smtp' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/admin-smtp.log'),
+            'level' => env('LOG_LEVEL', 'info'),
+            'days' => env('LOG_DAILY_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
         'stack' => [
             'driver' => 'stack',
             'channels' => explode(',', (string) env('LOG_STACK', 'single')),

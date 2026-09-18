@@ -49,6 +49,20 @@ This document is the operational starting point for any AI coding agent working 
   - Deployment Requirement: `/var/log/mail.log` on Ubuntu must have read permissions granted to `www-data` (via `adm` group membership or POSIX ACL `setfacl -m u:www-data:r /var/log/mail.log`).
   - Full test suite: 118 tests, 458 assertions passing (46 Step 15 tests, 195 assertions; zero regressions on Step 13 and Step 14).
 
+- **Step 16A — Admin SMTP Management & Deliverability Control Plane (IMPLEMENTED):**
+  - Architecture-locked scope implemented with ZERO database migrations.
+  - Implemented `AdminSmtpService` (`App\Services\Admin\AdminSmtpService`) providing cluster overview, fail-safe Redis telemetry detection with graceful degradation, bounded batch discovery (no unindexed `KEYS *`), parent hierarchy invariant validation on mailbox enable (`Domain active AND Tenant active AND Subscription valid`), SHA512-CRYPT mailbox password resets, consecutive hard bounce streak resets, and structured operational audit logging.
+  - Implemented `AdminSmtpTenantResource` and `AdminSmtpMailboxResource`.
+  - Implemented `AdminSmtpApiController` with 8 endpoints at `/api/admin/smtp/*` protected by `EnsureAdmin`.
+  - Implemented dedicated daily logging channel `'admin_smtp'` logging to `storage/logs/admin-smtp.log`.
+  - Implemented Next.js 14 Admin SMTP UI at `/(admin)/admin/smtp`: `SmtpOverview`, `SmtpTenantsTable`, `SmtpMailboxesTable`, and `SmtpAbuseTable`. Complete `next-intl` localization with zero hardcoded strings.
+  - Full test suite: 136 tests, 555 assertions passing cleanly (18 new Step 16A tests, zero regressions).
+  - Explicitly deferred items: Tenant-level manual suspension, persistent administrative `audit_logs` table, granular RBAC, and persistent `abuse_incidents` table.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 16 — Admin SMTP Management UI:** Add frontend dashboards for quota usage metrics, bounce analytics, and SMTP credential management.
+- **Step 16B / Step 17 — Advanced Administration & Infrastructure Hardening:**
+  - Database schema & model design for persistent administrative audit logging (`audit_logs` table).
+  - Formal schema & lifecycle design for Tenant-level manual administrative suspensions (`suspension_type`, `suspension_reason`, `suspended_by`).
+  - Offsite automated backups (S3 / MariaDB dumps / `/var/vmail` archive sync).
+
 

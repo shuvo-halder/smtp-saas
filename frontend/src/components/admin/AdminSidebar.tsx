@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { LayoutDashboard, Users, Globe, Mail, CreditCard, LogOut, Package } from 'lucide-react';
+import { LayoutDashboard, Users, Globe, Mail, CreditCard, LogOut, Package, MailCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 
@@ -18,6 +18,7 @@ export function AdminSidebar() {
     { href: '/admin/domains', label: t('domains'), icon: Globe },
     { href: '/admin/mailboxes', label: t('mailboxes'), icon: Mail },
     { href: '/admin/plans', label: t('plans'), icon: Package },
+    { href: '/admin/smtp', label: t('smtp'), icon: MailCheck },
     { href: '/admin/invoices', label: t('invoices'), icon: CreditCard },
   ];
 

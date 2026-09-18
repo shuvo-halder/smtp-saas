@@ -62,6 +62,20 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | DELETE | `/admin/plans/{plan}` | Delete an unused plan. | `auth:sanctum`, `EnsureAdmin` |
 | GET | `/admin/invoices` | Paginated list of all invoices. | `auth:sanctum`, `EnsureAdmin` |
 
+## Admin SMTP Management API (Step 16A)
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/admin/smtp/overview` | Cluster-wide SMTP metrics, queue size, totals, and active abuse count. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/smtp/tenants` | Paginated tenants with live daily quotas, today's usage, and bounce metrics. Supports `?search=&page=`. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/smtp/tenants/{user}` | Detailed tenant profile, domains, live telemetry, and 30-day historical usage ledger. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/smtp/mailboxes` | Paginated mailboxes with domain, tenant, active state, and consecutive bounce counts. Supports `?search=&is_active=&domain_id=&page=`. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/smtp/abuse` | Active threshold warnings for today (high bounce rate, consecutive bounces, daily spike). | `auth:sanctum`, `EnsureAdmin` |
+| POST | `/admin/smtp/mailboxes/{mailbox}/toggle` | Toggle mailbox active/disabled status with optional `{ reason }`. On enable, strictly enforces active domain, active tenant, and active subscription (HTTP 422 if violated). | `auth:sanctum`, `EnsureAdmin` |
+| POST | `/admin/smtp/mailboxes/{mailbox}/reset-bounces` | Reset consecutive hard bounce streak to 0 in Redis with optional `{ reason }`. | `auth:sanctum`, `EnsureAdmin` |
+| POST | `/admin/smtp/mailboxes/{mailbox}/reset-password` | Reset password with optional `{ password, reason }`. If blank, generates secure 16-char password. Returns plaintext once in response; hashes with SHA512-CRYPT. | `auth:sanctum`, `EnsureAdmin` |
+
 ## Security & Tenant Isolation
 - **Tenant Isolation:** Explicitly enforced via Eloquent Route Model Binding intersecting with `DomainPolicy` and `InvoicePolicy`.
 - **Ghost Record Protection:** Endpoints modifying databases and file systems simultaneously (`DomainApiController@store`, `MailboxApiController@store`) are wrapped in `DB::transaction`.
+- **Admin SMTP Guard:** All `/api/admin/smtp/*` routes require authenticated administrator sessions via `EnsureAdmin`. Plaintext passwords are never stored in databases, never written to log files, and masked in Eloquent serialization via `$hidden`.
+

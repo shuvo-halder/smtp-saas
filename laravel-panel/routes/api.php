@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminApiController;
+use App\Http\Controllers\Api\AdminSmtpApiController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BillingApiController;
 use App\Http\Controllers\Api\DashboardApiController;
@@ -71,6 +72,18 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             Route::get('/invoices', [AdminApiController::class, 'invoices']);
             
             Route::get('/server-stats', [AdminApiController::class, 'serverStats']);
+
+            // SMTP Management & Deliverability (Step 16A)
+            Route::prefix('smtp')->group(function () {
+                Route::get('/overview', [AdminSmtpApiController::class, 'overview']);
+                Route::get('/tenants', [AdminSmtpApiController::class, 'tenants']);
+                Route::get('/tenants/{user}', [AdminSmtpApiController::class, 'showTenant']);
+                Route::get('/mailboxes', [AdminSmtpApiController::class, 'mailboxes']);
+                Route::get('/abuse', [AdminSmtpApiController::class, 'abuse']);
+                Route::post('/mailboxes/{mailbox}/toggle', [AdminSmtpApiController::class, 'toggleMailbox']);
+                Route::post('/mailboxes/{mailbox}/reset-bounces', [AdminSmtpApiController::class, 'resetBounces']);
+                Route::post('/mailboxes/{mailbox}/reset-password', [AdminSmtpApiController::class, 'resetPassword']);
+            });
         });
     });
 });

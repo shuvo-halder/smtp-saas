@@ -70,9 +70,22 @@
 - `[x]` Plans Datatable (CRUD fully implemented)
 - `[x]` Invoices Datatable
 - `[x]` Subscription Management (Display-only view enforced)
-- `[ ]` SMTP Management (Credential listing/revocation)
-- `[ ]` Admin Audit Logs
-- `[ ]` Granular RBAC (Roles/Permissions)
+- `[x]` SMTP Management & Observability (Step 16A IMPLEMENTED):
+  - `[x]` Cluster-wide SMTP deliverability overview (attempts, hard/soft bounces, bounce rate, queue size, active abuse alerts)
+  - `[x]` Live Redis availability detection with graceful degradation (null metrics + warning banner on disconnection)
+  - `[x]` Tenant SMTP metrics table with plan limits, live usage, and daily quota progress indicators
+  - `[x]` Mailbox SMTP metrics table with consecutive hard bounce failure streak tracking
+  - `[x]` Mailbox administrative toggle (active/disabled) with strict parent domain/tenant/subscription invariant validation
+  - `[x]` Mailbox consecutive hard bounce streak reset in Redis (`outbound:abuse:mailbox:{id}:consecutive_hard`)
+  - `[x]` Mailbox password reset (SHA512-CRYPT hashed, one-time admin display, zero plaintext persistence)
+  - `[x]` Active abuse warnings dashboard with jump-to-mailbox navigation
+  - `[x]` Dedicated operational audit logging channel (`storage/logs/admin-smtp.log`)
+  - `[ ]` Tenant-level manual suspension (DEFERRED — requires database schema & lifecycle design)
+  - `[ ]` Persistent administrative `audit_logs` table (DEFERRED — requires database schema)
+  - `[ ]` Granular RBAC / Spatie permissions (DEFERRED — requires database schema)
+  - `[ ]` Persistent abuse incident history table (DEFERRED — requires database schema)
+- `[ ]` Admin Audit Logs (DEFERRED)
+- `[ ]` Granular RBAC (Roles/Permissions) (DEFERRED)
 
 ## SMTP Architecture & Management
 - `[x]` Direct Dovecot/Postfix SQL Binding
@@ -99,5 +112,6 @@
   - `[x]` Race-safe alert cooldown (`SET NX` 24h) and structured logging (`storage/logs/abuse.log`)
   - `[x]` Artisan command `mail:process-log` (`--lines=1000`, `--dry-run`, `--path=`) scheduled every 5 minutes with overlap protection
   - `[x]` Deployment requirement: Ubuntu `/var/log/mail.log` requires read permissions (`adm` group or POSIX ACL for `www-data`)
-- `[ ]` Admin SMTP UI Controls (Step 16 PENDING)
+- `[x]` Admin SMTP Management & Observability (Step 16A IMPLEMENTED)
+
 
