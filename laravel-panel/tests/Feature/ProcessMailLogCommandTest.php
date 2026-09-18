@@ -142,10 +142,12 @@ class ProcessMailLogCommandTest extends TestCase
         $logContent = "Sep 19 01:23:45 mail postfix/qmgr[10416]: 4Y1z9M2dZ1z3x4y: from=<support@testcorp.com>, size=2048, nrcpt=1\n";
         file_put_contents($this->tempLogPath, $logContent);
 
-        // Cursor should not be saved in dry run
+        // In dry run, NO mutations should happen in Redis
         Redis::shouldReceive('get')->andReturn(null);
         Redis::shouldReceive('set')->never();
         Redis::shouldReceive('setex')->never();
+        Redis::shouldReceive('incr')->never();
+        Redis::shouldReceive('del')->never();
 
         $exitCode = Artisan::call('mail:process-log', [
             '--path' => $this->tempLogPath,
@@ -156,4 +158,33 @@ class ProcessMailLogCommandTest extends TestCase
         $output = Artisan::output();
         $this->assertStringContainsString('[DRY-RUN]', $output);
     }
+
+    public function test_command_saves_cursor_transactionally_after_events_evaluated(): void
+    {
+        $logContent = "Sep 19 01:23:45 mail postfix/qmgr[10416]: 4Y1z9M2dZ1z3x4y: from=<support@testcorp.com>, size=2048, nrcpt=1\n";
+        file_put_contents($this->tempLogPath, $logContent);
+
+        Redis::shouldReceive('get')->with('outbound:abuse:parser:cursor')->andReturn(null);
+        Redis::shouldReceive('setex')->with('outbound:abuse:qid:4Y1z9M2dZ1z3x4y', 86400, \Mockery::any())->once()->andReturn(true);
+
+        // Verify that cursor set occurs with valid json payload containing offset
+        Redis::shouldReceive('set')
+            ->once()
+            ->withArgs(function ($key, $val) {
+                if ($key !== 'outbound:abuse:parser:cursor') {
+                    return false;
+                }
+                $decoded = json_decode($val, true);
+                return isset($decoded['offset']) && $decoded['offset'] > 0;
+            })
+            ->andReturn(true);
+
+        $exitCode = Artisan::call('mail:process-log', [
+            '--path' => $this->tempLogPath,
+            '--lines' => 10,
+        ]);
+
+        $this->assertEquals(0, $exitCode);
+    }
 }
+

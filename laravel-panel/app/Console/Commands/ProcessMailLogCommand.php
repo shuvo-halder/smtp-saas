@@ -87,6 +87,7 @@ class ProcessMailLogCommand extends Command
                 'lines_read' => $linesRead,
                 'events_parsed' => count($events),
                 'queue_mappings' => 0,
+                'filter_handoffs' => 0,
                 'evaluations' => 0,
                 'hard_bounces' => 0,
                 'soft_bounces' => 0,
@@ -99,6 +100,8 @@ class ProcessMailLogCommand extends Command
 
                 if ($processResult['action'] === 'QUEUE_CORRELATED') {
                     $stats['queue_mappings']++;
+                } elseif ($processResult['action'] === 'FILTER_HANDOFF_RECORDED') {
+                    $stats['filter_handoffs']++;
                 } elseif ($processResult['action'] === 'EVALUATED') {
                     $stats['evaluations']++;
                     $classification = $processResult['classification'];
@@ -117,11 +120,17 @@ class ProcessMailLogCommand extends Command
                 }
             }
 
+            // Transactional Cursor Checkpoint: Save cursor only after all events evaluate successfully
+            if (!$dryRun && !empty($parseResult['next_cursor']) && $linesRead > 0) {
+                $parserService->saveCursor($parseResult['next_cursor']);
+            }
+
             $summaryMsg = sprintf(
-                "Mail log processing completed. Read: %d | Events: %d | Correlated: %d | Evaluated: %d | Hard Bounces: %d | Soft Bounces: %d | Success: %d | Alerts: %d",
+                "Mail log processing completed. Read: %d | Events: %d | Correlated: %d | Filter Handoffs: %d | Evaluated: %d | Hard Bounces: %d | Soft Bounces: %d | Success: %d | Alerts: %d",
                 $stats['lines_read'],
                 $stats['events_parsed'],
                 $stats['queue_mappings'],
+                $stats['filter_handoffs'],
                 $stats['evaluations'],
                 $stats['hard_bounces'],
                 $stats['soft_bounces'],

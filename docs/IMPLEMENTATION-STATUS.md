@@ -85,12 +85,17 @@
   - `[x]` Laravel SMTP Policy Daemon (`policy:serve`) (Step 13)
   - `[x]` Postfix outbound quota integration at `smtpd_data_restrictions` (Step 13)
   - `[x]` Redis -> MariaDB Usage Synchronization (`outbound:usage-sync` hourly scheduler & idempotent monotonic ledger sync) (Step 14)
-- `[x]` Outbound Bounce / Usage Log Parsing / Abuse Detection (Step 15 IMPLEMENTED WITH DEPLOYMENT REQUIREMENT)
+- `[x]` Outbound Bounce / Usage Log Parsing / Abuse Detection (Step 15 IMPLEMENTED WITH DEPLOYMENT REQUIREMENT - HARDENED)
   - `[x]` Streaming log parser with inode + offset cursor persistence in Redis (`outbound:abuse:parser:cursor`)
+  - `[x]` Log rotation tail draining (`mail.log.1` read to completion before resetting cursor to 0 on new file)
+  - `[x]` Transactional cursor checkpointing (`saveCursor` deferred until after successful batch evaluation; zero mutations on `--dry-run`)
+  - `[x]` Intermediate filter discrimination (`NormalizedMailEvent::TYPE_INTERMEDIATE_FILTER_HANDOFF` on `smtp-amavis`/`127.0.0.1:10024`; never mutates delivery success or resets consecutive hard bounces)
+  - `[x]` Queue ID alias correlation (`outbound:abuse:qid_alias:{newQid} => oldQid`) mapping Amavis reinjections (`queued as <NEW_QID>`) back to original sender
+  - `[x]` Atomic soft bounce deduplication (`outbound:abuse:seen:{queueId}:{recipient}:{classification}` with 24h TTL) preventing overcounting of deferred retries
   - `[x]` Deterministic RFC 3463 bounce classifier (`SUCCESS`, `HARD_BOUNCE`, `SOFT_BOUNCE`, `UNKNOWN`)
   - `[x]` Sender-to-tenant attribution (`Mailbox -> Domain -> User`) with system fallbacks
   - `[x]` Atomic Redis counters (`outbound:abuse:tenant:*`, `outbound:abuse:mailbox:*`) with 48h TTL
-  - `[x]` Abuse threshold detection (10% bounce rate on >=20 attempts, 50 daily hard bounces, 15 consecutive hard bounces)
+  - `[x]` Abuse threshold detection (10% bounce rate on >=20 accepted outbound attempts, 50 daily hard bounces, 15 consecutive hard bounces)
   - `[x]` Race-safe alert cooldown (`SET NX` 24h) and structured logging (`storage/logs/abuse.log`)
   - `[x]` Artisan command `mail:process-log` (`--lines=1000`, `--dry-run`, `--path=`) scheduled every 5 minutes with overlap protection
   - `[x]` Deployment requirement: Ubuntu `/var/log/mail.log` requires read permissions (`adm` group or POSIX ACL for `www-data`)

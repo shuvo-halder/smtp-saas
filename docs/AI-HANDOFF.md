@@ -36,15 +36,18 @@ This document is the operational starting point for any AI coding agent working 
   - Removed duplicate boilerplate migration `0001_01_01_000000_create_users_table.php` which conflicted with canonical `2024_01_01_000002_create_users_table.php` on `users` table creation during `RefreshDatabase`.
   - Verified full test suite execution: 72 tests, 263 assertions passing (Unit: 8 tests/30 assertions, Feature: 64 tests/233 assertions).
 
-- **Step 15 — Outbound Abuse Detection & Bounce Tracking (IMPLEMENTED WITH DEPLOYMENT REQUIREMENT):**
-  - Implemented `PostfixLogParserService` streaming incremental log parser with rotation and truncation handling, maintaining cursor state (`inode` + `offset`) in Redis (`outbound:abuse:parser:cursor`).
+- **Step 15 — Outbound Abuse Detection & Bounce Tracking (IMPLEMENTED WITH DEPLOYMENT REQUIREMENT - HARDENED):**
+  - Implemented `PostfixLogParserService` streaming incremental log parser with rotation tail draining (`mail.log.1`), truncation handling, and transactional cursor state (`inode` + `offset`) in Redis (`outbound:abuse:parser:cursor`).
   - Implemented `BounceClassificationService` providing deterministic bounce classification based on Postfix delivery status, enhanced DSN codes (RFC 3463: `2.x.x` success, `5.x.x` hard bounce, `4.x.x` soft bounce), and SMTP status codes.
+  - Implemented content filter discrimination (`NormalizedMailEvent::TYPE_INTERMEDIATE_FILTER_HANDOFF` on `smtp-amavis` / `127.0.0.1:10024`) preventing false success increments or consecutive hard bounce counter resets.
+  - Implemented queue ID alias correlation (`outbound:abuse:qid_alias:{newQid} => oldQid`) to attribute messages reinjected by Amavis on port 10025 back to the original authenticated sender.
+  - Implemented atomic soft bounce deduplication (`outbound:abuse:seen:{queueId}:{recipient}:{classification}` with 24h TTL) preventing duplicate counting of repeated Postfix deferrals.
   - Implemented `AbuseAttributionService` mapping envelope senders to `Mailbox -> Domain -> Tenant` with graceful fallback to domain-level or system-level ownership.
-  - Implemented `AbuseDetectionService` with queue ID correlation (`outbound:abuse:qid:*`), atomic daily Redis bounce counters (`outbound:abuse:tenant:*`, `outbound:abuse:mailbox:*`), consecutive mailbox hard bounce tracking with success reset, and non-destructive threshold checks (10% hard bounce rate on $\ge 20$ attempts, 50 daily hard bounces, 15 consecutive hard bounces).
+  - Implemented `AbuseDetectionService` with queue ID correlation (`outbound:abuse:qid:*`), atomic daily Redis bounce counters (`outbound:abuse:tenant:*`, `outbound:abuse:mailbox:*`), consecutive mailbox hard bounce tracking with success reset, and non-destructive threshold checks (10% hard bounce rate on $\ge 20$ accepted outbound attempts, 50 daily hard bounces, 15 consecutive hard bounces).
   - Implemented rate-safe alert cooldowns (`SET NX` 24h) and structured JSON logging to `storage/logs/abuse.log` (`config/logging.php` abuse channel). Zero automatic account/domain/mailbox suspensions.
-  - Implemented `php artisan mail:process-log` command (`ProcessMailLogCommand`) with `--lines=1000`, `--dry-run`, `--path=`, atomic concurrency locking (`Cache::lock('mail_process_log_lock', 300)`), and scheduled execution every 5 minutes in `routes/console.php`.
+  - Implemented `php artisan mail:process-log` command (`ProcessMailLogCommand`) with `--lines=1000`, `--dry-run` (zero Redis mutations), `--path=`, transactional cursor checkpointing, atomic concurrency locking (`Cache::lock('mail_process_log_lock', 300)`), and scheduled execution every 5 minutes in `routes/console.php`.
   - Deployment Requirement: `/var/log/mail.log` on Ubuntu must have read permissions granted to `www-data` (via `adm` group membership or POSIX ACL `setfacl -m u:www-data:r /var/log/mail.log`).
-  - Full test suite: 109 tests, 404 assertions passing (37 new tests, 141 assertions; zero regressions on Step 13 and Step 14).
+  - Full test suite: 118 tests, 458 assertions passing (46 Step 15 tests, 195 assertions; zero regressions on Step 13 and Step 14).
 
 ## 5. Next Recommended Implementation Phase
 - **Step 16 — Admin SMTP Management UI:** Add frontend dashboards for quota usage metrics, bounce analytics, and SMTP credential management.

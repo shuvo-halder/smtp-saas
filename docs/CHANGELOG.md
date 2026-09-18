@@ -1,5 +1,15 @@
 # Changelog
 
+### Outbound Abuse Detection & Bounce Tracking Production Hardening (Step 15 Hardening)
+- **Hardened:** Intermediate filter hop discrimination in `PostfixLogParserService` and `NormalizedMailEvent`. Postfix delivery to local Amavis content filters (`postfix/smtp-amavis`, `amavis`, or `relay=127.0.0.1:10024`) emits `TYPE_INTERMEDIATE_FILTER_HANDOFF`. Handoffs record queue ID aliases but never increment delivery success or reset consecutive hard bounce metrics.
+- **Hardened:** Queue ID alias correlation across content filters. Extracted `queued as <NEW_QID>` on Amavis handoffs and stored short-lived Redis alias mapping (`outbound:abuse:qid_alias:{newQid} => oldQid`, TTL 24h). Added fallback in `AbuseDetectionService::getQueueSender()` to resolve original sender attribution even when `postfix/qmgr` omits `from=<sender>` on reinjected mail.
+- **Hardened:** Soft bounce deduplication and idempotency in `AbuseDetectionService`. Introduced atomic `SET NX` event locks (`outbound:abuse:seen:{queueId}:{recipientHash}:{classification}`, TTL 24h). Repeated `deferred` status lines for the same queued message are recorded exactly once, and log replays do not inflate daily bounce counters.
+- **Hardened:** Log rotation tail draining in `PostfixLogParserService::parseFile()`. When an active file inode change is detected, unread trailing lines from `{$filePath}.1` (matching previous inode) are read to EOF before switching cursor offset to 0 on the new log file.
+- **Hardened:** Transactional cursor checkpointing in `ProcessMailLogCommand`. Removed eager cursor persistence from `parseFile()`; cursor state is only persisted to Redis via `saveCursor()` after all events in the processed batch evaluate without error.
+- **Hardened:** Zero Redis mutation in dry-run mode (`--dry-run`). In dry-run mode, no cursor updates, bounce counters, alert locks, idempotency locks, or queue aliases are written to Redis.
+- **Hardened:** Clarified and verified bounce rate denominator semantics: `hard_bounce_rate = daily_hard_bounces / accepted_outbound_recipient_attempts` (where denominator is accepted outbound submissions at `DATA` stage from Step 13/14, not confirmed remote deliveries).
+- **Tested:** Expanded test suite with 9 new unit and feature tests covering filter handoff isolation, queue ID alias fallback, soft bounce deduplication, rotation tail draining, and transactional cursor checkpointing (118 tests, 458 assertions passing cleanly).
+
 ### Outbound Bounce Tracking & SMTP Abuse Detection (Step 15)
 - **Added:** `NormalizedMailEvent` immutable DTO (`App\Services\Abuse\NormalizedMailEvent`) capturing timestamp, queue ID, daemon, event type, sender, recipient, status, DSN code, SMTP code, and message.
 - **Added:** `PostfixLogParserService` (`App\Services\Abuse\PostfixLogParserService`) streaming incremental parser with chunk-based file reading, max line capping (4096 bytes), line buffer management, inode and file offset cursor tracking in Redis (`outbound:abuse:parser:cursor`), log rotation / truncation detection, and regex tokenization for `qmgr`, `smtp`, `submission`, and `bounce`.

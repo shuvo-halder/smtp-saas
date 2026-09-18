@@ -50,7 +50,19 @@ class AbuseDetectionService
             'alerts' => [],
         ];
 
-        // 1. Handle Queue Manager Sender Event (QMGR_FROM)
+        // 1. Handle Intermediate Filter Handoff Event (INTERMEDIATE_FILTER_HANDOFF)
+        if ($event->isIntermediateFilterEvent()) {
+            if (!empty($event->queueId) && !empty($event->reinjectedQueueId)) {
+                if (!$dryRun) {
+                    $this->saveQueueAlias($event->reinjectedQueueId, $event->queueId);
+                }
+            }
+            $result['processed'] = true;
+            $result['action'] = 'FILTER_HANDOFF_RECORDED';
+            return $result;
+        }
+
+        // 2. Handle Queue Manager Sender Event (QMGR_FROM)
         if ($event->isQmgrSenderEvent()) {
             if (!$dryRun) {
                 $this->saveQueueSender($event->queueId, $event->sender);
@@ -60,13 +72,21 @@ class AbuseDetectionService
             return $result;
         }
 
-        // 2. Handle Delivery Status Event (DELIVERY_STATUS)
+        // 3. Handle Delivery Status Event (DELIVERY_STATUS)
         if ($event->isDeliveryEvent()) {
             $senderEmail = $event->sender;
 
-            // If sender not directly on delivery line, resolve via Queue ID correlation
+            // If sender not directly on delivery line, resolve via Queue ID correlation (or alias fallback)
             if (empty($senderEmail) && !empty($event->queueId)) {
                 $senderEmail = $this->getQueueSender($event->queueId);
+
+                // Fallback to alias if direct qmgr correlation not found
+                if (empty($senderEmail)) {
+                    $oldQueueId = $this->getQueueAlias($event->queueId);
+                    if (!empty($oldQueueId)) {
+                        $senderEmail = $this->getQueueSender($oldQueueId);
+                    }
+                }
             }
 
             // If sender cannot be determined, skip attribution
@@ -75,7 +95,7 @@ class AbuseDetectionService
                 return $result;
             }
 
-            // 3. Resolve Tenant & Mailbox Attribution
+            // 4. Resolve Tenant & Mailbox Attribution
             $attribution = $this->attributionService->attribute($senderEmail);
             if (!$this->attributionService->isValidTenantMailbox($attribution)) {
                 $result['action'] = 'NON_TENANT_DELIVERY';
@@ -87,24 +107,36 @@ class AbuseDetectionService
             $result['tenant_id'] = $tenantId;
             $result['mailbox_id'] = $mailboxId;
 
-            // 4. Classify Bounce / Delivery Result
+            // 5. Classify Bounce / Delivery Result
             $classification = $this->classifier->classify($event);
             $result['classification'] = $classification;
 
             $date = Carbon::now('UTC')->format('Y-m-d');
 
             if (!$dryRun) {
-                // 5. Update Redis Abuse Counters
-                $this->updateCounters($tenantId, $mailboxId, $classification, $date);
+                // Check delivery event idempotency to prevent duplicate metrics on retries or replay
+                $isNewEvent = $this->markDeliveryEventSeen($event->queueId, $event->recipient, $classification);
+
+                if ($isNewEvent) {
+                    // 6. Update Redis Abuse Counters
+                    $this->updateCounters($tenantId, $mailboxId, $classification, $date);
+                }
 
                 // Clean up Queue ID mapping on terminal delivery if queueId known
                 if (!empty($event->queueId) && ($classification === BounceClassificationService::CLASSIFICATION_SUCCESS || $classification === BounceClassificationService::CLASSIFICATION_HARD_BOUNCE)) {
+                    $oldQueueId = $this->getQueueAlias($event->queueId);
                     $this->forgetQueueSender($event->queueId);
+                    if (!empty($oldQueueId)) {
+                        $this->forgetQueueAlias($event->queueId);
+                        $this->forgetQueueSender($oldQueueId);
+                    }
                 }
 
-                // 6. Evaluate Thresholds & Emit Alerts
-                $alerts = $this->evaluateThresholds($tenantId, $mailboxId, $date);
-                $result['alerts'] = $alerts;
+                if ($isNewEvent) {
+                    // 7. Evaluate Thresholds & Emit Alerts
+                    $alerts = $this->evaluateThresholds($tenantId, $mailboxId, $date);
+                    $result['alerts'] = $alerts;
+                }
             }
 
             $result['processed'] = true;
@@ -131,6 +163,73 @@ class AbuseDetectionService
                 'queue_id' => $queueId,
                 'error' => $e->getMessage(),
             ]);
+        }
+    }
+
+    /**
+     * Store Reinjected Queue ID -> Original Queue ID alias in Redis.
+     */
+    public function saveQueueAlias(string $newQueueId, string $oldQueueId): void
+    {
+        try {
+            $key = "outbound:abuse:qid_alias:{$newQueueId}";
+            Redis::setex($key, $this->queueTtl, $oldQueueId);
+        } catch (Throwable $e) {
+            Log::channel('abuse')->warning('AbuseDetection: Failed to save Queue ID alias', [
+                'new_qid' => $newQueueId,
+                'old_qid' => $oldQueueId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Retrieve Original Queue ID from Reinjected Queue ID alias.
+     */
+    public function getQueueAlias(string $newQueueId): ?string
+    {
+        try {
+            $key = "outbound:abuse:qid_alias:{$newQueueId}";
+            $oldQueueId = Redis::get($key);
+            return !empty($oldQueueId) ? (string) $oldQueueId : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Remove Queue ID alias mapping after terminal delivery.
+     */
+    public function forgetQueueAlias(string $newQueueId): void
+    {
+        try {
+            $key = "outbound:abuse:qid_alias:{$newQueueId}";
+            Redis::del($key);
+        } catch (Throwable) {
+        }
+    }
+
+    /**
+     * Check and record delivery event idempotency.
+     * Returns true if this is the first observation of (queueId, recipient, classification).
+     */
+    public function markDeliveryEventSeen(?string $queueId, ?string $recipient, string $classification): bool
+    {
+        if (empty($queueId) || empty($recipient)) {
+            return true;
+        }
+
+        try {
+            $cleanRecipient = md5(strtolower(trim($recipient)));
+            $key = "outbound:abuse:seen:{$queueId}:{$cleanRecipient}:{$classification}";
+            $result = Redis::set($key, '1', 'EX', $this->queueTtl, 'NX');
+            return $result === true || $result === 'OK';
+        } catch (Throwable $e) {
+            Log::channel('abuse')->warning('AbuseDetection: Redis failure while checking delivery event idempotency', [
+                'queue_id' => $queueId,
+                'error' => $e->getMessage(),
+            ]);
+            return true;
         }
     }
 

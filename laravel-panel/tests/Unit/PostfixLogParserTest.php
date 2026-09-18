@@ -115,4 +115,93 @@ class PostfixLogParserTest extends TestCase
         $this->assertNotNull($event);
         $this->assertEquals('user@domain.com', $event->sender);
     }
+
+    public function test_identifies_smtp_amavis_as_intermediate_filter_handoff(): void
+    {
+        $line = 'Sep 19 01:23:46 mail postfix/smtp-amavis[10420]: 4Y1z9M2dZ1z3x4y: to=<recipient@example.net>, relay=127.0.0.1[127.0.0.1]:10024, delay=0.5, dsn=2.0.0, status=sent (250 2.0.0 from MTA(smtp:[127.0.0.1]:10025): 250 2.0.0 Ok: queued as 4Y1z9M2dZ1z9999)';
+        $event = $this->parser->parseLine($line);
+
+        $this->assertNotNull($event);
+        $this->assertEquals('4Y1z9M2dZ1z3x4y', $event->queueId);
+        $this->assertEquals('4Y1z9M2dZ1z9999', $event->reinjectedQueueId);
+        $this->assertEquals('recipient@example.net', $event->recipient);
+        $this->assertEquals('sent', $event->status);
+        $this->assertEquals(NormalizedMailEvent::TYPE_INTERMEDIATE_FILTER_HANDOFF, $event->eventType);
+        $this->assertTrue($event->isIntermediateFilterEvent());
+        $this->assertFalse($event->isDeliveryEvent());
+    }
+
+    public function test_identifies_localhost_filter_relay_as_intermediate_handoff(): void
+    {
+        $line = 'Sep 19 01:23:46 mail postfix/smtp[10420]: 4Y1z9M2dZ1z3x4y: to=<recipient@example.net>, relay=127.0.0.1:10024, dsn=2.0.0, status=sent (250 Ok: queued as 4Y1z9M2dZ1z8888)';
+        $event = $this->parser->parseLine($line);
+
+        $this->assertNotNull($event);
+        $this->assertTrue($event->isIntermediateFilterEvent());
+        $this->assertFalse($event->isDeliveryEvent());
+        $this->assertEquals('4Y1z9M2dZ1z8888', $event->reinjectedQueueId);
+    }
+
+    public function test_distinguishes_remote_smtp_from_filter_relay(): void
+    {
+        $line = 'Sep 19 01:23:47 mail postfix/smtp[10430]: 4Y1z9M2dZ1z8888: to=<recipient@example.net>, relay=mx.remote.com[93.184.216.34]:25, delay=1.2, dsn=2.0.0, status=sent (250 2.0.0 OK)';
+        $event = $this->parser->parseLine($line);
+
+        $this->assertNotNull($event);
+        $this->assertTrue($event->isDeliveryEvent());
+        $this->assertFalse($event->isIntermediateFilterEvent());
+        $this->assertEquals('recipient@example.net', $event->recipient);
+    }
+
+    public function test_rotation_drains_rotated_tail_before_reading_active_file(): void
+    {
+        $tempDir = sys_get_temp_dir();
+        $activeLog = $tempDir . DIRECTORY_SEPARATOR . 'active_' . uniqid() . '.log';
+        $rotatedLog = $activeLog . '.1';
+
+        // Write rotated log with 2 lines
+        $rotLine1 = "Sep 19 01:00:00 mail postfix/qmgr[100]: Q1: from=<a@b.com>, size=100\n";
+        $rotLine2 = "Sep 19 01:00:01 mail postfix/qmgr[100]: Q2: from=<c@d.com>, size=100\n";
+        file_put_contents($rotatedLog, $rotLine1 . $rotLine2);
+
+        // Write active log with 1 line
+        $activeLine = "Sep 19 01:05:00 mail postfix/qmgr[100]: Q3: from=<e@f.com>, size=100\n";
+        file_put_contents($activeLog, $activeLine);
+
+        // Simulate cursor pointing after rotLine1 on the rotated file
+        $rotStat = stat($rotatedLog);
+        $savedInode = $rotStat['ino'];
+        $savedOffset = strlen($rotLine1);
+
+        // Create parser instance with custom cursor
+        $customCursor = [
+            'inode' => $savedInode,
+            'offset' => $savedOffset,
+        ];
+
+        // Subclass or mock cursor if needed, or invoke parseFile
+        // In PostfixLogParserService, getCursor reads from Redis, but we can verify parseLine and file logic
+        // Let's create a test parser where getCursor returns $customCursor
+        $testParser = new class(4096, 'test_key', $customCursor) extends PostfixLogParserService {
+            public function __construct(int $len, string $k, private array $mockCursor) {
+                parent::__construct($len, $k);
+            }
+            public function getCursor(): array {
+                return $this->mockCursor;
+            }
+        };
+
+        $result = $testParser->parseFile($activeLog, 100);
+
+        // Cleanup files
+        @unlink($activeLog);
+        @unlink($rotatedLog);
+
+        $this->assertCount(2, $result['events']);
+        $this->assertEquals('Q2', $result['events'][0]->queueId);
+        $this->assertEquals('Q3', $result['events'][1]->queueId);
+        $this->assertNotNull($result['next_cursor']);
+        $this->assertEquals(strlen($activeLine), $result['next_cursor']['offset']);
+    }
 }
+

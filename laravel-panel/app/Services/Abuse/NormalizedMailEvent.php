@@ -12,6 +12,7 @@ class NormalizedMailEvent
 {
     public const TYPE_QMGR_FROM = 'QMGR_FROM';
     public const TYPE_DELIVERY_STATUS = 'DELIVERY_STATUS';
+    public const TYPE_INTERMEDIATE_FILTER_HANDOFF = 'INTERMEDIATE_FILTER_HANDOFF';
     public const TYPE_SUBMISSION = 'SUBMISSION';
     public const TYPE_BOUNCE_NOTICE = 'BOUNCE_NOTICE';
     public const TYPE_OTHER = 'OTHER';
@@ -28,6 +29,7 @@ class NormalizedMailEvent
         public readonly ?int $smtpCode = null,
         public readonly ?string $message = null,
         public readonly ?string $rawLine = null,
+        public readonly ?string $reinjectedQueueId = null,
     ) {}
 
     public function isDeliveryEvent(): bool
@@ -35,8 +37,14 @@ class NormalizedMailEvent
         return $this->eventType === self::TYPE_DELIVERY_STATUS && !empty($this->status);
     }
 
+    public function isIntermediateFilterEvent(): bool
+    {
+        return $this->eventType === self::TYPE_INTERMEDIATE_FILTER_HANDOFF;
+    }
+
     public function isQmgrSenderEvent(): bool
     {
         return $this->eventType === self::TYPE_QMGR_FROM && !empty($this->sender) && !empty($this->queueId);
     }
 }
+

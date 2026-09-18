@@ -74,10 +74,35 @@ class PostfixLogParserService
         $status = null;
         $smtpCode = null;
         $message = null;
+        $reinjectedQueueId = null;
         $eventType = NormalizedMailEvent::TYPE_OTHER;
 
-        // 1. Delivery Event (postfix/smtp, postfix/lmtp, postfix/error)
-        if (str_contains($daemon, 'smtp') || str_contains($daemon, 'lmtp') || str_contains($daemon, 'error')) {
+        // 1. Check for Intermediate Filter Handoff (e.g. postfix/smtp-amavis, relay=127.0.0.1:10024)
+        $isIntermediateFilter = str_contains($daemon, 'smtp-amavis')
+            || str_contains($daemon, 'amavis')
+            || preg_match('/relay=(?:127\.0\.0\.1|localhost)(?:\[127\.0\.0\.1\])?:10024\b/', $body);
+
+        if ($isIntermediateFilter) {
+            if (preg_match('/to=<([^>]*)>/', $body, $toMatches)) {
+                $recipient = $toMatches[1];
+            }
+            if (preg_match('/status=([a-zA-Z]+)/', $body, $statusMatches)) {
+                $status = strtolower($statusMatches[1]);
+            }
+            if (preg_match('/dsn=([0-9]\.[0-9]+\.[0-9]+)/', $body, $dsnMatches)) {
+                $dsn = $dsnMatches[1];
+            }
+            if (preg_match('/queued as ([A-Za-z0-9]+)/i', $body, $qMatches)) {
+                $reinjectedQueueId = $qMatches[1];
+            }
+            if (preg_match('/\((.*)\)$/', $body, $diagMatches)) {
+                $message = $diagMatches[1];
+            }
+            $eventType = NormalizedMailEvent::TYPE_INTERMEDIATE_FILTER_HANDOFF;
+        }
+
+        // 2. Final Delivery Event (postfix/smtp, postfix/lmtp, postfix/error) - Strictly excluding filter hops & smtpd
+        if (!$isIntermediateFilter && (str_ends_with($daemon, '/smtp') || $daemon === 'postfix/smtp' || str_contains($daemon, 'lmtp') || str_contains($daemon, 'error')) && !str_contains($daemon, 'smtpd')) {
             if (preg_match('/to=<([^>]*)>/', $body, $toMatches)) {
                 $recipient = $toMatches[1];
                 $eventType = NormalizedMailEvent::TYPE_DELIVERY_STATUS;
@@ -100,7 +125,7 @@ class PostfixLogParserService
             }
         }
 
-        // 2. Queue Manager Sender Event (postfix/qmgr, postfix/oqmgr)
+        // 3. Queue Manager Sender Event (postfix/qmgr, postfix/oqmgr)
         if ($eventType === NormalizedMailEvent::TYPE_OTHER && str_contains($daemon, 'qmgr')) {
             if (preg_match('/from=<([^>]*)>/', $body, $fromMatches)) {
                 $sender = $fromMatches[1];
@@ -108,7 +133,7 @@ class PostfixLogParserService
             }
         }
 
-        // 3. Submission Authenticated Event (postfix/submission/smtpd, postfix/smtps/smtpd, postfix/smtpd)
+        // 4. Submission Authenticated Event (postfix/submission/smtpd, postfix/smtps/smtpd, postfix/smtpd)
         if ($eventType === NormalizedMailEvent::TYPE_OTHER && str_contains($daemon, 'smtpd')) {
             if (preg_match('/sasl_username=([^\s,]+)/', $body, $saslMatches)) {
                 $sender = $saslMatches[1];
@@ -116,7 +141,7 @@ class PostfixLogParserService
             }
         }
 
-        // 4. Non-Delivery Notification / Bounce Event (postfix/bounce)
+        // 5. Non-Delivery Notification / Bounce Event (postfix/bounce)
         if ($eventType === NormalizedMailEvent::TYPE_OTHER && str_contains($daemon, 'bounce')) {
             $eventType = NormalizedMailEvent::TYPE_BOUNCE_NOTICE;
             $message = $body;
@@ -134,6 +159,7 @@ class PostfixLogParserService
             smtpCode: $smtpCode,
             message: $message,
             rawLine: $rawLine,
+            reinjectedQueueId: $reinjectedQueueId,
         );
     }
 
@@ -143,7 +169,7 @@ class PostfixLogParserService
      * @param string $filePath
      * @param int $maxLines
      * @param bool $dryRun
-     * @return array{events: NormalizedMailEvent[], lines_read: int, has_more: bool, error: ?string}
+     * @return array{events: NormalizedMailEvent[], lines_read: int, has_more: bool, error: ?string, next_cursor: ?array}
      */
     public function parseFile(string $filePath, int $maxLines = 1000, bool $dryRun = false): array
     {
@@ -153,6 +179,7 @@ class PostfixLogParserService
                 'lines_read' => 0,
                 'has_more' => false,
                 'error' => "Log file does not exist: {$filePath}",
+                'next_cursor' => null,
             ];
         }
 
@@ -162,6 +189,7 @@ class PostfixLogParserService
                 'lines_read' => 0,
                 'has_more' => false,
                 'error' => "Log file is not readable by current process: {$filePath}",
+                'next_cursor' => null,
             ];
         }
 
@@ -173,66 +201,131 @@ class PostfixLogParserService
         $currentInode = $stat['ino'] ?? null;
         $currentSize = $stat['size'] ?? 0;
 
-        $offset = $savedOffset;
+        $events = [];
+        $linesRead = 0;
+        $nextCursor = null;
 
-        // Detect rotation or truncation:
-        // If file size is less than saved offset, or inode changed, reset offset
-        if ($savedInode !== null && $currentInode !== null && $savedInode !== $currentInode) {
-            Log::channel('abuse')->info("PostfixLogParser: Inode changed from {$savedInode} to {$currentInode}. Resetting offset to 0.");
+        // Detect rotation or truncation
+        $inodeChanged = ($savedInode !== null && $currentInode !== null && $savedInode !== $currentInode);
+
+        if ($inodeChanged) {
+            $rotatedPath = $filePath . '.1';
+            // Check if rotated file exists and has unread tail
+            if (file_exists($rotatedPath) && is_readable($rotatedPath)) {
+                $rotStat = @stat($rotatedPath);
+                $rotInode = $rotStat['ino'] ?? null;
+                $rotSize = $rotStat['size'] ?? 0;
+
+                $isMatchingRotated = ($rotInode !== null && $rotInode === $savedInode)
+                    || ($rotInode === null && $rotSize >= $savedOffset);
+
+                if ($isMatchingRotated && $savedOffset < $rotSize) {
+                    $fpRot = @fopen($rotatedPath, 'rb');
+                    if ($fpRot) {
+                        if ($savedOffset > 0) {
+                            @fseek($fpRot, $savedOffset, SEEK_SET);
+                        }
+
+                        while ($linesRead < $maxLines && !feof($fpRot)) {
+                            $line = fgets($fpRot, $this->maxLineLength);
+                            if ($line === false) {
+                                break;
+                            }
+                            if (!str_ends_with($line, "\n") && !str_ends_with($line, "\r") && feof($fpRot)) {
+                                @fseek($fpRot, -strlen($line), SEEK_CUR);
+                                break;
+                            }
+                            $linesRead++;
+                            $event = $this->parseLine($line);
+                            if ($event !== null) {
+                                $events[] = $event;
+                            }
+                        }
+
+                        $rotOffset = ftell($fpRot);
+                        $rotEof = feof($fpRot);
+                        @fclose($fpRot);
+
+                        // If maxLines reached before rotated file finished, cursor stays on rotated file
+                        if (!$rotEof && $linesRead >= $maxLines) {
+                            return [
+                                'events' => $events,
+                                'lines_read' => $linesRead,
+                                'has_more' => true,
+                                'error' => null,
+                                'next_cursor' => [
+                                    'inode' => $savedInode,
+                                    'offset' => $rotOffset,
+                                    'last_run' => now()->toIso8601String(),
+                                    'lines_processed' => $linesRead,
+                                ],
+                            ];
+                        }
+                    }
+                }
+            }
             $offset = 0;
         } elseif ($currentSize < $savedOffset) {
             Log::channel('abuse')->info("PostfixLogParser: File truncated ({$currentSize} < {$savedOffset}). Resetting offset to 0.");
             $offset = 0;
+        } else {
+            $offset = $savedOffset;
         }
 
-        $fp = @fopen($filePath, 'rb');
-        if (!$fp) {
-            return [
-                'events' => [],
-                'lines_read' => 0,
-                'has_more' => false,
-                'error' => "Failed to open log file stream: {$filePath}",
-            ];
-        }
-
-        if ($offset > 0) {
-            @fseek($fp, $offset, SEEK_SET);
-        }
-
-        $events = [];
-        $linesRead = 0;
-
-        while ($linesRead < $maxLines && !feof($fp)) {
-            $line = fgets($fp, $this->maxLineLength);
-            if ($line === false) {
-                break;
+        // Continue reading from active file
+        $hasMore = false;
+        if ($linesRead < $maxLines) {
+            $fp = @fopen($filePath, 'rb');
+            if (!$fp) {
+                return [
+                    'events' => $events,
+                    'lines_read' => $linesRead,
+                    'has_more' => false,
+                    'error' => "Failed to open log file stream: {$filePath}",
+                    'next_cursor' => null,
+                ];
             }
 
-            // If line doesn't end with newline, we may have hit partial chunk at EOF
-            if (!str_ends_with($line, "\n") && !str_ends_with($line, "\r") && feof($fp)) {
-                // Seek back to before the partial line so it can be completed on next run
-                @fseek($fp, -strlen($line), SEEK_CUR);
-                break;
+            if ($offset > 0) {
+                @fseek($fp, $offset, SEEK_SET);
             }
 
-            $linesRead++;
-            $event = $this->parseLine($line);
-            if ($event !== null) {
-                $events[] = $event;
+            while ($linesRead < $maxLines && !feof($fp)) {
+                $line = fgets($fp, $this->maxLineLength);
+                if ($line === false) {
+                    break;
+                }
+
+                if (!str_ends_with($line, "\n") && !str_ends_with($line, "\r") && feof($fp)) {
+                    @fseek($fp, -strlen($line), SEEK_CUR);
+                    break;
+                }
+
+                $linesRead++;
+                $event = $this->parseLine($line);
+                if ($event !== null) {
+                    $events[] = $event;
+                }
             }
-        }
 
-        $newOffset = ftell($fp);
-        $hasMore = !feof($fp);
-        @fclose($fp);
+            $newOffset = ftell($fp);
+            $hasMore = !feof($fp);
+            @fclose($fp);
 
-        if (!$dryRun && $linesRead > 0) {
-            $this->saveCursor([
+            $nextCursor = [
                 'inode' => $currentInode,
                 'offset' => $newOffset,
                 'last_run' => now()->toIso8601String(),
                 'lines_processed' => $linesRead,
-            ]);
+            ];
+        } else {
+            $hasMore = true;
+            $nextCursor = [
+                'inode' => $currentInode,
+                'offset' => 0,
+                'last_run' => now()->toIso8601String(),
+                'lines_processed' => $linesRead,
+            ];
         }
 
         return [
@@ -240,6 +333,7 @@ class PostfixLogParserService
             'lines_read' => $linesRead,
             'has_more' => $hasMore,
             'error' => null,
+            'next_cursor' => $nextCursor,
         ];
     }
 
