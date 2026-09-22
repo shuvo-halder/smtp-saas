@@ -172,3 +172,21 @@ export interface AbuseResponse {
   warnings: AbuseWarning[];
 }
 
+export interface AuditLog {
+  id: number;
+  actor_user_id: number | null;
+  actor_name: string;
+  actor_email: string;
+  action: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  before_state: Record<string, any> | null;
+  after_state: Record<string, any> | null;
+  reason: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  request_id: string | null;
+  created_at: string;
+}
+
+

@@ -80,4 +80,16 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Structured Operational Audit Logging:** All administrative mutations (toggle mailbox, reset bounces, reset password) are logged to `storage/logs/admin-smtp.log` via the dedicated `admin_smtp` logging channel. Log entries capture the acting administrator ID, client IP, action, target entity, optional reason, and before/after states with all credentials explicitly redacted.
 - **Command Injection Immunity:** Mail queue inspection relies on a safe, hardcoded static command (`postqueue -p | tail -n 1`) executed via `shell_exec`. Zero user input or dynamic parameters are concatenated into shell calls.
 
+## 12. Persistent Administrative Audit Logging Security (Step 16B.1)
+- **Application-Level Append-Only Ledger Semantics:** The `audit_logs` table represents an append-only relational ledger at the application layer. The application exposes strictly read-only query endpoints (`GET` index and show), contains no update or delete mutations, and disables Eloquent timestamp updates via `const UPDATED_AT = null`. Database-level immutability (such as database triggers, cryptographic hash chains, or WORM storage) is not part of Step 16B.1.
+- **Centralized Single-Point Pre-Logging Redaction:** `AuditService::sanitizeState()` is the single authoritative sanitizer. `AdminSmtpService` passes raw states through `AuditService::sanitizeState()` prior to emitting to `Log::channel('admin_smtp')` and `AuditService::record()`. Raw state is strictly prohibited from reaching `admin-smtp.log`. Sanitization recursively inspects dictionary keys and values:
+  - Any key matching sensitive patterns (`password`, `password_hash`, `new_password`, `token`, `secret`, `api_key`, `otp`, `private_key`, `signature`, `auth`, `credentials`) is immediately masked with `'[REDACTED]'`. (Operational flags such as `password_reset: true` remain visible as non-credential audit indicators).
+  - Any scalar string value matching cryptographic hash signatures (e.g. SHA512-CRYPT prefix `$6$`, bcrypt prefix `$2y$` or `$2a$`, argon2 prefix `$argon2`) is immediately replaced with `'[REDACTED]'`.
+  - Plaintext passwords and hashes are strictly prohibited from entering `admin-smtp.log` and `audit_logs`.
+- **Fail-Safe Operation:** Database insertion errors during audit recording are caught by `AuditService` and logged to `storage/logs/admin-smtp.log` with safe metadata (error class, error code, action, entity, actor). Invariant: no sensitive state or SQL query parameter text is included in error logs. Failures return `null` and do not abort legitimate administrative tasks.
+- **Dual Logging Redundancy:** Administrative actions are logged concurrently to both the persistent MariaDB ledger (`audit_logs`) and the operational file log (`storage/logs/admin-smtp.log`), with both destinations receiving identically sanitized data.
+- **Data Boundary & Bounded Queries:** Audit log retrieval is strictly restricted to authenticated administrators via `EnsureAdmin`. Pagination is hard-capped at 50 records per request to mitigate denial-of-service via large query payloads.
+- **Retention Status:** Retention and pruning policy is explicitly `NOT YET DEFINED — REQUIRES ARCHITECTURE APPROVAL`. No automated deletion or truncation exists.
+
+
 

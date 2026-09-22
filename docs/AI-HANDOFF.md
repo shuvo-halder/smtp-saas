@@ -59,10 +59,27 @@ This document is the operational starting point for any AI coding agent working 
   - Full test suite: 136 tests, 555 assertions passing cleanly (18 new Step 16A tests, zero regressions).
   - Explicitly deferred items: Tenant-level manual suspension, persistent administrative `audit_logs` table, granular RBAC, and persistent `abuse_incidents` table.
 
+- **Step 16B.1 — Persistent Administrative Audit Logging Foundation (IMPLEMENTED):**
+  - Implemented MariaDB migration `2026_09_23_000001_create_audit_logs_table.php` provisioning relational `audit_logs` table (`actor_user_id` nullable FK -> `users.id` on delete set null, `actor_email`, `action`, `entity_type`, `entity_id`, `before_state`, `after_state`, `reason`, `ip_address`, `user_agent`, `request_id`, `created_at`).
+  - Implemented application-level append-only `AuditLog` Eloquent model (`const UPDATED_AT = null`, JSON array casts, `actor()` relation; no update/delete mutations).
+  - Implemented `AuditService` with centralized recursive secret redaction (`sanitizeState()` scrubbing passwords, hashes, tokens, keys, OTPs, signatures) and fail-safe database error trapping.
+  - Integrated `AdminSmtpService` mutations (`toggleMailbox`, `resetPassword`, `resetConsecutiveBounces`) with single-point pre-logging secret redaction via `AuditService::sanitizeState()`, ensuring raw state never reaches `storage/logs/admin-smtp.log` while persisting sanitized records into `AuditLog`.
+  - Implemented `AdminAuditLogApiController` (`GET /api/admin/audit-logs` bounded to max 50/page with search/filters, `GET /api/admin/audit-logs/{id}`) protected by `EnsureAdmin`.
+  - Implemented Next.js 14 Admin Audit Log view at `/admin/audit-logs` with `AuditLogsTable`, search, action/entity filters, pagination, and detail inspection modal.
+  - Added unit and feature tests (`tests/Unit/AuditServiceTest.php`, `tests/Feature/AdminAuditLogTest.php`).
+  - Full test suite: 153 tests, 649 assertions passing cleanly. Clean Next.js production build (`npm run build`).
+
 ## 5. Next Recommended Implementation Phase
-- **Step 16B / Step 17 — Advanced Administration & Infrastructure Hardening:**
-  - Database schema & model design for persistent administrative audit logging (`audit_logs` table).
-  - Formal schema & lifecycle design for Tenant-level manual administrative suspensions (`suspension_type`, `suspension_reason`, `suspended_by`).
-  - Offsite automated backups (S3 / MariaDB dumps / `/var/vmail` archive sync).
+- **Step 16B.2 — Granular Administrative RBAC (Roles & Permissions):**
+  - Multi-role administrator authorization (Super Admin, Support Admin, Compliance Auditor).
+  - Spatie Laravel-Permission or scoped gate policies.
+- **Step 16B.3 — Tenant Suspension Redesign & Billing Lifecycle Integration:**
+  - Database schema for explicit administrative tenant suspension (`suspension_type`, `suspension_reason`, `suspended_by`).
+  - Decoupling administrative suspension from billing expiry in `BillingService::markInvoicePaid()`.
+- **Step 16B.4 — Persistent Abuse Incident Ledger:**
+  - Relational `abuse_incidents` table recording historical abuse threshold breaches.
+- **Step 17 — Backup & Disaster Recovery:**
+  - Automated database backup pipeline and `/var/vmail` offsite sync.
+
 
 

@@ -74,6 +74,12 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | POST | `/admin/smtp/mailboxes/{mailbox}/reset-bounces` | Reset consecutive hard bounce streak to 0 in Redis with optional `{ reason }`. | `auth:sanctum`, `EnsureAdmin` |
 | POST | `/admin/smtp/mailboxes/{mailbox}/reset-password` | Reset password with optional `{ password, reason }`. If blank, generates secure 16-char password. Returns plaintext once in response; hashes with SHA512-CRYPT. | `auth:sanctum`, `EnsureAdmin` |
 
+## Admin Audit Log API (Step 16B.1)
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/admin/audit-logs` | Paginated list of persistent audit records. Supports `?page=&per_page=&search=&action=&entity_type=&entity_id=&actor_user_id=&date_from=&date_to=`. Max `per_page` bounded to 50. | `auth:sanctum`, `EnsureAdmin` |
+| GET | `/admin/audit-logs/{id}` | Detailed single audit event record with eager-loaded actor relationship. | `auth:sanctum`, `EnsureAdmin` |
+
 ## Security & Tenant Isolation
 - **Tenant Isolation:** Explicitly enforced via Eloquent Route Model Binding intersecting with `DomainPolicy` and `InvoicePolicy`.
 - **Ghost Record Protection:** Endpoints modifying databases and file systems simultaneously (`DomainApiController@store`, `MailboxApiController@store`) are wrapped in `DB::transaction`.

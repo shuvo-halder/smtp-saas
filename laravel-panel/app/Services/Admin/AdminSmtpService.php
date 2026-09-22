@@ -12,11 +12,18 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use App\Services\AuditService;
 use Illuminate\Support\Str;
 use Throwable;
 
 class AdminSmtpService
 {
+    public function __construct(
+        protected ?AuditService $auditService = null
+    ) {
+        $this->auditService = $auditService ?? app(AuditService::class);
+    }
+
     /**
      * Checks whether Redis connection is live.
      */
@@ -615,11 +622,11 @@ class AdminSmtpService
                 'password' => $hashed,
             ]);
 
-            // Structured logging: NEVER log plaintext or hash!
+            // Structured logging: records event occurrence without credential metadata
             $this->logMutation('mailbox_password_reset', 'Mailbox', $mailbox->id, [
-                'password_hash' => '[REDACTED]',
+                'password_reset' => false,
             ], [
-                'password_hash' => '[UPDATED_SHA512_CRYPT]',
+                'password_reset' => true,
             ], $actor, $reason);
         });
 
@@ -632,17 +639,23 @@ class AdminSmtpService
     }
 
     /**
-     * Write structured operational record to dedicated file channel.
+     * Write structured operational record to dedicated file channel and persistent audit ledger.
+     * Invariant: Raw state MUST NEVER be passed to Log::channel('admin_smtp').
      */
     protected function logMutation(
         string $action,
         string $entityType,
         int $entityId,
-        array $before,
-        array $after,
+        ?array $before,
+        ?array $after,
         ?User $actor,
         ?string $reason = null
     ): void {
+        // Authoritative single-point sanitization via AuditService
+        $sanitizedBefore = $this->auditService->sanitizeState($before);
+        $sanitizedAfter  = $this->auditService->sanitizeState($after);
+
+        // 1. Maintain operational file logging in admin_smtp channel with SANITIZED state
         Log::channel('admin_smtp')->info('Admin SMTP Mutation', [
             'timestamp'   => Carbon::now('UTC')->toIso8601String(),
             'action'      => $action,
@@ -650,11 +663,22 @@ class AdminSmtpService
             'actor_email' => $actor?->email,
             'entity_type' => $entityType,
             'entity_id'   => $entityId,
-            'before'      => $before,
-            'after'       => $after,
+            'before'      => $sanitizedBefore,
+            'after'       => $sanitizedAfter,
             'reason'      => $reason,
             'ip_address'  => request()->ip(),
             'user_agent'  => request()->userAgent(),
         ]);
+
+        // 2. Persist sanitized state to MariaDB audit_logs ledger
+        $this->auditService->record(
+            action: $action,
+            entityType: $entityType,
+            entityId: $entityId,
+            before: $sanitizedBefore,
+            after: $sanitizedAfter,
+            actor: $actor,
+            reason: $reason
+        );
     }
 }

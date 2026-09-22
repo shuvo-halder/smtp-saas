@@ -46,5 +46,16 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 - **Fields:** `invoice_number`, `total`, `status` (`pending`, `paid`, `failed`, `cancelled`), `transaction_id`
 - **Role:** Payment ledger for SSLCommerz IPN verification.
 
+### `audit_logs` (Administrative Ledger - Step 16B.1)
+- **Primary Key:** `id` (bigint unsigned, auto-increment)
+- **Foreign Key:** `actor_user_id` (nullable bigint unsigned -> `users.id` with `onDelete('set null')`)
+- **Fields:** `actor_email` (varchar), `action` (varchar), `entity_type` (varchar, nullable), `entity_id` (bigint unsigned, nullable), `before_state` (json, nullable), `after_state` (json, nullable), `reason` (text, nullable), `ip_address` (varchar(45), nullable), `user_agent` (text, nullable), `request_id` (varchar(100), nullable), `created_at` (timestamp, indexed)
+- **Role:** Application-level append-only audit ledger recording administrative mutations, operational actions, and security status changes.
+- **Indexes:** `['entity_type', 'entity_id']`, `action`, `actor_user_id`, `created_at`.
+- **Model:** `App\Models\AuditLog` (`const UPDATED_AT = null;`, array casts for states; no update or delete mutations exist in application logic).
+- **Redaction Invariant:** Centralized recursive secret scrubbing (`AuditService::sanitizeState()`) ensures that no plaintext passwords, SHA512-CRYPT hashes, API keys, or security tokens are ever stored in `before_state` or `after_state`.
+- **Retention Status:** NOT YET DEFINED — REQUIRES ARCHITECTURE APPROVAL; no automated deletion or pruning routine runs.
+
 ## Cross-System Coupling
 > **CRITICAL RULE:** Do NOT alter the schemas of `domains` or `mailboxes` without simultaneously verifying and updating `/etc/postfix/mysql-virtual-mailbox-*.cf` and `/etc/dovecot/dovecot-sql.conf.ext`. The mail stack relies precisely on the current table names and column structures.
+

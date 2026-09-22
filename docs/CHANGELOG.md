@@ -1,5 +1,28 @@
 # Changelog
 
+### Persistent Administrative Audit Logging Foundation (Step 16B.1)
+- **Added:** MariaDB database migration `database/migrations/2026_09_23_000001_create_audit_logs_table.php` provisioning persistent relational `audit_logs` table (`actor_user_id` nullable FK -> `users.id` on delete set null, `actor_email`, `action`, `entity_type`, `entity_id`, `before_state`, `after_state`, `reason`, `ip_address`, `user_agent`, `request_id`, `created_at`).
+- **Added:** `AuditLog` Eloquent model (`App\Models\AuditLog`) enforcing application-level append-only ledger semantics (`const UPDATED_AT = null`), JSON array casting for state snapshots, and eager-loadable `actor()` relationship.
+- **Added:** `AuditService` (`App\Services\AuditService`) providing centralized administrative audit logging with:
+  - Recursive sensitive key and hash scrubbing (`sanitizeState()`) replacing password fields, tokens, secrets, API keys, OTPs, credentials, and cryptographic hash strings (`$6$`, `$2y$`, `$2a$`) with `'[REDACTED]'`.
+  - Fail-safe database recording: catches database exceptions, logs errors to `storage/logs/admin-smtp.log` with safe metadata (error class/code, zero sensitive state), and returns `null` without throwing or aborting caller operations.
+  - Correlation request ID derivation and client telemetry extraction (`ip`, `userAgent`, `request_id`).
+- **Integrated:** `AdminSmtpService` mutations (`toggleMailbox`, `resetPassword`, `resetConsecutiveBounces`) with single-point pre-logging secret redaction via `AuditService::sanitizeState()`, ensuring raw state is strictly prohibited from entering `storage/logs/admin-smtp.log` while persisting sanitized records into `AuditLog`.
+- **Added:** `AdminAuditLogResource` (`App\Http\Resources\AdminAuditLogResource`) formatting audit records for the frontend control plane.
+- **Added:** `AdminAuditLogApiController` (`App\Http\Controllers\Api\AdminAuditLogApiController`) with endpoints protected by `EnsureAdmin`:
+  - `GET /api/admin/audit-logs`: Bounded pagination (max 50 per page), full text search, action filter, entity type and ID filter, actor filter, and date range filters.
+  - `GET /api/admin/audit-logs/{id}`: Detailed single event inspection with eager-loaded actor.
+- **Added:** Next.js 14 Admin Audit Log view at `/admin/audit-logs`:
+  - `AuditLogsTable`: Searchable datatable, action filter dropdown, entity filter dropdown, bounded pagination controls, action badges, and interactive detail modal with formatted JSON diff viewers for before and after states.
+  - Page component at `src/app/(admin)/admin/audit-logs/page.tsx`.
+  - Navigation item and `ScrollText` icon in `AdminSidebar.tsx`.
+  - TypeScript interface `AuditLog` in `src/types/index.ts`.
+  - Complete UI localization in `messages/en.json` under `Admin.audit_logs`.
+- **Added:** Unit and Feature test suites:
+  - `tests/Unit/AuditServiceTest.php`: Testing audit record creation, recursive secret key redaction, nested object conversion, cryptographic hash redaction, fail-safe exception handling, and request metadata capture (6 tests, 35 assertions).
+  - `tests/Feature/AdminAuditLogTest.php`: Testing unauthenticated/non-admin 401/403 guards, read-only 405 route protection, paginated listing, max 50 per page bound, action and entity filtering, text search, single record detail, dual log secret redaction, and fail-safe degradation on DB errors (9 tests, 48 assertions).
+- **Verified:** Clean Next.js production build (`npm run build` static generation 22/22 routes) and full Laravel test suite passing cleanly (153 tests, 649 assertions). Zero regressions across Steps 13, 14, 15, and 16A.
+
 ### Admin SMTP Management & Deliverability Control Plane (Step 16A)
 - **Added:** `AdminSmtpService` (`App\Services\Admin\AdminSmtpService`) managing cluster-wide SMTP overview, safe Redis telemetry availability detection with graceful degradation, bounded batch discovery (prohibiting unindexed `KEYS *`), parent hierarchy invariant validation on mailbox enable, SHA512-CRYPT mailbox password resets, consecutive hard bounce streak resets, and structured operational audit logging.
 - **Added:** `AdminSmtpTenantResource` (`App\Http\Resources\AdminSmtpTenantResource`) serializing tenant details, plan limits, today's outbound recipient consumption, bounce metrics, bounce rate, and abuse states.

@@ -84,8 +84,47 @@ This document describes the current implementation state of the EmailSaaS projec
   - `SmtpMailboxesTable`: Searchable and filterable datatable displaying domain, tenant, active status, today's recipients, consecutive bounce badges, and interactive modals for status toggle (with parent invariant feedback), bounce streak reset, and password reset (with copy-to-clipboard).
   - `SmtpAbuseTable`: Active abuse alert dashboard displaying threshold breaches flagged by Step 15 telemetry for today, with quick "Inspect Mailbox" jump actions.
 - **Explicitly Deferred Elements:**
-  - Tenant-level manual suspension (`suspension_type`, `suspension_reason`, etc.)
-  - Persistent administrative `audit_logs` database table and framework
-  - Granular RBAC / Spatie permissions
-  - Persistent abuse incident history (`abuse_incidents` table)
+  - Tenant-level manual suspension (`suspension_type`, `suspension_reason`, etc.) (deferred to Step 16B.3)
+  - Granular RBAC / Spatie permissions (deferred to Step 16B.2)
+  - Persistent abuse incident history (`abuse_incidents` table) (deferred to Step 16B.4)
+
+## 8. Persistent Administrative Audit Logging Foundation (Step 16B.1)
+- **Database Schema:** Persistent relational `audit_logs` table (`2026_09_23_000001_create_audit_logs_table.php`):
+  - `id`: Big incremental primary key.
+  - `actor_user_id`: Nullable unsigned big integer foreign key referencing `users.id` with `onDelete('set null')` for lifecycle safety.
+  - `actor_email`: String recording the acting administrator's email at the exact time of action.
+  - `action`: String identifying the discrete operation (e.g., `admin.smtp.mailbox.toggle`).
+  - `entity_type`: Nullable string (`mailbox`, `tenant`, `domain`, etc.).
+  - `entity_id`: Nullable unsigned big integer.
+  - `before_state`: Nullable JSON capturing pre-mutation snapshot (recursively sanitized).
+  - `after_state`: Nullable JSON capturing post-mutation snapshot (recursively sanitized).
+  - `reason`: Nullable text capturing administrator justification.
+  - `ip_address`: Nullable string (client IPv4/IPv6).
+  - `user_agent`: Nullable text (client browser / API client agent).
+  - `request_id`: Nullable string (UUID / correlation identifier).
+  - `created_at`: Timestamp indexed for chronological sorting and date filtering.
+  - Indexed combinations: `(entity_type, entity_id)`, `action`, `actor_user_id`, `created_at`.
+- **Model Layer:** `App\Models\AuditLog`:
+  - Application-level append-only audit records: `const UPDATED_AT = null;`. No update or delete endpoints or application routines exist.
+  - JSON attribute casting: `before_state => 'array'`, `after_state => 'array'`.
+  - Belongs-to relationship: `actor()` referencing `User`.
+- **Service Layer:** `App\Services\AuditService`:
+  - Reusable recording interface: `record(string $action, ?string $entityType, ?int $entityId, ?array $beforeState, ?array $afterState, ?string $reason, ?User $actor, ?Request $request)`.
+  - Centralized Recursive Secret Redaction: `sanitizeState()` traverses multi-dimensional arrays, instantly replacing values for sensitive keys (`password`, `password_hash`, `new_password`, `token`, `secret`, `api_key`, `otp`, `private_key`, `signature`, `auth`, `credentials`) with `'[REDACTED]'`, and redacting cryptographic hash strings (`$6$`, `$2y$`, `$2a$`).
+  - Fail-Safe Persistence: Catches any `Throwable` during database insertion, writes an error entry to `storage/logs/admin-smtp.log` (with zero sensitive state or queries in the error context), and returns `null` without throwing exceptions or rolling back legitimate administrative operations.
+  - Dual Logging Architecture with Single-Point Sanitization: Works alongside operational logging channel `admin_smtp`. `AdminSmtpService` sanitizes state via `AuditService::sanitizeState()` prior to emitting to `Log::channel('admin_smtp')` and `AuditService::record()`. Raw state is strictly prohibited from reaching operational logs.
+- **Controller & API Routes:** `AdminAuditLogApiController`:
+  - Protected globally by `EnsureAdmin` and Sanctum authentication.
+  - `GET /api/admin/audit-logs`: Paginated audit log retrieval, strictly bounded to max 50 records per page (`min(max((int) $request->input('per_page', 15), 1), 50)`). Supports filtering by `action`, `entity_type`, `entity_id`, `actor_user_id`, `date_from`, `date_to`, and broad text `search`.
+  - `GET /api/admin/audit-logs/{id}`: Detailed single event retrieval with eager-loaded actor relationship.
+  - Formatted output via `AdminAuditLogResource`.
+- **Frontend Audit UI:** Next.js 14 control plane view at `/admin/audit-logs`:
+  - Search input with live text filtering.
+  - Action and Entity dropdown filters.
+  - Full audit ledger table displaying UTC timestamp, acting administrator, action badge, target entity, reason, and IP.
+  - Bounded pagination controls with total record count and page indicators.
+  - Interactive Detail Modal with JSON diff viewers for `before_state` and `after_state` snapshots, actor identity, correlation request ID, and client user-agent.
+  - All user-facing strings centralized in `frontend/messages/en.json` under `Admin.audit_logs`.
+- **Retention Policy:** Undefined in Step 16B.1. Explicitly marked as `NOT YET DEFINED — REQUIRES ARCHITECTURE APPROVAL` to prevent premature automatic data loss.
+
 

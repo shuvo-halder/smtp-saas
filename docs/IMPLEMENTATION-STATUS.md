@@ -80,12 +80,17 @@
   - `[x]` Mailbox password reset (SHA512-CRYPT hashed, one-time admin display, zero plaintext persistence)
   - `[x]` Active abuse warnings dashboard with jump-to-mailbox navigation
   - `[x]` Dedicated operational audit logging channel (`storage/logs/admin-smtp.log`)
-  - `[ ]` Tenant-level manual suspension (DEFERRED — requires database schema & lifecycle design)
-  - `[ ]` Persistent administrative `audit_logs` table (DEFERRED — requires database schema)
-  - `[ ]` Granular RBAC / Spatie permissions (DEFERRED — requires database schema)
-  - `[ ]` Persistent abuse incident history table (DEFERRED — requires database schema)
-- `[ ]` Admin Audit Logs (DEFERRED)
-- `[ ]` Granular RBAC (Roles/Permissions) (DEFERRED)
+    - `[x]` Persistent administrative `audit_logs` table (Step 16B.1 IMPLEMENTED)
+    - `[ ]` Tenant-level manual suspension (DEFERRED to Step 16B.3)
+    - `[ ]` Granular RBAC / Spatie permissions (DEFERRED to Step 16B.2)
+    - `[ ]` Persistent abuse incident history table (DEFERRED to Step 16B.4)
+- `[x]` Admin Audit Logs (Step 16B.1 IMPLEMENTED):
+  - `[x]` Relational append-only application audit ledger & `AuditLog` Eloquent model
+  - `[x]` Centralized `AuditService` with recursive sensitive key/hash redaction and fail-safe persistence
+  - `[x]` Dual logging with pre-logging secret redaction (persistent MariaDB ledger + `storage/logs/admin-smtp.log` operational file log)
+  - `[x]` Read-only Admin API (`GET /api/admin/audit-logs`, `GET /api/admin/audit-logs/{id}`) with bounded pagination (<= 50) and filters
+  - `[x]` Next.js UI (`/admin/audit-logs`) with search, action/entity filters, pagination, and detail diff inspection modal
+- `[ ]` Granular RBAC (Roles/Permissions) (DEFERRED to Step 16B.2)
 
 ## SMTP Architecture & Management
 - `[x]` Direct Dovecot/Postfix SQL Binding

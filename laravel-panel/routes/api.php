@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminApiController;
+use App\Http\Controllers\Api\AdminAuditLogApiController;
 use App\Http\Controllers\Api\AdminSmtpApiController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BillingApiController;
@@ -84,6 +85,10 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
                 Route::post('/mailboxes/{mailbox}/reset-bounces', [AdminSmtpApiController::class, 'resetBounces']);
                 Route::post('/mailboxes/{mailbox}/reset-password', [AdminSmtpApiController::class, 'resetPassword']);
             });
+
+            // Persistent Audit Logs (Step 16B.1)
+            Route::get('/audit-logs', [AdminAuditLogApiController::class, 'index']);
+            Route::get('/audit-logs/{id}', [AdminAuditLogApiController::class, 'show']);
         });
     });
 });

@@ -48,6 +48,7 @@
       "mailboxes": "Mailboxes",
       "plans": "Plans",
       "smtp": "SMTP Management",
+      "audit_logs": "Audit Logs",
       "invoices": "Invoices",
       "settings": "System Settings"
     },
@@ -264,6 +265,40 @@
           "details": "Details",
           "actions": "Quick Actions"
         }
+      }
+    },
+    "audit_logs": {
+      "title": "Administrative Audit Logs",
+      "subtitle": "Persistent append-only ledger tracking all administrative actions and security mutations.",
+      "search_placeholder": "Search by action, email, entity or reason...",
+      "filter_action": "All Actions",
+      "filter_entity": "All Entities",
+      "no_logs": "No audit records found matching the current query.",
+      "table": {
+        "date": "Date (UTC)",
+        "actor": "Actor",
+        "action": "Action",
+        "entity": "Entity",
+        "entity_id": "Target ID",
+        "reason": "Reason",
+        "ip": "IP Address",
+        "actions": "Actions"
+      },
+      "modal": {
+        "title": "Audit Event Details",
+        "event_id": "Event ID",
+        "request_id": "Correlation Request ID",
+        "timestamp": "Timestamp",
+        "actor": "Acting Administrator",
+        "ip_agent": "Client IP / User Agent",
+        "action": "Action Executed",
+        "target": "Target Entity",
+        "reason": "Provided Reason",
+        "state_diff": "State Snapshot",
+        "before": "Before Mutation",
+        "after": "After Mutation",
+        "no_state": "No state mutation payload recorded for this event.",
+        "close": "Close"
       }
     },
     "common": {
