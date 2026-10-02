@@ -8,10 +8,17 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable, SoftDeletes;
+    use HasFactory, Notifiable, SoftDeletes, HasRoles;
+
+    /**
+     * Spatie Permission Guard Name.
+     * Locked to 'web' per RBAC-DEC-01.
+     */
+    protected string $guard_name = 'web';
 
     protected $fillable = [
         'name', 'email', 'password', 'phone',

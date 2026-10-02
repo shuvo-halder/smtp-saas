@@ -1,5 +1,19 @@
 # Changelog
 
+### Granular RBAC (Roles & Permissions) Implementation (Step 16B.2)
+- **Implemented:** Granular Role-Based Access Control using Spatie Laravel Permission with `guard_name = 'web'` matching Sanctum SPA cookie authentication (`RBAC-DEC-01`).
+- **Implemented:** `RoleEnum` and `PermissionEnum` defining 3 primary administrative roles (`super_admin`, `deliverability_operator`, `customer_support`) and 13 granular resource/action permissions.
+- **Implemented:** Super Admin explicit permission assignments (`RBAC-DEC-02`): mapped all permissions directly to `super_admin` in `role_has_permissions`, strictly omitting any universal `Gate::before` bypass.
+- **Implemented:** Mailbox password reset authorization (`RBAC-DEC-03`): authorized exclusively for Super Admin and Deliverability Operator roles via `admin.smtp.mailbox.reset_password`.
+- **Implemented:** Tenant administrator segregation (`RBAC-DEC-04`): updated `AdminApiController::suspendUser` and `activateUser` to reject targets that are administrators or hold administrative roles with HTTP 403.
+- **Implemented:** Operational security denial logging (`RBAC-DEC-05`): implemented `SecurityAuditLogger` logging structured 403 events to `storage/logs/security.log` with recursive redaction of sensitive credentials and session secrets.
+- **Implemented:** Dedicated concurrency governance mutex (`RBAC-DEC-06`): created `governance_locks` table and `SuperAdminGovernanceService` guaranteeing that the final active Super Admin cannot be demoted, de-escalated, or deactivated.
+- **Implemented:** Emergency recovery command (`RBAC-DEC-07`): created `php artisan rbac:emergency-recovery {email} {--reactivate}` preserving account status unless `--reactivate` is explicitly passed.
+- **Implemented:** Explicit test factory states (`RBAC-DEC-08`): added `superAdmin()`, `deliverabilityOperator()`, `customerSupport()`, and `withoutRoles()` to `UserFactory.php`, enforcing zero default privileges for new accounts (`RBAC-DEC-10`).
+- **Implemented:** Pure-DML backfill migration (`RBAC-DEC-09`, `Supplementary Decision 2`): created `2026_10_03_000003_seed_rbac_and_backfill_legacy_admins.php` with provenance tracking (`migration_step_16b2_backfill`), ensuring rollback preserves legitimate non-backfilled assignments.
+- **Implemented:** Granular route middleware `RequireAdminPermission` (`admin.permission`) applied across all administrative routes under `/api/admin/*`.
+- **Added:** Comprehensive test suite in `tests/Feature/RbacAuthorizationTest.php` (20 new tests, 67 assertions). Full test suite expanded to **181 passed, 741 assertions** with zero regressions.
+
 ### Step 16B.2 — Canonical RBAC Architecture Decision Finalization (Documentation Approved Only)
 - **Approved for Documentation:** Project owner approved the 10 Canonical RBAC Architecture Decisions and 4 Supplementary Decisions in `docs/DECISIONS.md`.
 - **Implementation Authorization:** STRICTLY PROHIBITED / NOT GRANTED. No source code, migrations, tests, seeders, configuration, database records, or authorization behavior were modified or authorized to change.

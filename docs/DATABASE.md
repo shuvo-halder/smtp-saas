@@ -56,6 +56,32 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 - **Redaction Invariant:** Centralized recursive secret scrubbing (`AuditService::sanitizeState()`) ensures that no plaintext passwords, SHA512-CRYPT hashes, API keys, or security tokens are ever stored in `before_state` or `after_state`.
 - **Retention Status:** NOT YET DEFINED — REQUIRES ARCHITECTURE APPROVAL; no automated deletion or pruning routine runs.
 
+### `roles` (Step 16B.2)
+- **Primary Key:** `id` (bigint unsigned, auto-increment)
+- **Fields:** `name` (varchar), `guard_name` (varchar, default `'web'`), `created_at`, `updated_at`
+- **Unique Constraint:** `(name, guard_name)`
+- **Seeded Records:** `Super Admin`, `Deliverability Operator`, `Customer Support` (all under `'web'` guard).
+
+### `permissions` (Step 16B.2)
+- **Primary Key:** `id` (bigint unsigned, auto-increment)
+- **Fields:** `name` (varchar), `guard_name` (varchar, default `'web'`), `created_at`, `updated_at`
+- **Unique Constraint:** `(name, guard_name)`
+- **Granular Permissions:** 13 granular permissions across stats, plans, users, domains, mailboxes, invoices, smtp, and audit logs.
+
+### `model_has_roles` (Step 16B.2)
+- **Fields:** `role_id` (FK -> `roles.id`), `model_type` (varchar), `model_id` (bigint unsigned), `provenance` (varchar(64), nullable)
+- **Primary Key / Index:** `(role_id, model_id, model_type)`
+- **Provenance Tracking:** Distinguishes automated initial data migration backfill (`provenance = 'migration_step_16b2_backfill'`) from subsequent runtime administrative assignments, allowing non-destructive migration rollback.
+
+### `role_has_permissions` & `model_has_permissions` (Step 16B.2)
+- Standard Spatie Permission pivot tables linking roles to permissions and direct model permissions under the `'web'` guard.
+
+### `governance_locks` (Step 16B.2)
+- **Primary Key:** `lock_name` (varchar(64))
+- **Fields:** `locked_at` (timestamp, nullable), `created_at`, `updated_at`
+- **Role:** Dedicated row-level mutex table used by `SuperAdminGovernanceService` (`SELECT ... FOR UPDATE` on `'super_admin_governance'`) to prevent concurrent de-escalation of the platform's last remaining active Super Admin.
+
 ## Cross-System Coupling
 > **CRITICAL RULE:** Do NOT alter the schemas of `domains` or `mailboxes` without simultaneously verifying and updating `/etc/postfix/mysql-virtual-mailbox-*.cf` and `/etc/dovecot/dovecot-sql.conf.ext`. The mail stack relies precisely on the current table names and column structures.
+
 

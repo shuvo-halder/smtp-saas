@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\Mailbox;
 use App\Models\Plan;
 use App\Models\User;
+use App\Services\SecurityAuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -115,6 +116,21 @@ class AdminApiController extends Controller
 
     public function suspendUser(User $user)
     {
+        // Enforce administrator segregation per RBAC-DEC-04
+        if ($user->is_admin || (method_exists($user, 'roles') && $user->roles()->exists())) {
+            SecurityAuditLogger::logDenial(
+                request(),
+                'Cannot modify administrator status via tenant endpoints.',
+                'admin.users.manage',
+                'user',
+                (string) $user->id
+            );
+
+            return response()->json([
+                'message' => 'Cannot modify administrator status via tenant endpoints.'
+            ], 403);
+        }
+
         $user->update(['status' => 'suspended']);
         $user->domains()->update(['status' => 'suspended']);
         
@@ -123,6 +139,21 @@ class AdminApiController extends Controller
 
     public function activateUser(User $user)
     {
+        // Enforce administrator segregation per RBAC-DEC-04
+        if ($user->is_admin || (method_exists($user, 'roles') && $user->roles()->exists())) {
+            SecurityAuditLogger::logDenial(
+                request(),
+                'Cannot modify administrator status via tenant endpoints.',
+                'admin.users.manage',
+                'user',
+                (string) $user->id
+            );
+
+            return response()->json([
+                'message' => 'Cannot modify administrator status via tenant endpoints.'
+            ], 403);
+        }
+
         $user->update(['status' => 'active']);
         // Only reactivate verified domains (assuming verified domains have required DNS)
         // Adjust logic based on your domain activation flow

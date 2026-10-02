@@ -323,7 +323,33 @@ sequenceDiagram
     Policy-->>Client: 201 Created (DomainResource)
 ```
 
+### Granular Administrative RBAC & Governance (Step 16B.2) `[Implemented]`
+
+The administrative control plane employs a two-tier, fail-closed authorization architecture:
+
+1. **Perimeter Authentication & Status Guard (`EnsureAdmin`):**
+   - Verifies the user is authenticated via Laravel Sanctum session/cookie (`web` guard).
+   - Enforces account active status: suspended administrators (`status === 'suspended'`) are strictly denied (HTTP 403 `Admin access required.`).
+   - Verifies administrative identity: checks `$user->is_admin === true` or membership in any administrative role (`RoleEnum`).
+
+2. **Granular Permission Guard (`RequireAdminPermission` / `admin.permission:{permission}`):**
+   - Checks explicit permissions on the `web` guard namespace.
+   - Zero universal `Gate::before` bypass: Super Admin possesses explicit assignments for all 13 canonical permissions (`PermissionEnum`), ensuring strict auditability.
+   - Fail-closed posture: administrators lacking explicit permissions receive HTTP 403 (`User does not have the right permissions.`).
+   - Frontline operational agility: `RoleEnum::DELIVERABILITY_OPERATOR` is authorized for SMTP management and mailbox password resets (`admin.smtp.mailbox.reset_password`), while `RoleEnum::CUSTOMER_SUPPORT` is limited to read-only views.
+
+3. **Tenant Management Administrator Segregation (`RBAC-DEC-04`):**
+   - Tenant lifecycle endpoints (`/api/admin/users/{id}/suspend` and `activate`) strictly reject administrative targets (`is_admin = true` or assigned any administrative role) with HTTP 403, preventing cross-domain privilege corruption.
+
+4. **Dedicated Concurrency Governance Mutex (`SuperAdminGovernanceService`):**
+   - Super Admin demotions and role revocations execute within an exclusive transaction that acquires row-level lock `SELECT ... FOR UPDATE` on `governance_locks` row `'super_admin_governance'`.
+   - Invariant: at least one active, non-suspended Super Admin must remain at all times. Contention telemetry captures MySQL 8.0 `performance_schema.data_lock_waits` diagnostics.
+
+5. **Operational Denial Logging (`SecurityAuditLogger`):**
+   - All authorization denials are logged to `storage/logs/security.log` (`security` daily channel) capturing actor metadata, client IP, route, and target entity with recursive credential redaction.
+
 ---
+
 
 ## 10. Database Architecture
 
@@ -811,6 +837,8 @@ NEXT_PUBLIC_WEBMAIL_URL=https://webmail.mailsaas.com
 *   **ADR-004 (Postfix Policy Delegation for SMTP Quotas):** Enforce daily outbound recipient quotas at SMTP `DATA` phase via a persistent local socket daemon (`127.0.0.1:10031`) backed by Redis atomic Lua scripts, falling open (`DUNNO`) on cache failure to preserve mail flow reliability.
 *   **ADR-005 (Monotonic Usage Reconciliation):** Synchronize transient Redis outbound counters hourly into MariaDB `tenant_outbound_usage` table using monotonic upserts, ensuring historical billing ledgers are never decremented by cache flushes or restarts.
 *   **ADR-006 (Asynchronous Log Telemetry & Hardened Abuse Alerting):** Process Postfix delivery logs asynchronously via scheduled Artisan command (`mail:process-log`) with intermediate filter discrimination, QID alias correlation, soft bounce deduplication, log rotation tail draining, and transactional cursor checkpointing, emitting non-destructive alerts without automated suspensions or schema changes.
+*   **ADR-007 (Granular Administrative RBAC & Dedicated Governance Mutex):** Protect administrative control plane endpoints using Spatie Permission on the `web` guard with explicit Super Admin permissions (zero universal `Gate::before` bypass), fail-closed permission middleware (`admin.permission:*`), strict tenant controller administrator segregation, operational denial logging to `storage/logs/security.log`, and an atomic `governance_locks` table mutex guarding the final active Super Admin against accidental de-escalation.
+
 
 
 ---

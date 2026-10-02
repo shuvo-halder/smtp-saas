@@ -34,7 +34,7 @@ class AdminUserLifecycleTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->admin = User::factory()->create([
+        $this->admin = User::factory()->superAdmin()->create([
             'name' => 'Admin User',
             'email' => 'admin@mailsaas.com',
             'is_admin' => true,
@@ -154,7 +154,7 @@ class AdminUserLifecycleTest extends TestCase
      */
     public function test_suspended_administrator_is_denied_admin_access(): void
     {
-        $suspendedAdmin = User::factory()->create([
+        $suspendedAdmin = User::factory()->superAdmin()->create([
             'name' => 'Suspended Admin',
             'email' => 'suspended-admin@mailsaas.com',
             'is_admin' => true,

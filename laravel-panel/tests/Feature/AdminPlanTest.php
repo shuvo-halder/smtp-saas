@@ -19,7 +19,7 @@ class AdminPlanTest extends TestCase
     {
         parent::setUp();
         
-        $this->admin = User::factory()->create([
+        $this->admin = User::factory()->superAdmin()->create([
             'is_admin' => true,
         ]);
         

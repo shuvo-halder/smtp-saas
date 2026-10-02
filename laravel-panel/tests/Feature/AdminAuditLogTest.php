@@ -40,7 +40,7 @@ class AdminAuditLogTest extends TestCase
             'mailbox_daily_outbound_recipients' => 100,
         ]);
 
-        $this->admin = User::factory()->create([
+        $this->admin = User::factory()->superAdmin()->create([
             'email'    => 'admin@platform.com',
             'is_admin' => true,
             'status'   => 'active',

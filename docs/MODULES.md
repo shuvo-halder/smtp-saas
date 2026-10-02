@@ -70,3 +70,24 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - `AdminSmtpApiController`: Exposes 8 RESTful endpoints protected by `EnsureAdmin`.
 - Next.js Admin UI (`/admin/smtp`): Overview KPI cards, Tenants table with quota bars, Mailboxes table with control modals, and Abuse warnings table with inspection shortcuts.
 
+## 10. Admin Audit Logging Foundation
+**Status:** IMPLEMENTED (Step 16B.1)
+**Purpose:** Persistent, append-only relational audit ledger for administrative operations and security state changes.
+**Components:**
+- `AuditLog` Model: Append-only Eloquent model (`const UPDATED_AT = null`).
+- `AuditService`: Centralized recording engine with recursive secret redaction (`sanitizeState()`) scrubbing passwords, hashes, tokens, keys, and credentials.
+- `AdminAuditLogApiController`: Exposes bounded paginated query endpoints (`/api/admin/audit-logs`) protected by `EnsureAdmin`.
+- Next.js Admin UI (`/admin/audit-logs`): Searchable, filterable audit log viewer with detail inspection modal.
+
+## 11. Granular Administrative RBAC & Governance
+**Status:** IMPLEMENTED & VERIFIED (Step 16B.2)
+**Purpose:** Multi-role administrative access control with fail-closed permissions, single-guard architecture, dedicated concurrency lock, and operational security logging.
+**Components:**
+- `RoleEnum` & `PermissionEnum`: Define 3 canonical roles (`Super Admin`, `Deliverability Operator`, `Customer Support`) and 13 resource permissions.
+- `EnsureAdmin` & `RequireAdminPermission`: Perimeter authentication, suspended account rejection, and granular permission checking on the `web` guard.
+- `SuperAdminGovernanceService`: Dedicated row-level mutex (`governance_locks` table) ensuring the platform's last active Super Admin cannot be de-escalated, with MySQL 8.0 lock-wait telemetry.
+- `SecurityAuditLogger`: Structured JSON denial logging to `storage/logs/security.log` with credential sanitization.
+- `RbacEmergencyRecoveryCommand` (`php artisan rbac:emergency-recovery`): Disaster recovery CLI tool restoring Super Admin privileges while preserving account suspension status unless `--reactivate` is passed.
+- Pure-DML Migration Backfill & Non-Destructive Rollback: Backfills existing administrators with provenance tag (`migration_step_16b2_backfill`) ensuring safe schema rollback without dropping runtime role assignments.
+
+

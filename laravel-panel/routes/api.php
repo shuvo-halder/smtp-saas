@@ -53,42 +53,72 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
 
         // Admin Routes
         Route::middleware(EnsureAdmin::class)->prefix('admin')->group(function () {
-            Route::get('/stats', [AdminApiController::class, 'stats']);
-            Route::get('/charts', [AdminApiController::class, 'chartData']);
+            // Stats / Dashboard
+            Route::middleware('admin.permission:admin.stats.read')->group(function () {
+                Route::get('/stats', [AdminApiController::class, 'stats']);
+                Route::get('/charts', [AdminApiController::class, 'chartData']);
+                Route::get('/server-stats', [AdminApiController::class, 'serverStats']);
+            });
             
-            Route::get('/users', [AdminApiController::class, 'users']);
-            Route::get('/users/{user}', [AdminApiController::class, 'showUser']);
-            Route::post('/users/{user}/suspend', [AdminApiController::class, 'suspendUser']);
-            Route::post('/users/{user}/activate', [AdminApiController::class, 'activateUser']);
+            // Users / Tenants
+            Route::get('/users', [AdminApiController::class, 'users'])
+                ->middleware('admin.permission:admin.users.read');
+            Route::get('/users/{user}', [AdminApiController::class, 'showUser'])
+                ->middleware('admin.permission:admin.users.read');
+            Route::post('/users/{user}/suspend', [AdminApiController::class, 'suspendUser'])
+                ->middleware('admin.permission:admin.users.manage');
+            Route::post('/users/{user}/activate', [AdminApiController::class, 'activateUser'])
+                ->middleware('admin.permission:admin.users.manage');
             
-            Route::get('/domains', [AdminApiController::class, 'domains']);
-            Route::get('/mailboxes', [AdminApiController::class, 'mailboxes']);
+            // Domains & Mailboxes
+            Route::get('/domains', [AdminApiController::class, 'domains'])
+                ->middleware('admin.permission:admin.domains.read');
+            Route::get('/mailboxes', [AdminApiController::class, 'mailboxes'])
+                ->middleware('admin.permission:admin.mailboxes.read');
             
-            Route::get('/plans', [AdminApiController::class, 'plans']);
-            Route::post('/plans', [AdminApiController::class, 'storePlan']);
-            Route::get('/plans/{plan}', [AdminApiController::class, 'showPlan']);
-            Route::put('/plans/{plan}', [AdminApiController::class, 'updatePlan']);
-            Route::delete('/plans/{plan}', [AdminApiController::class, 'destroyPlan']);
+            // Plans Management
+            Route::get('/plans', [AdminApiController::class, 'plans'])
+                ->middleware('admin.permission:admin.plans.read');
+            Route::post('/plans', [AdminApiController::class, 'storePlan'])
+                ->middleware('admin.permission:admin.plans.manage');
+            Route::get('/plans/{plan}', [AdminApiController::class, 'showPlan'])
+                ->middleware('admin.permission:admin.plans.read');
+            Route::put('/plans/{plan}', [AdminApiController::class, 'updatePlan'])
+                ->middleware('admin.permission:admin.plans.manage');
+            Route::delete('/plans/{plan}', [AdminApiController::class, 'destroyPlan'])
+                ->middleware('admin.permission:admin.plans.manage');
             
-            Route::get('/invoices', [AdminApiController::class, 'invoices']);
-            
-            Route::get('/server-stats', [AdminApiController::class, 'serverStats']);
+            // Invoices
+            Route::get('/invoices', [AdminApiController::class, 'invoices'])
+                ->middleware('admin.permission:admin.invoices.read');
 
             // SMTP Management & Deliverability (Step 16A)
             Route::prefix('smtp')->group(function () {
-                Route::get('/overview', [AdminSmtpApiController::class, 'overview']);
-                Route::get('/tenants', [AdminSmtpApiController::class, 'tenants']);
-                Route::get('/tenants/{user}', [AdminSmtpApiController::class, 'showTenant']);
-                Route::get('/mailboxes', [AdminSmtpApiController::class, 'mailboxes']);
-                Route::get('/abuse', [AdminSmtpApiController::class, 'abuse']);
-                Route::post('/mailboxes/{mailbox}/toggle', [AdminSmtpApiController::class, 'toggleMailbox']);
-                Route::post('/mailboxes/{mailbox}/reset-bounces', [AdminSmtpApiController::class, 'resetBounces']);
-                Route::post('/mailboxes/{mailbox}/reset-password', [AdminSmtpApiController::class, 'resetPassword']);
+                Route::get('/overview', [AdminSmtpApiController::class, 'overview'])
+                    ->middleware('admin.permission:admin.smtp.read');
+                Route::get('/tenants', [AdminSmtpApiController::class, 'tenants'])
+                    ->middleware('admin.permission:admin.smtp.read');
+                Route::get('/tenants/{user}', [AdminSmtpApiController::class, 'showTenant'])
+                    ->middleware('admin.permission:admin.smtp.read');
+                Route::get('/mailboxes', [AdminSmtpApiController::class, 'mailboxes'])
+                    ->middleware('admin.permission:admin.smtp.read');
+                Route::get('/abuse', [AdminSmtpApiController::class, 'abuse'])
+                    ->middleware('admin.permission:admin.smtp.read');
+                Route::post('/mailboxes/{mailbox}/toggle', [AdminSmtpApiController::class, 'toggleMailbox'])
+                    ->middleware('admin.permission:admin.smtp.mailbox.toggle');
+                Route::post('/mailboxes/{mailbox}/reset-bounces', [AdminSmtpApiController::class, 'resetBounces'])
+                    ->middleware('admin.permission:admin.smtp.mailbox.reset_bounces');
+
+                // RBAC-DEC-03: Mailbox password reset requires admin.smtp.mailbox.reset_password
+                Route::post('/mailboxes/{mailbox}/reset-password', [AdminSmtpApiController::class, 'resetPassword'])
+                    ->middleware('admin.permission:admin.smtp.mailbox.reset_password');
             });
 
             // Persistent Audit Logs (Step 16B.1)
-            Route::get('/audit-logs', [AdminAuditLogApiController::class, 'index']);
-            Route::get('/audit-logs/{id}', [AdminAuditLogApiController::class, 'show']);
+            Route::get('/audit-logs', [AdminAuditLogApiController::class, 'index'])
+                ->middleware('admin.permission:admin.audit_logs.read');
+            Route::get('/audit-logs/{id}', [AdminAuditLogApiController::class, 'show'])
+                ->middleware('admin.permission:admin.audit_logs.read');
         });
     });
 });

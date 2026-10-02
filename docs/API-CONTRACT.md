@@ -43,45 +43,65 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | POST | `/billing/cancel` | SSLCommerz Payment Cancel webhook. | `IdentifyTenant` (No CSRF) |
 | POST | `/webmail/sso` | Generate 60s Redis OTP for Roundcube. | `IdentifyTenant`, `auth:sanctum` |
 
-## Admin API
-| Method | Endpoint | Description | Middleware |
-|---|---|---|---|
-| GET | `/admin/stats` | Global platform metrics and charts data. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/charts` | Revenue and signup timeseries data. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/server-stats`| Mail queue, IMAP connections, disk usage. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/users` | Paginated list of all tenants. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/users/{id}` | Single tenant drill-down (with relations). | `auth:sanctum`, `EnsureAdmin` |
-| POST | `/admin/users/{id}/suspend`| Suspend a tenant and their domains. | `auth:sanctum`, `EnsureAdmin` |
-| POST | `/admin/users/{id}/activate`| Reactivate a tenant and their domains. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/domains` | Paginated list of all domains. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/mailboxes` | Paginated list of all mailboxes. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/plans` | List available subscription plans. | `auth:sanctum`, `EnsureAdmin` |
-| POST | `/admin/plans` | Create a new subscription plan. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/plans/{plan}` | Retrieve specific plan details. | `auth:sanctum`, `EnsureAdmin` |
-| PUT | `/admin/plans/{plan}` | Update a specific plan. | `auth:sanctum`, `EnsureAdmin` |
-| DELETE | `/admin/plans/{plan}` | Delete an unused plan. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/invoices` | Paginated list of all invoices. | `auth:sanctum`, `EnsureAdmin` |
+## Admin API (Step 16B.2 Granular RBAC)
+| Method | Endpoint | Description | Middleware | Required Permission |
+|---|---|---|---|---|
+| GET | `/admin/stats` | Global platform metrics and charts data. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.stats.view` |
+| GET | `/admin/charts` | Revenue and signup timeseries data. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.stats.view` |
+| GET | `/admin/server-stats`| Mail queue, IMAP connections, disk usage. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.stats.view` |
+| GET | `/admin/users` | Paginated list of all tenants. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.users.view` |
+| GET | `/admin/users/{id}` | Single tenant drill-down (with relations). | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.users.view` |
+| POST | `/admin/users/{id}/suspend`| Suspend a tenant and their domains (Rejects admin targets). | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.users.manage` |
+| POST | `/admin/users/{id}/activate`| Reactivate a tenant and their domains (Rejects admin targets). | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.users.manage` |
+| GET | `/admin/domains` | Paginated list of all domains. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.domains.view` |
+| GET | `/admin/mailboxes` | Paginated list of all mailboxes. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.mailboxes.view` |
+| GET | `/admin/plans` | List available subscription plans. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.plans.view` |
+| POST | `/admin/plans` | Create a new subscription plan. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.plans.manage` |
+| GET | `/admin/plans/{plan}` | Retrieve specific plan details. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.plans.view` |
+| PUT | `/admin/plans/{plan}` | Update a specific plan. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.plans.manage` |
+| DELETE | `/admin/plans/{plan}` | Delete an unused plan. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.plans.manage` |
+| GET | `/admin/invoices` | Paginated list of all invoices. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.invoices.view` |
 
-## Admin SMTP Management API (Step 16A)
-| Method | Endpoint | Description | Middleware |
-|---|---|---|---|
-| GET | `/admin/smtp/overview` | Cluster-wide SMTP metrics, queue size, totals, and active abuse count. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/smtp/tenants` | Paginated tenants with live daily quotas, today's usage, and bounce metrics. Supports `?search=&page=`. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/smtp/tenants/{user}` | Detailed tenant profile, domains, live telemetry, and 30-day historical usage ledger. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/smtp/mailboxes` | Paginated mailboxes with domain, tenant, active state, and consecutive bounce counts. Supports `?search=&is_active=&domain_id=&page=`. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/smtp/abuse` | Active threshold warnings for today (high bounce rate, consecutive bounces, daily spike). | `auth:sanctum`, `EnsureAdmin` |
-| POST | `/admin/smtp/mailboxes/{mailbox}/toggle` | Toggle mailbox active/disabled status with optional `{ reason }`. On enable, strictly enforces active domain, active tenant, and active subscription (HTTP 422 if violated). | `auth:sanctum`, `EnsureAdmin` |
-| POST | `/admin/smtp/mailboxes/{mailbox}/reset-bounces` | Reset consecutive hard bounce streak to 0 in Redis with optional `{ reason }`. | `auth:sanctum`, `EnsureAdmin` |
-| POST | `/admin/smtp/mailboxes/{mailbox}/reset-password` | Reset password with optional `{ password, reason }`. If blank, generates secure 16-char password. Returns plaintext once in response; hashes with SHA512-CRYPT. | `auth:sanctum`, `EnsureAdmin` |
+## Admin SMTP Management API (Step 16A / 16B.2 Granular RBAC)
+| Method | Endpoint | Description | Middleware | Required Permission |
+|---|---|---|---|---|
+| GET | `/admin/smtp/overview` | Cluster-wide SMTP metrics, queue size, totals, and active abuse count. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.view` |
+| GET | `/admin/smtp/tenants` | Paginated tenants with live daily quotas, today's usage, and bounce metrics. Supports `?search=&page=`. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.view` |
+| GET | `/admin/smtp/tenants/{user}` | Detailed tenant profile, domains, live telemetry, and 30-day historical usage ledger. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.view` |
+| GET | `/admin/smtp/mailboxes` | Paginated mailboxes with domain, tenant, active state, and consecutive bounce counts. Supports `?search=&is_active=&domain_id=&page=`. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.view` |
+| GET | `/admin/smtp/abuse` | Active threshold warnings for today (high bounce rate, consecutive bounces, daily spike). | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.view` |
+| POST | `/admin/smtp/mailboxes/{mailbox}/toggle` | Toggle mailbox active/disabled status with optional `{ reason }`. On enable, strictly enforces active domain, active tenant, and active subscription (HTTP 422 if violated). | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.toggle` |
+| POST | `/admin/smtp/mailboxes/{mailbox}/reset-bounces` | Reset consecutive hard bounce streak to 0 in Redis with optional `{ reason }`. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.reset_bounces` |
+| POST | `/admin/smtp/mailboxes/{mailbox}/reset-password` | Reset password with optional `{ password, reason }`. Authorized for Super Admin and Deliverability Operator. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.reset_password` |
 
-## Admin Audit Log API (Step 16B.1)
-| Method | Endpoint | Description | Middleware |
-|---|---|---|---|
-| GET | `/admin/audit-logs` | Paginated list of persistent audit records. Supports `?page=&per_page=&search=&action=&entity_type=&entity_id=&actor_user_id=&date_from=&date_to=`. Max `per_page` bounded to 50. | `auth:sanctum`, `EnsureAdmin` |
-| GET | `/admin/audit-logs/{id}` | Detailed single audit event record with eager-loaded actor relationship. | `auth:sanctum`, `EnsureAdmin` |
+## Admin Audit Log API (Step 16B.1 / 16B.2 Granular RBAC)
+| Method | Endpoint | Description | Middleware | Required Permission |
+|---|---|---|---|---|
+| GET | `/admin/audit-logs` | Paginated list of persistent audit records. Supports `?page=&per_page=&search=&action=&entity_type=&entity_id=&actor_user_id=&date_from=&date_to=`. Max `per_page` bounded to 50. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.audit_logs.view` |
+| GET | `/admin/audit-logs/{id}` | Detailed single audit event record with eager-loaded actor relationship. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.audit_logs.view` |
+
+## RBAC Error Responses & Contracts (Step 16B.2)
+- **Granular Permission Denial (HTTP 403 Forbidden):**
+  When an authenticated administrator lacks the required granular permission, `RequireAdminPermission` denies access with:
+  ```json
+  {
+    "message": "User does not have the right permissions.",
+    "required_permission": "admin.plans.manage"
+  }
+  ```
+- **Tenant Management Administrator Segregation (HTTP 403 Forbidden - `RBAC-DEC-04`):**
+  When attempting to suspend or activate a user account that is an administrator (`is_admin = true` or assigned any administrative role) via `/api/admin/users/{id}/suspend` or `/api/admin/users/{id}/activate`:
+  ```json
+  {
+    "message": "Cannot manage administrator accounts via tenant management endpoints."
+  }
+  ```
+- **Unauthenticated / Non-Admin Perimeter Rejection (HTTP 401 / 403):**
+  Unauthenticated requests receive HTTP 401 (`Unauthenticated.`). Non-admin or suspended administrators attempting to access `/api/admin/*` receive HTTP 403 (`Admin access required.`).
 
 ## Security & Tenant Isolation
 - **Tenant Isolation:** Explicitly enforced via Eloquent Route Model Binding intersecting with `DomainPolicy` and `InvoicePolicy`.
 - **Ghost Record Protection:** Endpoints modifying databases and file systems simultaneously (`DomainApiController@store`, `MailboxApiController@store`) are wrapped in `DB::transaction`.
-- **Admin SMTP Guard:** All `/api/admin/smtp/*` routes require authenticated administrator sessions via `EnsureAdmin`. Plaintext passwords are never stored in databases, never written to log files, and masked in Eloquent serialization via `$hidden`.
+- **Admin Perimeter & RBAC Guard:** All `/api/admin/*` routes require authenticated administrator sessions via `EnsureAdmin` and granular permission verification via `RequireAdminPermission`.
+
 

@@ -90,8 +90,18 @@
   - `[x]` Dual logging with pre-logging secret redaction (persistent MariaDB ledger + `storage/logs/admin-smtp.log` operational file log)
   - `[x]` Read-only Admin API (`GET /api/admin/audit-logs`, `GET /api/admin/audit-logs/{id}`) with bounded pagination (<= 50) and filters
 - `[x]` Admin User Lifecycle & Session Verification (Step 16B.2 Phase A IMPLEMENTED)
-- `[x]` Legacy Admin Status Authorization Hardening (Step 16B.2A IMPLEMENTED)
-- `[ ]` Granular RBAC (Roles/Permissions) (Step 16B.2 Architecture Decisions OWNER-APPROVED FOR DOCUMENTATION; Implementation BLOCKED / PENDING SEPARATE OWNER AUTHORIZATION)
+- `[x]` Granular RBAC (Roles/Permissions) (Step 16B.2 IMPLEMENTED & VERIFIED):
+  - `[x]` Spatie Permission guard locked to `web` (`RBAC-DEC-01`)
+  - `[x]` Super Admin explicit permission assignment; zero `Gate::before` bypass (`RBAC-DEC-02`)
+  - `[x]` Mailbox password reset authorized for Super Admin + Deliverability Operator (`RBAC-DEC-03`)
+  - `[x]` Tenant administrator segregation in suspend/activate endpoints (`RBAC-DEC-04`)
+  - `[x]` Operational authorization denial logging to `storage/logs/security.log` (`RBAC-DEC-05`)
+  - `[x]` Dedicated `governance_locks` table & `SuperAdminGovernanceService` concurrency protection (`RBAC-DEC-06`)
+  - `[x]` Emergency recovery CLI `rbac:emergency-recovery` with `--reactivate` status preservation (`RBAC-DEC-07`)
+  - `[x]` Explicit test factory states in `UserFactory` (`superAdmin`, `deliverabilityOperator`, `customerSupport`, `withoutRoles`) (`RBAC-DEC-08`)
+  - `[x]` Pure-DML backfill migration with provenance preservation on rollback (`RBAC-DEC-09`, `Supplementary Decision 2`)
+  - `[x]` Zero default privileges for new administrators; fail-closed least privilege (`RBAC-DEC-10`)
+  - `[x]` Granular route middleware `RequireAdminPermission` across all administrative endpoints
 
 ## SMTP Architecture & Management
 - `[x]` Direct Dovecot/Postfix SQL Binding

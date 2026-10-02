@@ -41,7 +41,7 @@ class AdminSmtpTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->admin = User::factory()->create([
+        $this->admin = User::factory()->superAdmin()->create([
             'is_admin' => true,
             'status' => 'active',
             'plan_id' => $this->plan->id,

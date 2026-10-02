@@ -69,33 +69,24 @@ This document is the operational starting point for any AI coding agent working 
   - Added unit and feature tests (`tests/Unit/AuditServiceTest.php`, `tests/Feature/AdminAuditLogTest.php`).
   - Full test suite: 153 tests, 649 assertions passing cleanly. Clean Next.js production build (`npm run build`).
 
-- **Step 16B.2 / 16B.2A — Verified Issue Remediation & Hardening (Phase A & 16B.2A IMPLEMENTED; RBAC DECISIONS APPROVED FOR DOCUMENTATION ONLY; IMPLEMENTATION BLOCKED):**
-  - Hardened `tenant:suspend-expired` (`SuspendExpiredTenants.php`) with `where('is_admin', false)` to strictly exempt administrative accounts from automated customer subscription expiration processing.
-  - Hardened `EnsureAdmin` middleware (`App\Http\Middleware\EnsureAdmin`) with `$user->status === 'suspended'` check, strictly denying suspended administrators access to `/api/admin/*` endpoints (HTTP 403 `Admin access required.`).
-  - Added regression tests in `tests/Feature/BillingLifecycleTest.php` and `tests/Feature/AdminUserLifecycleTest.php`.
-  - Baseline test suite expanded: **161 tests, 674 assertions passing cleanly**.
-  - **Step 16B.2 Canonical Owner Decisions (APPROVED FOR DOCUMENTATION ONLY — IMPLEMENTATION NOT AUTHORIZED):**
-    1. Guard name: `web` (Option A — single-guard architecture matching Sanctum SPA session).
-    2. Super Admin authorization: Explicit permissions (Option A — strict auditability, zero global Gate::before bypass).
-    3. Mailbox password reset: Super Admin + Deliverability Operator (Option B — operational agility for frontline support).
-    4. Tenant controller administrator segregation: Reject administrator targets (Option A — strict boundary separation).
-    5. Authorization denial logging destination: Operational file/security log (Option A — resilient, DoS-proof).
-    6. Universal Super Admin concurrency lock strategy: Dedicated `governance_locks` table (Option B — clean persistence isolation).
-    7. Emergency recovery account status preservation: Preserve existing status and require `--reactivate` (Option A — security-first).
-    8. Test factory role assignment strategy: Explicit factory states (Option A — deterministic, zero implicit observer roles).
-    9. Legacy administrator backfill execution strategy: Pure-DML migration (Option A — atomic, zero-downtime deployment sync).
-    10. New administrator default privileges: Zero default roles/permissions (Option A — fail-closed least privilege).
-  - **Supplementary Architecture Decisions:**
-    1. Database engine lock telemetry: MySQL 8.0 `performance_schema.data_lock_waits` (Resolved — technical compatibility).
-    2. Migration rollback strategy: Preserve role assignments with provenance (Option B — owner selected).
-    3. Tenant-expiration job exemption: RESOLVED & IMPLEMENTED in Step 16B.2 Phase A (`where('is_admin', false)`).
-    4. Migration sentinel design: Standard Laravel migration tracking (Option A — no custom sentinel table).
-  - **Current Governance State:** `ARCHITECTURE DECISIONS APPROVED FOR DOCUMENTATION — IMPLEMENTATION STILL BLOCKED`. A separate explicit owner instruction is required before implementation may begin.
+- **Step 16B.2 — Granular Administrative RBAC (Roles & Permissions) (IMPLEMENTED & VERIFIED):**
+  - **Single Guard Namespace (`RBAC-DEC-01`):** Spatie Laravel Permission configured to use the existing `web` session/cookie guard (`config/permission.php`). `User` model specifies `protected string $guard_name = 'web';` and uses `HasRoles` trait.
+  - **Explicit Super Admin Permissions (`RBAC-DEC-02`):** Zero universal `Gate::before` bypass. `RoleEnum::SUPER_ADMIN` is explicitly granted all 13 permissions defined in `PermissionEnum`, ensuring complete auditability and least-privilege predictability.
+  - **Frontline Mailbox Password Reset (`RBAC-DEC-03`):** Mailbox password reset endpoint protected by `admin.permission:admin.smtp.mailbox.reset_password`, authorized for `RoleEnum::SUPER_ADMIN` and `RoleEnum::DELIVERABILITY_OPERATOR`. `RoleEnum::CUSTOMER_SUPPORT` is denied mutation endpoints.
+  - **Tenant Controller Administrator Segregation (`RBAC-DEC-04`):** `AdminApiController::suspendUser()` and `activateUser()` strictly reject administrator targets (`is_admin = true` or `hasAnyRole()`) with HTTP 403 and operational denial logging, preventing cross-domain privilege corruption.
+  - **Operational Denial Logging (`RBAC-DEC-05`):** Created `SecurityAuditLogger` logging all authorization rejections to `storage/logs/security.log` via daily `security` channel (`config/logging.php`). Includes recursive redaction of sensitive credentials, passwords, tokens, and hashes.
+  - **Dedicated Concurrency Governance Mutex (`RBAC-DEC-06`):** Implemented `SuperAdminGovernanceService` and `governance_locks` table. Atomic `SELECT ... FOR UPDATE` mutex over `'super_admin_governance'` lock row protects the final active Super Admin from accidental demotion, de-escalation, deletion, or suspension. Includes MySQL 8.0 `performance_schema.data_lock_waits` diagnostics on contention.
+  - **Emergency Recovery Status Preservation (`RBAC-DEC-07`):** Implemented `php artisan rbac:emergency-recovery {email} {--reactivate}` command (`RbacEmergencyRecoveryCommand`). Re-assigns Super Admin role and restores `is_admin = true` while preserving existing account status (`suspended` remains suspended unless explicit `--reactivate` flag is supplied).
+  - **Explicit Test Factory States (`RBAC-DEC-08`):** `UserFactory` defaults to zero administrative roles (`is_admin = false`). Added explicit factory states `superAdmin()`, `deliverabilityOperator()`, `customerSupport()`, and `withoutRoles()`. Zero implicit observer role creation.
+  - **Pure-DML Migration & Non-Destructive Rollback (`RBAC-DEC-09` & Supplementary):**
+    - Migration `2026_10_03_000001_create_permission_tables.php`: Spatie tables with `provenance` column on `model_has_roles`.
+    - Migration `2026_10_03_000002_create_governance_locks_table.php`: `governance_locks` table with seeded `'super_admin_governance'` lock row.
+    - Migration `2026_10_03_000003_seed_rbac_and_backfill_legacy_admins.php`: Pure-DML seed of roles/permissions and backfill of existing `is_admin = 1` users with provenance `'migration_step_16b2_backfill'`. `down()` rollback strictly deletes only backfilled records, preserving subsequent legitimate role assignments.
+  - **Fail-Closed Default Privileges (`RBAC-DEC-10`):** New administrators have zero default roles/permissions. `RequireAdminPermission` middleware denies access (HTTP 403) to any administrator lacking the required permission.
+  - **Perimeter Guard Hardening (Step 16B.2A):** `EnsureAdmin` middleware checks authentication, verifies `$user->status !== 'suspended'`, and confirms `$user->is_admin || $user->hasAnyRole(...)`.
+  - **Test Suite Execution:** Added 20 comprehensive feature tests in `tests/Feature/RbacAuthorizationTest.php`. Full test suite: **181 passed (741 assertions)** cleanly in under 8 seconds.
 
 ## 5. Next Recommended Implementation Phase
-- **Step 16B.2 — Granular Administrative RBAC (Roles & Permissions):**
-  - Architecture decisions are fully locked and approved for documentation.
-  - Requires separate explicit owner implementation authorization before any code, migrations, or role assignments are introduced.
 - **Step 16B.3 — Tenant Suspension Redesign & Billing Lifecycle Integration:**
   - Database schema for explicit administrative tenant suspension (`suspension_type`, `suspension_reason`, `suspended_by`).
   - Decoupling administrative suspension from billing expiry in `BillingService::markInvoicePaid()`.
