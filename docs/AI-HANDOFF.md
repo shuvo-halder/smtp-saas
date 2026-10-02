@@ -69,10 +69,31 @@ This document is the operational starting point for any AI coding agent working 
   - Added unit and feature tests (`tests/Unit/AuditServiceTest.php`, `tests/Feature/AdminAuditLogTest.php`).
   - Full test suite: 153 tests, 649 assertions passing cleanly. Clean Next.js production build (`npm run build`).
 
+- **Step 16B.2 / 16B.2A — Verified Issue Remediation & Hardening (Phase A & 16B.2A IMPLEMENTED; RBAC PENDING OWNER DECISIONS):**
+  - Hardened `tenant:suspend-expired` (`SuspendExpiredTenants.php`) with `where('is_admin', false)` to strictly exempt administrative accounts from automated customer subscription expiration processing.
+  - Hardened `EnsureAdmin` middleware (`App\Http\Middleware\EnsureAdmin`) with `$user->status === 'suspended'` check, strictly denying suspended administrators access to `/api/admin/*` endpoints (HTTP 403 `Admin access required.`).
+  - Added regression tests in `tests/Feature/BillingLifecycleTest.php` and `tests/Feature/AdminUserLifecycleTest.php`.
+  - Baseline test suite expanded: **161 tests, 674 assertions passing cleanly**.
+  - All 10 Canonical Owner Architecture Decisions remain strictly **PENDING**:
+    1. Guard name: `web` vs `sanctum`.
+    2. Super Admin authorization: explicit permissions vs `Gate::before`.
+    3. Mailbox password reset: Super Admin only vs Super Admin and deliverability operator.
+    4. Tenant controller administrator segregation.
+    5. Authorization denial logging destination.
+    6. Universal Super Admin concurrency lock strategy.
+    7. Emergency recovery account status preservation.
+    8. Test factory explicit roles vs automatic observer.
+    9. Legacy backfill mechanism.
+    10. New administrator default privileges.
+  - Supplementary Architecture Decisions (PENDING):
+    1. Database engine telemetry schema: MySQL 8.0 `performance_schema` vs MariaDB 10.x `information_schema`.
+    2. Migration rollback strategy: Migration 2 preserves `model_has_roles` records on step rollback.
+    3. Tenant-expiration job exemption: IMPLEMENTED (`where('is_admin', false)`).
+    4. Migration sentinel design: Dedicated versioned sentinel table for one-time legacy backfill.
+
 ## 5. Next Recommended Implementation Phase
 - **Step 16B.2 — Granular Administrative RBAC (Roles & Permissions):**
-  - Multi-role administrator authorization (Super Admin, Support Admin, Compliance Auditor).
-  - Spatie Laravel-Permission or scoped gate policies.
+  - Requires explicit owner determination on the 10 canonical architecture decisions before implementation begins.
 - **Step 16B.3 — Tenant Suspension Redesign & Billing Lifecycle Integration:**
   - Database schema for explicit administrative tenant suspension (`suspension_type`, `suspension_reason`, `suspended_by`).
   - Decoupling administrative suspension from billing expiry in `BillingService::markInvoicePaid()`.

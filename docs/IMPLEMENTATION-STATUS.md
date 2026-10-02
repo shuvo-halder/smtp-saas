@@ -6,7 +6,7 @@
 - [x] Sanctum authentication & CSRF
 - [x] Logout
 - [x] User endpoint for current context
-- [x] Authorization middleware (`EnsureAdmin`, `EnsureActiveSubscription`)
+- [x] Authorization middleware (`EnsureAdmin` [hardened with suspended status check], `EnsureActiveSubscription`)
 
 ## Multi-Tenancy
 - [x] Next.js Edge wildcard routing
@@ -54,7 +54,7 @@
 
 ## Background Automation
 - [x] System Cron configured
-- [x] `tenant:suspend-expired` command
+- [x] `tenant:suspend-expired` command (Hardened with `where('is_admin', false)` administrator exemption)
 - [x] Supervisor queue worker (`mailsaas-worker.conf`)
 
 ## Backup & Disaster Recovery
@@ -89,8 +89,9 @@
   - `[x]` Centralized `AuditService` with recursive sensitive key/hash redaction and fail-safe persistence
   - `[x]` Dual logging with pre-logging secret redaction (persistent MariaDB ledger + `storage/logs/admin-smtp.log` operational file log)
   - `[x]` Read-only Admin API (`GET /api/admin/audit-logs`, `GET /api/admin/audit-logs/{id}`) with bounded pagination (<= 50) and filters
-  - `[x]` Next.js UI (`/admin/audit-logs`) with search, action/entity filters, pagination, and detail diff inspection modal
-- `[ ]` Granular RBAC (Roles/Permissions) (DEFERRED to Step 16B.2)
+- `[x]` Admin User Lifecycle & Session Verification (Step 16B.2 Phase A IMPLEMENTED)
+- `[x]` Legacy Admin Status Authorization Hardening (Step 16B.2A IMPLEMENTED)
+- `[ ]` Granular RBAC (Roles/Permissions) (Step 16B.2 Phase B-E PENDING OWNER DECISIONS)
 
 ## SMTP Architecture & Management
 - `[x]` Direct Dovecot/Postfix SQL Binding

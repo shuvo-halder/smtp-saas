@@ -31,6 +31,7 @@ class SuspendExpiredTenants extends Command
         $this->info('Checking for expired tenants...');
 
         $expiredTenants = User::where('status', 'active')
+            ->where('is_admin', false)
             ->whereNotNull('plan_expires_at')
             ->where('plan_expires_at', '<', now())
             ->get();

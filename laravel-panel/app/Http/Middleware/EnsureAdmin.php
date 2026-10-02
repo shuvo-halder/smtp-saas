@@ -11,7 +11,7 @@ class EnsureAdmin
     {
         $user = $request->user();
 
-        if (!$user || !$user->is_admin) {
+        if (!$user || !$user->is_admin || $user->status === 'suspended') {
             return response()->json(['message' => 'Admin access required.'], 403);
         }
 

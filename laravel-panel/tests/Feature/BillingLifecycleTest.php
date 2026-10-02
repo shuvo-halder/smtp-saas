@@ -195,6 +195,42 @@ class BillingLifecycleTest extends TestCase
         $user->refresh();
         $this->assertEquals('active', $user->status);
     }
+
+    public function test_expired_administrator_is_exempt_from_tenant_suspension()
+    {
+        // Customer tenant with expired subscription
+        $tenant = cloneUser('active');
+        $tenant->update(['plan_expires_at' => now()->subHours(1), 'is_admin' => false]);
+        $tenantDomain = Domain::create([
+            'user_id' => $tenant->id,
+            'domain_name' => 'customer-domain.com',
+            'status' => 'active',
+        ]);
+
+        // Administrator account with expired plan_expires_at timestamp
+        $admin = cloneUser('active');
+        $admin->update(['plan_expires_at' => now()->subHours(1), 'is_admin' => true]);
+        $adminDomain = Domain::create([
+            'user_id' => $admin->id,
+            'domain_name' => 'admin-domain.com',
+            'status' => 'active',
+        ]);
+
+        Artisan::call('tenant:suspend-expired');
+
+        $tenant->refresh();
+        $tenantDomain->refresh();
+        $admin->refresh();
+        $adminDomain->refresh();
+
+        // Customer tenant must be suspended
+        $this->assertEquals('suspended', $tenant->status);
+        $this->assertEquals('suspended', $tenantDomain->status);
+
+        // Administrator account must be completely exempt from tenant suspension
+        $this->assertEquals('active', $admin->status);
+        $this->assertEquals('active', $adminDomain->status);
+    }
 }
 
 function cloneUser($status) {

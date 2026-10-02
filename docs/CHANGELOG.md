@@ -1,5 +1,25 @@
 # Changelog
 
+### Legacy Admin Status Authorization Hardening (Step 16B.2A)
+- **Hardened:** `EnsureAdmin` middleware (`App\Http\Middleware\EnsureAdmin`) updated to strictly deny access when an administrator account is suspended (`!$user || !$user->is_admin || $user->status === 'suspended'`), returning HTTP `403 Forbidden` (`{"message": "Admin access required."}`).
+- **Remediated Security Gap:** Closes the vulnerability where an account with `is_admin = true` and `status = 'suspended'` could authenticate and access administrative control plane endpoints (`/api/admin/*`).
+- **Added:** Focused regression tests in `tests/Feature/AdminUserLifecycleTest.php`:
+  - `test_active_administrator_retains_authorized_admin_access`: Asserts that active administrators retain HTTP 200 access to admin endpoints.
+  - `test_suspended_administrator_is_denied_admin_access`: Asserts that suspended administrators are denied with HTTP 403.
+  - `test_ordinary_non_admin_user_is_denied_admin_access`: Asserts that regular tenants are denied with HTTP 403.
+  - `test_unauthenticated_request_is_denied_with_unauthenticated_status`: Asserts that unauthenticated requests receive HTTP 401 via `auth:sanctum`.
+- **Suite Verification:** Full test suite expanded to **161 passed, 674 assertions** with zero regressions.
+
+### Verified Issue Remediation & Hardening (Step 16B.2 Phase A)
+- **Hardened:** `SuspendExpiredTenants` command (`App\Console\Commands\SuspendExpiredTenants`) updated to explicitly restrict candidate selection with `where('is_admin', false)`. Guarantees administrative accounts are strictly excluded from automated customer subscription expiration processing and prevents accidental administrator suspension or domain locking.
+- **Added:** Regression test in `tests/Feature/BillingLifecycleTest.php` (`test_expired_administrator_is_exempt_from_tenant_suspension`) asserting that an administrator holding an expired subscription timestamp remains active when `tenant:suspend-expired` executes, while normal expired tenant subscriptions are suspended as expected.
+- **Added:** Feature test suite `tests/Feature/AdminUserLifecycleTest.php` verifying:
+  - Tenant administrative suspension and reactivation via `POST /api/admin/users/{user}/suspend` and `POST /api/admin/users/{user}/activate`.
+  - Immediate `403 Forbidden` (`Active subscription required.`) enforcement on subscription-protected endpoints (`/api/domains`) for suspended tenants.
+  - Documented empirical behavior that `suspendUser` does not revoke database sessions, keeping `/api/auth/user` accessible until explicit session purge or re-authentication.
+  - Legacy `EnsureAdmin` authorization verification demonstrating that suspended administrative accounts retain access under the legacy `$user->is_admin` binary check (verifying the critical pre-rollback de-escalation requirement).
+- **Audit Verification:** Completed evidence classification audit across MySQL 8.0 `performance_schema` lock telemetry, verified absence of unapproved RBAC/concurrency fixtures, and preserved all 10 canonical owner architecture decisions as strictly PENDING.
+
 ### Persistent Administrative Audit Logging Foundation (Step 16B.1)
 - **Added:** MariaDB database migration `database/migrations/2026_09_23_000001_create_audit_logs_table.php` provisioning persistent relational `audit_logs` table (`actor_user_id` nullable FK -> `users.id` on delete set null, `actor_email`, `action`, `entity_type`, `entity_id`, `before_state`, `after_state`, `reason`, `ip_address`, `user_agent`, `request_id`, `created_at`).
 - **Added:** `AuditLog` Eloquent model (`App\Models\AuditLog`) enforcing application-level append-only ledger semantics (`const UPDATED_AT = null`), JSON array casting for state snapshots, and eager-loadable `actor()` relationship.
