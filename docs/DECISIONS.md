@@ -103,3 +103,89 @@ Guarantees production safety, prevents unapproved database schema changes, preve
 ### DO NOT CHANGE WITHOUT APPROVAL
 Yes
 
+---
+
+## Step 16B.2 — Canonical RBAC Architecture Decision Registry (PREPARATION — PENDING OWNER APPROVAL)
+
+The following 10 canonical decisions define the security boundaries and architecture for Step 16B.2 Granular RBAC. Implementation is strictly prohibited until the project owner explicitly selects an option for each decision.
+
+### Decision 1: Spatie Guard Name
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: `web` (Single-guard architecture aligned with Sanctum stateful SPA cookie authentication).
+  * Option B: `sanctum` (Explicit token guard architecture requiring Sanctum guard definition in `config/auth.php`).
+* **Implementation Consequence:** Option A leverages the existing authenticated session guard without configuration divergence; Option B requires dual-guard configuration and explicit guard specification on all permission queries.
+
+### Decision 2: Super Admin Authorization Strategy
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Explicit permission assignments (All permissions explicitly mapped to `super_admin` in `role_has_permissions`).
+  * Option B: Global bypass via `Gate::before` (Super Admin bypasses all individual permission checks).
+* **Implementation Consequence:** Option A enforces strict least privilege and complete auditability; Option B introduces global privilege bypass that can circumvent domain invariant policies unless guarded by defensive conditionals.
+
+### Decision 3: Mailbox Password Reset Authorization
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: `super_admin` only.
+  * Option B: `super_admin` plus `deliverability_operator`.
+* **Implementation Consequence:** Option A strictly shields private tenant mailbox communications from support staff; Option B allows frontline deliverability staff to resolve tenant access lockouts.
+
+### Decision 4: Administrator Segregation in Tenant Controllers
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Enforce administrator segregation (Tenant suspend/activate endpoints reject target users where `is_admin = true` or user holds an administrative role).
+  * Option B: Allow tenant controllers to modify any user account.
+* **Implementation Consequence:** Option A prevents cross-boundary privilege escalation or accidental administrative suspension via tenant endpoints; Option B leaves administrative accounts vulnerable to tenant lifecycle workflows.
+
+### Decision 5: Authorization Denial Logging Destination
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Operational application log channel (`storage/logs/laravel.log` or dedicated `auth_denials` channel).
+  * Option B: Persistent database administrative ledger (`audit_logs` table).
+* **Implementation Consequence:** Option A isolates denial telemetry from database failures and prevents table flooding under automated scanning; Option B provides direct queryability and UI audit visibility at the cost of database write load.
+
+### Decision 6: Universal Super Admin Concurrency Lock Strategy
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Pessimistic row lock on existing `roles` row (`SELECT * FROM roles WHERE name = 'super_admin' FOR UPDATE`).
+  * Option B: Dedicated governance lock table (`governance_locks`).
+* **Implementation Consequence:** Option A avoids additional database schema migrations; Option B cleanly decouples concurrency locking from Spatie table schema and eliminates risk of gap-lock contention on Spatie tables.
+
+### Decision 7: Emergency Recovery Account Status Preservation
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Preserve account status by default and require an explicit `--reactivate` flag to restore a suspended recovery admin.
+  * Option B: Automatically reactivate the recovery account upon password reset.
+* **Implementation Consequence:** Option A prevents unintentional reactivation of compromised accounts; Option B prioritizes guaranteed break-glass access restoration.
+
+### Decision 8: Test Factory Role Assignment Strategy
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Explicit factory states (`User::factory()->superAdmin()`, defaulting to zero roles).
+  * Option B: Automatic model observer assigning default roles.
+* **Implementation Consequence:** Option A guarantees test isolation and prevents unintended privilege leaks in test cases; Option B reduces boilerplate in tests but risks implicit privilege escalation.
+
+### Decision 9: Legacy Administrator Backfill Execution Strategy
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Pure-DML database migration (`seed_rbac_and_backfill_legacy_admins.php`).
+  * Option B: One-time manual CLI command (`php artisan rbac:backfill`).
+* **Implementation Consequence:** Option A guarantees zero-gap synchronization during deployment; Option B decouples data migration from schema deployment but introduces risk of operator omission.
+
+### Decision 10: New Administrator Default Privileges
+* **Status:** PENDING OWNER APPROVAL
+* **Options:**
+  * Option A: Zero roles/permissions by default (fail-closed, requiring explicit role grant).
+  * Option B: Predefined base role assignment (`customer_support` by default).
+* **Implementation Consequence:** Option A strictly enforces default-deny least privilege; Option B speeds administrator onboarding at the expense of automated privilege grant.
+
+---
+
+## Supplementary Architecture Decisions (PENDING OWNER APPROVAL)
+
+1. **Database Engine Telemetry Schema:** Standardize lock telemetry on MySQL 8.0 `performance_schema` (`data_lock_waits`) rather than MariaDB 10.x `information_schema.innodb_lock_waits` (which does not exist in MySQL 8.0).
+2. **Migration Rollback Data Preservation:** Mandate that Migration 2 `down()` preserves `model_has_roles` user assignments rather than executing cascading deletes, reserving full table deletion for Migration 1 `down()`.
+3. **Tenant-Expiration Job Exemption:** Status: **RESOLVED & IMPLEMENTED** in Step 16B.2 Phase A (`where('is_admin', false)`).
+4. **Migration-Completion Sentinel Design:** Implement a dedicated versioned sentinel table (`rbac_migration_sentinels`) to guarantee idempotent, single-execution legacy backfills.
+
+
