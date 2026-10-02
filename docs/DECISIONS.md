@@ -188,4 +188,216 @@ The following 10 canonical decisions define the security boundaries and architec
 3. **Tenant-Expiration Job Exemption:** Status: **RESOLVED & IMPLEMENTED** in Step 16B.2 Phase A (`where('is_admin', false)`).
 4. **Migration-Completion Sentinel Design:** Implement a dedicated versioned sentinel table (`rbac_migration_sentinels`) to guarantee idempotent, single-execution legacy backfills.
 
+---
 
+## Step 16B.2 — Canonical RBAC Architecture Decision Registry
+
+### OWNER DECISION RECORD — APPROVED FOR DOCUMENTATION ONLY
+
+**Project:** EmailSaaS (`smtp-saas`)  
+**Step:** 16B.2 — Granular RBAC Architecture  
+**Decision Status:** **OWNER-APPROVED FOR DOCUMENTATION**  
+**Implementation Authorization:** **NOT GRANTED**  
+**Implementation Status:** **BLOCKED / PENDING SEPARATE OWNER AUTHORIZATION**  
+
+This record preserves the previously documented Step 16B.2 architecture-decision history and records the owner's explicit selections. No source code, migrations, tests, seeders, configuration, database records, or authorization behavior are authorized to change as a consequence of this record alone.
+
+---
+
+### Canonical Owner Decisions
+
+#### RBAC-DEC-01 — Spatie Guard Name
+
+**Owner Selection:** **Option A — `web`**
+
+**Decision:** Spatie Permission will use the existing Laravel `web` authentication guard namespace.
+
+**Architectural rationale:** The current application uses Laravel's `web` session guard for authentication, while Sanctum SPA authentication operates through the stateful session layer rather than requiring a separate `sanctum` guard definition.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-02 — Super Admin Authorization Model
+
+**Owner Selection:** **Option A — Explicit permissions**
+
+**Decision:** Super Admin capabilities will be represented through explicit RBAC permission assignments rather than a global `Gate::before` authorization bypass.
+
+**Architectural consequence:** Super Admin authorization must remain visible within the RBAC permission model and must not silently bypass permission checks through a universal Gate override.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-03 — Mailbox Password Reset Authorization
+
+**Owner Selection:** **Option B — Super Admin + Deliverability Operator**
+
+**Decision:** Mailbox password reset functionality will be available to both the Super Admin role and the designated Deliverability Operator role, subject to the final permission definitions and policy enforcement implemented in the authorized RBAC phase.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-04 — Tenant Controller Administrator Segregation
+
+**Owner Selection:** **Option A — Reject administrator targets**
+
+**Decision:** Tenant-scoped suspend/activate controller operations must reject targets that are administrators.
+
+**Architectural consequence:** Administrator lifecycle operations must remain separated from ordinary tenant-user lifecycle operations. Tenant endpoints must not be permitted to change administrator status through the ordinary tenant suspension/activation path.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-05 — Authorization Denial Logging
+
+**Owner Selection:** **Option A — Operational file/security log**
+
+**Decision:** Authorization-denial events will be recorded through an operational security log rather than the persistent administrative `audit_logs` database ledger.
+
+**Architectural rationale:** Authorization-denial traffic may be high-volume or externally generated. File-based operational logging avoids making authorization-denial handling dependent on the database and reduces the risk of database audit-log flooding.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-06 — Super Admin Concurrency Lock
+
+**Owner Selection:** **Option B — Dedicated `governance_locks` table**
+
+**Decision:** Universal Super Admin governance concurrency control will use a dedicated governance lock table rather than relying on a row lock on the Spatie `roles` table.
+
+**Architectural consequence:** Governance-level synchronization will have an isolated persistence boundary instead of coupling concurrency control to the RBAC role record itself.
+
+**Required future implementation consideration:** The authorized implementation must define the lock-row lifecycle, transaction boundaries, contention behavior, timeout/failure behavior, and concurrency tests before this decision can be considered implemented.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-07 — Emergency Recovery Account Status
+
+**Owner Selection:** **Option A — Preserve existing status and require `--reactivate`**
+
+**Decision:** Emergency recovery tooling must preserve the existing account status by default. Explicit `--reactivate` authorization/intent will be required before the recovery mechanism changes a suspended account back to an active state.
+
+**Architectural consequence:** Emergency recovery must not silently alter account lifecycle state as a side effect of restoring administrative access.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-08 — Test Factory Role Assignment
+
+**Owner Selection:** **Option A — Explicit factory states**
+
+**Decision:** Test factories will use explicit role-assignment states rather than an automatic observer that implicitly assigns roles.
+
+**Architectural rationale:** Tests should declare their required authorization state explicitly and avoid hidden role mutations caused by model observers.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-09 — Legacy Administrator Backfill
+
+**Owner Selection:** **Option A — Pure-DML migration**
+
+**Decision:** Existing legacy administrators will be migrated into the new RBAC representation through a database migration using controlled DML rather than a separate one-time CLI command.
+
+**Required future implementation consideration:** The migration must explicitly define eligibility, idempotency, transaction behavior, assignment provenance, rollback behavior, and protection against accidental privilege expansion.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### RBAC-DEC-10 — New Administrator Default Privileges
+
+**Owner Selection:** **Option A — Zero default roles/permissions**
+
+**Decision:** Newly created administrator accounts will receive no implicit RBAC roles or permissions by default.
+
+**Architectural consequence:** Administrative privileges must be explicitly assigned. The system must fail closed rather than silently granting a default administrative permission set.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+### Supplementary Architecture Decisions
+
+#### Supplementary Decision 1 — MySQL 8.0 Lock Telemetry
+
+**Status:** **Resolved — Technical Compatibility Decision**
+
+The production database environment uses MySQL 8.0. Lock-contention diagnostics must use the MySQL 8-compatible `performance_schema` mechanisms, including `performance_schema.data_lock_waits` and related thread/transaction metadata, rather than obsolete `information_schema.innodb_lock_waits` queries.
+
+This is a technical compatibility resolution and does not require a new owner business decision.
+
+---
+
+#### Supplementary Decision 2 — Migration Rollback Role-Assignment Preservation
+
+**Owner Selection:** **Option B — Preserve role assignments with provenance**
+
+**Decision:** RBAC migration rollback must preserve legitimate role assignments rather than blindly deleting `model_has_roles` records.
+
+**Required future implementation consideration:** Any migration-created role assignments that may require cleanup during rollback must have sufficient provenance to distinguish migration-created assignments from legitimate pre-existing or subsequently modified assignments.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+#### Supplementary Decision 3 — Tenant-Expiration Job Administrator Exemption
+
+**Status:** **Resolved & Implemented in Step 16B.2A**
+
+The tenant-expiration process was hardened so administrators are excluded from automatic tenant suspension.
+
+The existing Step 16B.2A implementation and regression coverage remain part of the accepted baseline and are not reopened by the RBAC decision process.
+
+---
+
+#### Supplementary Decision 4 — Migration-Completion Sentinel Design
+
+**Owner Selection:** **Option A — Standard Laravel migration tracking**
+
+**Decision:** RBAC migration completion will rely on Laravel's standard migration tracking mechanism rather than introducing a separate `rbac_migration_sentinels` table.
+
+**Architectural consequence:** No dedicated sentinel table is authorized by this decision.
+
+**Implementation authorization:** Not granted by this record.
+
+---
+
+### Decision Governance
+
+These decisions constitute the owner's selected **Step 16B.2 RBAC architecture direction**.
+
+They do **not** constitute implementation authorization.
+
+The following remain explicitly prohibited until a separate owner authorization is provided:
+
+* Creating or modifying RBAC migrations.
+* Creating roles or permissions.
+* Assigning roles to production users.
+* Enabling Spatie `HasRoles`.
+* Adding RBAC middleware or policies.
+* Replacing or bypassing the existing `EnsureAdmin` boundary.
+* Modifying administrator creation/update behavior.
+* Creating `governance_locks`.
+* Implementing legacy administrator backfill.
+* Implementing emergency recovery behavior.
+* Modifying authorization-denial logging.
+* Changing database schema or production database records.
+* Claiming Step 16B.2 RBAC implementation is complete.
+
+The canonical decision history preceding this record must remain preserved. Earlier `PENDING OWNER APPROVAL` preparation entries must not be overwritten or deleted; this record is an explicit subsequent owner-resolution entry.
+
+**Current state after this decision record:**
+
+> **ARCHITECTURE DECISIONS APPROVED FOR DOCUMENTATION — IMPLEMENTATION STILL BLOCKED**
+
+A separate explicit owner instruction is required before implementation may begin.

@@ -1,5 +1,22 @@
 # Changelog
 
+### Step 16B.2 — Canonical RBAC Architecture Decision Finalization (Documentation Approved Only)
+- **Approved for Documentation:** Project owner approved the 10 Canonical RBAC Architecture Decisions and 4 Supplementary Decisions in `docs/DECISIONS.md`.
+- **Implementation Authorization:** STRICTLY PROHIBITED / NOT GRANTED. No source code, migrations, tests, seeders, configuration, database records, or authorization behavior were modified or authorized to change.
+- **Approved Direction Summary:**
+  - `RBAC-DEC-01`: Guard Name -> Option A (`web`).
+  - `RBAC-DEC-02`: Super Admin Authorization Model -> Option A (Explicit permissions, no global `Gate::before` bypass).
+  - `RBAC-DEC-03`: Mailbox Password Reset -> Option B (Super Admin + Deliverability Operator).
+  - `RBAC-DEC-04`: Tenant Controller Admin Segregation -> Option A (Reject administrator targets).
+  - `RBAC-DEC-05`: Authorization Denial Logging -> Option A (Operational file/security log).
+  - `RBAC-DEC-06`: Super Admin Concurrency Lock -> Option B (Dedicated `governance_locks` table).
+  - `RBAC-DEC-07`: Emergency Recovery Account Status -> Option A (Preserve existing status and require `--reactivate`).
+  - `RBAC-DEC-08`: Test Factory Role Assignment -> Option A (Explicit factory states).
+  - `RBAC-DEC-09`: Legacy Administrator Backfill -> Option A (Pure-DML migration).
+  - `RBAC-DEC-10`: New Administrator Default Privileges -> Option A (Zero default roles/permissions; fail-closed).
+  - `Supplementary Decisions`: MySQL 8.0 `performance_schema.data_lock_waits` (Technical resolution), preserve role assignments with provenance on rollback (Option B), tenant expiry admin exemption (Implemented in Step 16B.2A), standard Laravel migration tracking (Option A).
+- **Governance State:** `ARCHITECTURE DECISIONS APPROVED FOR DOCUMENTATION — IMPLEMENTATION STILL BLOCKED`.
+
 ### Legacy Admin Status Authorization Hardening (Step 16B.2A)
 - **Hardened:** `EnsureAdmin` middleware (`App\Http\Middleware\EnsureAdmin`) updated to strictly deny access when an administrator account is suspended (`!$user || !$user->is_admin || $user->status === 'suspended'`), returning HTTP `403 Forbidden` (`{"message": "Admin access required."}`).
 - **Remediated Security Gap:** Closes the vulnerability where an account with `is_admin = true` and `status = 'suspended'` could authenticate and access administrative control plane endpoints (`/api/admin/*`).

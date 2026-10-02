@@ -91,7 +91,7 @@
   - `[x]` Read-only Admin API (`GET /api/admin/audit-logs`, `GET /api/admin/audit-logs/{id}`) with bounded pagination (<= 50) and filters
 - `[x]` Admin User Lifecycle & Session Verification (Step 16B.2 Phase A IMPLEMENTED)
 - `[x]` Legacy Admin Status Authorization Hardening (Step 16B.2A IMPLEMENTED)
-- `[ ]` Granular RBAC (Roles/Permissions) (Step 16B.2 Phase B-E PENDING OWNER DECISIONS)
+- `[ ]` Granular RBAC (Roles/Permissions) (Step 16B.2 Architecture Decisions OWNER-APPROVED FOR DOCUMENTATION; Implementation BLOCKED / PENDING SEPARATE OWNER AUTHORIZATION)
 
 ## SMTP Architecture & Management
 - `[x]` Direct Dovecot/Postfix SQL Binding
