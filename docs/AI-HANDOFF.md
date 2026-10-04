@@ -84,7 +84,9 @@ This document is the operational starting point for any AI coding agent working 
     - Migration `2026_10_03_000003_seed_rbac_and_backfill_legacy_admins.php`: Pure-DML seed of roles/permissions and backfill of existing `is_admin = 1` users with provenance `'migration_step_16b2_backfill'`. `down()` rollback strictly deletes only backfilled records, preserving subsequent legitimate role assignments.
   - **Fail-Closed Default Privileges (`RBAC-DEC-10`):** New administrators have zero default roles/permissions. `RequireAdminPermission` middleware denies access (HTTP 403) to any administrator lacking the required permission.
   - **Perimeter Guard Hardening (Step 16B.2A):** `EnsureAdmin` middleware checks authentication, verifies `$user->status !== 'suspended'`, and confirms `$user->is_admin || $user->hasAnyRole(...)`.
-  - **Test Suite Execution:** Added 20 comprehensive feature tests in `tests/Feature/RbacAuthorizationTest.php`. Full test suite: **181 passed (741 assertions)** cleanly in under 8 seconds.
+  - **Tenant Invoice Authorization Hardening (Finding 6 Remediation):** Replaced legacy `$user->is_admin` check in `InvoicePolicy::view()` with granular RBAC check (`admin.invoices.read`) on the `web` guard, ensuring zero-role administrators cannot bypass RBAC to access other tenants' invoices while preserving tenant ownership.
+  - **Test Suite Execution:** Expanded test suite in `tests/Feature/RbacAuthorizationTest.php` to 28 tests (84 assertions). Full test suite: **189 passed (758 assertions)** cleanly with zero regressions.
+
 
 ## 5. Next Recommended Implementation Phase
 - **Step 16B.3 — Tenant Suspension Redesign & Billing Lifecycle Integration:**

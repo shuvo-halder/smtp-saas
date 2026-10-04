@@ -12,7 +12,9 @@
 - **Implemented:** Explicit test factory states (`RBAC-DEC-08`): added `superAdmin()`, `deliverabilityOperator()`, `customerSupport()`, and `withoutRoles()` to `UserFactory.php`, enforcing zero default privileges for new accounts (`RBAC-DEC-10`).
 - **Implemented:** Pure-DML backfill migration (`RBAC-DEC-09`, `Supplementary Decision 2`): created `2026_10_03_000003_seed_rbac_and_backfill_legacy_admins.php` with provenance tracking (`migration_step_16b2_backfill`), ensuring rollback preserves legitimate non-backfilled assignments.
 - **Implemented:** Granular route middleware `RequireAdminPermission` (`admin.permission`) applied across all administrative routes under `/api/admin/*`.
-- **Added:** Comprehensive test suite in `tests/Feature/RbacAuthorizationTest.php` (20 new tests, 67 assertions). Full test suite expanded to **181 passed, 741 assertions** with zero regressions.
+- **Hardened:** `InvoicePolicy::view` (`App\Policies\InvoicePolicy`) updated to eliminate the legacy `$user->is_admin` bypass (Finding 6 Remediation). Cross-tenant invoice view/download access now requires explicit `admin.invoices.read` permission on the `web` guard and active account status (`status !== 'suspended'`). Normal customer ownership access is preserved.
+- **Added:** Comprehensive test suite in `tests/Feature/RbacAuthorizationTest.php` (28 tests, 84 assertions). Full test suite expanded to **189 passed, 758 assertions** with zero regressions.
+
 
 ### Step 16B.2 — Canonical RBAC Architecture Decision Finalization (Documentation Approved Only)
 - **Approved for Documentation:** Project owner approved the 10 Canonical RBAC Architecture Decisions and 4 Supplementary Decisions in `docs/DECISIONS.md`.

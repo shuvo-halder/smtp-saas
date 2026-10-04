@@ -101,7 +101,4 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Operational Denial Logging (`RBAC-DEC-05`):** Authorization denials from `RequireAdminPermission` and `AdminApiController` are routed via `SecurityAuditLogger` to `storage/logs/security.log` (`security` daily channel). Denials log actor metadata, target entities, IP address, and route details while executing recursive redaction of sensitive credentials, passwords, tokens, and hashes.
 - **Emergency Account Recovery (`RBAC-DEC-07`):** The CLI recovery tool (`php artisan rbac:emergency-recovery {email} {--reactivate}`) assigns the Super Admin role and restores `is_admin = true`. By default, it preserves the existing account status (`status = suspended` remains suspended) to prevent accidental reactivation of compromised accounts, requiring the explicit `--reactivate` flag to alter account status.
 - **Non-Destructive Migration Rollback:** Migration `2026_10_03_000003` records a `provenance = 'migration_step_16b2_backfill'` tag on legacy role assignments. If rolled back, only backfilled assignments are removed, strictly preserving subsequent legitimate role assignments.
-
-
-
-
+- **Tenant Invoice Authorization Hardening (Finding 6 Remediation):** In `InvoicePolicy::view()`, the legacy `$user->is_admin` bypass has been replaced with granular RBAC enforcement. Cross-tenant invoice view/download access requires the explicit `admin.invoices.read` permission on the `web` guard and active account status (`status !== 'suspended'`). Normal customers retain strict ownership-based access (`$user->id === $invoice->user_id`). Zero-role administrators and roles lacking `admin.invoices.read` (such as Deliverability Operator) are strictly denied cross-tenant invoice access.

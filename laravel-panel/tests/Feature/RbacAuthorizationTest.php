@@ -6,6 +6,7 @@ use App\Enums\PermissionEnum;
 use App\Enums\RoleEnum;
 use App\Exceptions\SuperAdminGovernanceException;
 use App\Models\Domain;
+use App\Models\Invoice;
 use App\Models\Mailbox;
 use App\Models\Plan;
 use App\Models\User;
@@ -24,6 +25,8 @@ class RbacAuthorizationTest extends TestCase
     private Plan $plan;
     private Domain $domain;
     private Mailbox $mailbox;
+    private User $tenant;
+    private Invoice $invoice;
 
     protected function setUp(): void
     {
@@ -43,7 +46,7 @@ class RbacAuthorizationTest extends TestCase
             'is_active' => true,
         ]);
 
-        $tenant = User::factory()->create([
+        $this->tenant = User::factory()->create([
             'name' => 'Sample Tenant',
             'email' => 'sample-tenant@client.com',
             'is_admin' => false,
@@ -53,7 +56,7 @@ class RbacAuthorizationTest extends TestCase
         ]);
 
         $this->domain = Domain::create([
-            'user_id' => $tenant->id,
+            'user_id' => $this->tenant->id,
             'domain_name' => 'client-corp.com',
             'status' => 'active',
             'mx_verified' => true,
@@ -67,7 +70,41 @@ class RbacAuthorizationTest extends TestCase
             'quota_mb' => 1024,
             'is_active' => true,
         ]);
+
+        $this->invoice = Invoice::create([
+            'user_id' => $this->tenant->id,
+            'plan_id' => $this->plan->id,
+            'invoice_number' => 'INV-TEST-001',
+            'billing_cycle' => 'monthly',
+            'subtotal' => 20,
+            'total' => 20,
+            'due_date' => now()->addDays(7),
+            'status' => 'paid',
+        ]);
     }
+
+    protected function tearDown(): void
+    {
+        if (isset($this->invoice)) {
+            $filePath = storage_path('app/invoices/' . $this->invoice->id . '.pdf');
+            if (file_exists($filePath)) {
+                @unlink($filePath);
+            }
+        }
+        parent::tearDown();
+    }
+
+    private function ensureInvoiceFileExists(Invoice $invoice): string
+    {
+        $dir = storage_path('app/invoices');
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $filePath = $dir . '/' . $invoice->id . '.pdf';
+        file_put_contents($filePath, '%PDF-1.4 test invoice dummy content');
+        return $filePath;
+    }
+
 
     // =========================================================================
     // 1. Authentication & Boundary Tests
@@ -412,5 +449,108 @@ class RbacAuthorizationTest extends TestCase
 
         $permissionCount = DB::table('permissions')->count();
         $this->assertEquals(count(PermissionEnum::cases()), $permissionCount);
+    }
+
+    // =========================================================================
+    // 9. Invoice Policy Granular RBAC Authorization (Finding 6 Remediation)
+    // =========================================================================
+
+    public function test_tenant_can_download_own_invoice(): void
+    {
+        $this->ensureInvoiceFileExists($this->invoice);
+
+        $this->assertTrue($this->tenant->can('view', $this->invoice));
+
+        $response = $this->actingAs($this->tenant)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(200);
+    }
+
+    public function test_other_tenant_cannot_download_invoice(): void
+    {
+        $otherTenant = User::factory()->create(['is_admin' => false, 'status' => 'active']);
+
+        $this->assertFalse($otherTenant->can('view', $this->invoice));
+
+        $response = $this->actingAs($otherTenant)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(403);
+    }
+
+    public function test_super_admin_can_download_other_tenant_invoice(): void
+    {
+        $this->ensureInvoiceFileExists($this->invoice);
+        $superAdmin = User::factory()->superAdmin()->create();
+
+        $this->assertTrue($superAdmin->can('view', $this->invoice));
+
+        $response = $this->actingAs($superAdmin)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(200);
+    }
+
+    public function test_customer_support_can_download_other_tenant_invoice(): void
+    {
+        $this->ensureInvoiceFileExists($this->invoice);
+        $support = User::factory()->customerSupport()->create();
+
+        $this->assertTrue($support->can('view', $this->invoice));
+
+        $response = $this->actingAs($support)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(200);
+    }
+
+    public function test_deliverability_operator_cannot_download_other_tenant_invoice(): void
+    {
+        $operator = User::factory()->deliverabilityOperator()->create();
+
+        $this->assertFalse($operator->can('view', $this->invoice));
+
+        $response = $this->actingAs($operator)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(403);
+    }
+
+    public function test_zero_role_administrator_cannot_download_other_tenant_invoice(): void
+    {
+        $zeroRoleAdmin = User::factory()->withoutRoles()->create();
+        $this->assertTrue($zeroRoleAdmin->is_admin);
+
+        $this->assertFalse($zeroRoleAdmin->can('view', $this->invoice));
+
+        $response = $this->actingAs($zeroRoleAdmin)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(403);
+    }
+
+    public function test_suspended_administrator_cannot_download_other_tenant_invoice(): void
+    {
+        $suspendedAdmin = User::factory()->superAdmin()->create(['status' => 'suspended']);
+
+        $this->assertFalse($suspendedAdmin->can('view', $this->invoice));
+
+        $response = $this->actingAs($suspendedAdmin)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(403);
+    }
+
+    public function test_non_admin_user_cannot_download_other_tenant_invoice(): void
+    {
+        $nonAdmin = User::factory()->create(['is_admin' => false, 'status' => 'active']);
+
+        $this->assertFalse($nonAdmin->can('view', $this->invoice));
+
+        $response = $this->actingAs($nonAdmin)
+            ->get("/api/billing/invoices/{$this->invoice->id}/download");
+
+        $response->assertStatus(403);
     }
 }

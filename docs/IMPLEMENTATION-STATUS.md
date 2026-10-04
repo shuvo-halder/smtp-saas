@@ -102,6 +102,8 @@
   - `[x]` Pure-DML backfill migration with provenance preservation on rollback (`RBAC-DEC-09`, `Supplementary Decision 2`)
   - `[x]` Zero default privileges for new administrators; fail-closed least privilege (`RBAC-DEC-10`)
   - `[x]` Granular route middleware `RequireAdminPermission` across all administrative endpoints
+  - `[x]` Tenant invoice authorization hardening in `InvoicePolicy::view()` (Finding 6 Remediation: explicit `admin.invoices.read` required; legacy `is_admin` bypass eliminated)
+
 
 ## SMTP Architecture & Management
 - `[x]` Direct Dovecot/Postfix SQL Binding
