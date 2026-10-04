@@ -1,5 +1,33 @@
 # Changelog
 
+### Tenant Suspension Redesign & Billing Lifecycle Integration (Step 16B.3)
+- **Hardened:** `SuspendExpiredTenants` command (`App\Console\Commands\SuspendExpiredTenants`):
+  - Added Spatie administrative role check (`whereDoesntHave('roles', fn ($q) => $q->whereIn('name', RoleEnum::adminRoles()))`) alongside `where('is_admin', false)` to guarantee 100% administrative immunity from automated expiration regardless of role vs attribute configuration.
+  - Implemented per-tenant isolated database transactions with `lockForUpdate()`, re-checking `status === 'active'` and `plan_expires_at < now()` inside the lock to eliminate race conditions with concurrent renewals.
+  - Restricts domain suspension strictly to active domains (`$tenant->domains()->where('status', 'active')->update(['status' => 'suspended'])`), preserving `pending` and unverified domains.
+  - Integrated persistent audit logging via `AuditService::record('tenant.auto_suspend', ...)` for every automated tenant suspension.
+  - Isolated failure handling so an individual tenant failure logs an error without aborting execution for other tenants.
+- **Hardened:** `BillingService` (`App\Services\BillingService`):
+  - Added strict IPN currency verification (`$data['currency']` must match `$invoice->currency` [BDT]) in `handleIpn()`, rejecting mismatched currency payloads.
+  - Enforced pessimistic row-locking on both `$invoice` and `$user` inside `markInvoicePaid()` (`lockForUpdate()`) to guarantee strict financial idempotency under concurrent webhook delivery.
+  - Added locked-state idempotency check: `if (! $lockedInvoice || $lockedInvoice->status === 'paid') return;`.
+  - Preserved independent mailbox disablement: reactivation updates verified parent domains to active, leaving disabled mailbox flags (`is_active = false`) completely untouched.
+  - Integrated persistent audit logging via `AuditService::record('billing.invoice_paid', ...)` recording period dates, total amount, and gateway transaction IDs.
+- **Hardened:** `AdminApiController` (`App\Http\Controllers\Api\AdminApiController`):
+  - In `suspendUser()`: restricted domain suspension to active domains (`where('status', 'active')`), preventing accidental corruption of `pending` domain states.
+  - In `suspendUser()` and `activateUser()`: added persistent audit logging via `AuditService::record('admin.users.suspend', ...)` and `AuditService::record('admin.users.activate', ...)`.
+- **Added:** Feature test suite in `tests/Feature/BillingLifecycleTest.php` expanded with 9 new regression tests (18 tests total, 67 assertions):
+  - `test_expired_administrator_with_rbac_role_is_exempt_from_tenant_suspension`
+  - `test_free_plan_user_with_null_expiry_is_not_suspended`
+  - `test_ipn_currency_mismatch_is_rejected`
+  - `test_concurrent_duplicate_ipn_is_idempotent_under_pessimistic_lock`
+  - `test_mailbox_disabled_state_is_preserved_across_billing_reactivation`
+  - `test_auto_suspension_creates_audit_log`
+  - `test_payment_activation_creates_audit_log`
+  - `test_admin_suspend_and_activate_create_audit_logs`
+  - `test_admin_suspend_only_suspends_active_domains_preserving_pending_domains`
+- **Suite Verification:** Full test suite expanded to **198 passed, 807 assertions** with zero failures, zero errors, and zero regressions.
+
 ### Granular RBAC (Roles & Permissions) Implementation (Step 16B.2)
 - **Implemented:** Granular Role-Based Access Control using Spatie Laravel Permission with `guard_name = 'web'` matching Sanctum SPA cookie authentication (`RBAC-DEC-01`).
 - **Implemented:** `RoleEnum` and `PermissionEnum` defining 3 primary administrative roles (`super_admin`, `deliverability_operator`, `customer_support`) and 13 granular resource/action permissions.

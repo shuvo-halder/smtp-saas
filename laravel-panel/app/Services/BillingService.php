@@ -129,7 +129,18 @@ class BillingService
         }
 
         if ($data['status'] === 'VALID' || $data['status'] === 'VALIDATED') {
-            // Security Check: Verify the amount paid matches the invoice total
+            // Security Check 1: Verify the currency matches if supplied
+            $currency = $data['currency'] ?? $data['currency_type'] ?? null;
+            if ($currency && strtoupper((string) $currency) !== strtoupper((string) $invoice->currency)) {
+                Log::error('SSLCommerz IPN Currency Mismatch', [
+                    'expected' => $invoice->currency,
+                    'received' => $currency,
+                    'tran_id'  => $data['tran_id'],
+                ]);
+                return false;
+            }
+
+            // Security Check 2: Verify the amount paid matches the invoice total
             $paidAmount = (float) ($data['amount'] ?? 0);
             $invoiceTotal = (float) $invoice->total;
             
@@ -162,7 +173,23 @@ class BillingService
     public function markInvoicePaid(Invoice $invoice, array $gatewayData = []): void
     {
         \DB::transaction(function () use ($invoice, $gatewayData) {
-            $user = $invoice->user;
+            // Pessimistic lock on invoice to guarantee idempotency under concurrent webhooks
+            $lockedInvoice = Invoice::where('id', $invoice->id)->lockForUpdate()->first();
+            if (! $lockedInvoice || $lockedInvoice->status === 'paid') {
+                return;
+            }
+
+            // Pessimistic lock on user to eliminate race conditions with expiry job
+            $user = User::where('id', $lockedInvoice->user_id)->lockForUpdate()->first();
+            if (! $user) {
+                return;
+            }
+
+            $beforeState = [
+                'user_status'      => $user->status,
+                'plan_expires_at'  => $user->plan_expires_at?->toIso8601String(),
+                'invoice_status'   => $lockedInvoice->status,
+            ];
 
             // Calculate new expiration date
             $currentExpires = $user->plan_expires_at ?? now();
@@ -171,11 +198,11 @@ class BillingService
                 $currentExpires = now();
             }
 
-            $newExpires = $invoice->billing_cycle === 'yearly'
+            $newExpires = $lockedInvoice->billing_cycle === 'yearly'
                 ? (clone $currentExpires)->addYear()
                 : (clone $currentExpires)->addMonth();
 
-            $invoice->update([
+            $lockedInvoice->update([
                 'status'                  => 'paid',
                 'gateway_transaction_id'  => $gatewayData['bank_tran_id'] ?? null,
                 'payment_response'        => $gatewayData,
@@ -191,13 +218,31 @@ class BillingService
 
             // Activate user subscription
             $user->update([
-                'plan_id'         => $invoice->plan_id,
+                'plan_id'         => $lockedInvoice->plan_id,
                 'status'          => 'active',
                 'plan_expires_at' => $newExpires,
             ]);
 
+            $afterState = [
+                'user_status'            => 'active',
+                'plan_expires_at'        => $newExpires->toIso8601String(),
+                'invoice_status'         => 'paid',
+                'gateway_transaction_id' => $gatewayData['bank_tran_id'] ?? null,
+            ];
+
+            // Record persistent audit log
+            app(\App\Services\AuditService::class)->record(
+                action: 'billing.invoice_paid',
+                entityType: 'Invoice',
+                entityId: $lockedInvoice->id,
+                before: $beforeState,
+                after: $afterState,
+                actor: $user,
+                reason: "Payment verified for invoice {$lockedInvoice->invoice_number} ({$lockedInvoice->billing_cycle})"
+            );
+
             Log::info('Invoice paid and subscription activated', [
-                'invoice_id' => $invoice->id,
+                'invoice_id' => $lockedInvoice->id,
                 'user_id'    => $user->id,
             ]);
         });

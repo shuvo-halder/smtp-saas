@@ -48,13 +48,22 @@
 - [x] Checkout Initiation API
 - [x] SSLCommerz Gateway redirect
 - [x] IPN / Webhook handler
-- [x] Signature and amount validation
-- [x] Invoice and User atomic updates (`DB::transaction`)
+- [x] Signature, amount, and currency validation (Strict BDT match)
+- [x] Invoice and User atomic updates (`DB::transaction` with pessimistic `lockForUpdate()`)
 - [x] Payment Success/Fail/Cancel routes
+- [x] Tenant Suspension Redesign & Billing Lifecycle Integration (Step 16B.3 IMPLEMENTED & VERIFIED):
+  - [x] Hardened `tenant:suspend-expired` command with Spatie administrative role and `is_admin` exemption
+  - [x] Per-tenant locked transaction with `lockForUpdate()` and re-check of `plan_expires_at` inside lock
+  - [x] Invariant domain scoping: auto-suspension and admin suspension only target `status = 'active'` domains, preserving `pending` domains
+  - [x] Independent mailbox active state preserved across billing suspension and reactivation (zero mailbox state resets)
+  - [x] Pessimistic lock and idempotency verification on `invoices` and `users` in `BillingService::markInvoicePaid()`
+  - [x] Strict IPN currency validation (`currency` matching `invoice->currency` [BDT]) in addition to amount checking
+  - [x] Dual audit logging: `AuditService::record()` logging on auto-suspension, payment activation, and admin suspend/activate
+  - [x] Comprehensive test coverage in `BillingLifecycleTest.php` (18 passing tests, 67 assertions)
 
 ## Background Automation
 - [x] System Cron configured
-- [x] `tenant:suspend-expired` command (Hardened with `where('is_admin', false)` administrator exemption)
+- [x] `tenant:suspend-expired` command (Hardened with `where('is_admin', false)` and Spatie administrative role exemptions, per-tenant pessimistic locks, and persistent audit logging)
 - [x] Supervisor queue worker (`mailsaas-worker.conf`)
 
 ## Backup & Disaster Recovery
@@ -81,8 +90,8 @@
   - `[x]` Active abuse warnings dashboard with jump-to-mailbox navigation
   - `[x]` Dedicated operational audit logging channel (`storage/logs/admin-smtp.log`)
     - `[x]` Persistent administrative `audit_logs` table (Step 16B.1 IMPLEMENTED)
-    - `[ ]` Tenant-level manual suspension (DEFERRED to Step 16B.3)
-    - `[ ]` Granular RBAC / Spatie permissions (DEFERRED to Step 16B.2)
+    - `[x]` Tenant-level manual suspension (Step 16B.3 IMPLEMENTED)
+    - `[x]` Granular RBAC / Spatie permissions (Step 16B.2 IMPLEMENTED & VERIFIED)
     - `[ ]` Persistent abuse incident history table (DEFERRED to Step 16B.4)
 - `[x]` Admin Audit Logs (Step 16B.1 IMPLEMENTED):
   - `[x]` Relational append-only application audit ledger & `AuditLog` Eloquent model

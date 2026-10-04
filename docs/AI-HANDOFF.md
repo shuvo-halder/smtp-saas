@@ -87,11 +87,18 @@ This document is the operational starting point for any AI coding agent working 
   - **Tenant Invoice Authorization Hardening (Finding 6 Remediation):** Replaced legacy `$user->is_admin` check in `InvoicePolicy::view()` with granular RBAC check (`admin.invoices.read`) on the `web` guard, ensuring zero-role administrators cannot bypass RBAC to access other tenants' invoices while preserving tenant ownership.
   - **Test Suite Execution:** Expanded test suite in `tests/Feature/RbacAuthorizationTest.php` to 28 tests (84 assertions). Full test suite: **189 passed (758 assertions)** cleanly with zero regressions.
 
+- **Step 16B.3 — Tenant Suspension Redesign & Billing Lifecycle Integration (IMPLEMENTED & VERIFIED):**
+  - **100% Administrative Exemption:** `SuspendExpiredTenants` command explicitly excludes administrators by checking both `where('is_admin', false)` AND `whereDoesntHave('roles', fn ($q) => $q->whereIn('name', RoleEnum::adminRoles()))`.
+  - **Pessimistic Concurrency Locking & Race Condition Prevention:**
+    - `SuspendExpiredTenants` executes per-tenant locked transactions with `lockForUpdate()`, re-checking `status === 'active'` and `plan_expires_at < now()` inside the lock to eliminate race conditions with concurrent renewal webhooks. Isolated error handling prevents one tenant exception from aborting others.
+    - `BillingService::markInvoicePaid()` locks both `Invoice` and `User` rows via `lockForUpdate()`, enforcing lock-level idempotency (`if (! $lockedInvoice || $lockedInvoice->status === 'paid') return;`) to guarantee financial idempotency under duplicate/concurrent webhooks.
+  - **Domain Invariant Scoping:** Auto-suspension and administrative suspension strictly target active domains (`where('status', 'active')`), preserving `pending` and unverified domains. Reactivation targets verified domains (`where('mx_verified', true)`).
+  - **Independent Mailbox Disablement Preservation:** Reactivation re-enables verified parent domains without modifying mailbox `is_active` flags, guaranteeing that mailboxes independently disabled for abuse, security, or admin holds remain disabled upon billing renewal.
+  - **Strict IPN Currency Validation:** `BillingService::handleIpn()` verifies that the incoming IPN currency matches the invoice currency (`BDT`), rejecting mismatches with logged warnings.
+  - **Persistent Relational Audit Logging:** System auto-suspensions (`tenant.auto_suspend`), payment invoice activations (`billing.invoice_paid`), and admin user mutations (`admin.users.suspend`, `admin.users.activate`) are logged to `audit_logs` via `AuditService::record()` with sensitive credential scrubbing.
+  - **Test Suite Execution:** Expanded `tests/Feature/BillingLifecycleTest.php` with 9 new feature regression tests (18 tests total, 67 assertions). Full test suite: **198 passed (807 assertions)** cleanly with zero regressions.
 
 ## 5. Next Recommended Implementation Phase
-- **Step 16B.3 — Tenant Suspension Redesign & Billing Lifecycle Integration:**
-  - Database schema for explicit administrative tenant suspension (`suspension_type`, `suspension_reason`, `suspended_by`).
-  - Decoupling administrative suspension from billing expiry in `BillingService::markInvoicePaid()`.
 - **Step 16B.4 — Persistent Abuse Incident Ledger:**
   - Relational `abuse_incidents` table recording historical abuse threshold breaches.
 - **Step 17 — Backup & Disaster Recovery:**

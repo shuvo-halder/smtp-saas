@@ -11,6 +11,7 @@ use App\Models\Invoice;
 use App\Models\Mailbox;
 use App\Models\Plan;
 use App\Models\User;
+use App\Services\AuditService;
 use App\Services\SecurityAuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -131,8 +132,28 @@ class AdminApiController extends Controller
             ], 403);
         }
 
+        $beforeState = [
+            'status' => $user->status,
+        ];
+
         $user->update(['status' => 'suspended']);
-        $user->domains()->update(['status' => 'suspended']);
+        // Only suspend active domains; preserve pending/verifying domains
+        $user->domains()->where('status', 'active')->update(['status' => 'suspended']);
+
+        $afterState = [
+            'status' => 'suspended',
+        ];
+
+        app(AuditService::class)->record(
+            action: 'admin.users.suspend',
+            entityType: 'User',
+            entityId: $user->id,
+            before: $beforeState,
+            after: $afterState,
+            actor: request()->user(),
+            reason: request()->input('reason', 'Administrative tenant suspension via control plane'),
+            request: request()
+        );
         
         return response()->json(new UserResource($user));
     }
@@ -154,10 +175,28 @@ class AdminApiController extends Controller
             ], 403);
         }
 
+        $beforeState = [
+            'status' => $user->status,
+        ];
+
         $user->update(['status' => 'active']);
         // Only reactivate verified domains (assuming verified domains have required DNS)
-        // Adjust logic based on your domain activation flow
         $user->domains()->where('mx_verified', true)->update(['status' => 'active']);
+
+        $afterState = [
+            'status' => 'active',
+        ];
+
+        app(AuditService::class)->record(
+            action: 'admin.users.activate',
+            entityType: 'User',
+            entityId: $user->id,
+            before: $beforeState,
+            after: $afterState,
+            actor: request()->user(),
+            reason: request()->input('reason', 'Administrative tenant activation via control plane'),
+            request: request()
+        );
         
         return response()->json(new UserResource($user));
     }

@@ -104,3 +104,23 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 - **Tenant Invoice Download Authorization (Finding 6 Remediation):** GET `/api/billing/invoices/{invoice}/download` is governed by `InvoicePolicy::view`. Access is granted only if the authenticated user is the invoice owner (`user.id === invoice.user_id`), or is an active non-suspended user possessing explicit `admin.invoices.read` permission under the `web` guard. Legacy `$user->is_admin` bypass has been eliminated.
 - **Ghost Record Protection:** Endpoints modifying databases and file systems simultaneously (`DomainApiController@store`, `MailboxApiController@store`) are wrapped in `DB::transaction`.
 - **Admin Perimeter & RBAC Guard:** All `/api/admin/*` routes require authenticated administrator sessions via `EnsureAdmin` and granular permission verification via `RequireAdminPermission`.
+
+## Tenant Suspension & Billing Lifecycle Contracts (Step 16B.3)
+- **Automated Tenant Suspension:**
+  - Automated scheduler command `tenant:suspend-expired` runs daily.
+  - Targets expired active customer tenants (`status = 'active'`, `plan_expires_at < now()`, `is_admin = false`, and zero Spatie administrative roles).
+  - Transition: Tenant status moves `active` -> `suspended`. Only active domains move `active` -> `suspended`. Pending domains remain `pending`. Mailboxes retain their exact `is_active` state.
+  - Emits persistent audit log with action `'tenant.auto_suspend'`.
+- **Payment Renewal & Reactivation:**
+  - On valid payment IPN (`/api/billing/ipn`), payload is verified for signature, total amount, and currency (`BDT`).
+  - Invoice moves to `paid` and tenant moves to `active`.
+  - Subscription validity is extended: if renewal is prior to expiry, extends by plan cycle from existing expiry; if renewing after expiry/suspension, extends from current timestamp.
+  - Verified domains with `mx_verified = true` are restored to `active`. Pending domains remain `pending`.
+  - Mailboxes independently disabled for security or abuse retain `is_active = false`.
+  - Emits persistent audit log with action `'billing.invoice_paid'`.
+- **Administrative Manual Tenant Suspension/Activation:**
+  - `POST /api/admin/users/{id}/suspend` and `POST /api/admin/users/{id}/activate`.
+  - Rejects administrator targets with HTTP 403.
+  - Suspending updates user to `suspended` and only active domains to `suspended`.
+  - Activating updates user to `active` and only verified domains to `active`.
+  - Emits persistent audit logs with actions `'admin.users.suspend'` and `'admin.users.activate'`.
