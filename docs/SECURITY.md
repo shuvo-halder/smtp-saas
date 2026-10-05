@@ -128,3 +128,27 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Reading abuse incidents (`/api/admin/smtp/incidents`): requires `admin.smtp.read` (granted to Super Admin, Deliverability Operator, Customer Support).
   - Mutating abuse incidents (`/api/admin/smtp/incidents/{incident}/resolve`): requires `admin.smtp.mailbox.toggle` (granted to Super Admin and Deliverability Operator; Customer Support is denied HTTP 403).
   - Suspended administrators and zero-role administrators are denied access across all incident endpoints (HTTP 403).
+
+## 16. Backup & Disaster Recovery Security Invariants (Step 17)
+- **Restricted Filesystem Access Boundaries:**
+  - Backup directories (`storage/backups/db`, `storage/backups/vmail`, and production `/var/backups/emailsaas/`) are provisioned with strict `0700` (`rwx------`) directory permissions.
+  - Backup archives (`.sql.gz`, `.tar.gz`) and JSON manifests (`.manifest.json`) are provisioned with `0600` (`rw-------`) permissions, accessible solely by the `root` or `www-data` service execution identities.
+- **Cryptographic & Stream Integrity Verification:**
+  - Every backup archive generates a companion `.manifest.json` containing an immutable SHA-256 cryptographic digest.
+  - `BackupVerificationService` enforces 3-tier validation:
+    1. Physical file existence and non-zero byte size verification.
+    2. Gzip magic header (`\x1f\x8b`) and decompression stream integrity (`gzip -t` / `gzread`).
+    3. Cryptographic hash comparison between the computed file digest and the recorded manifest digest using `hash_equals()`.
+- **Zero Credential Exposure in Manifests & Logs:**
+  - JSON manifests record file size, path, timestamp, SHA-256 digest, and table schema metrics. Zero plaintext database passwords, API tokens, or secrets are ever included in manifests or written to `storage/logs/backup.log`.
+  - Database credentials are read dynamically from runtime configuration or `.env` and masked from command line process tables where possible.
+- **Strict Maildir Ownership & Permissions Enforcement on Restore:**
+  - Restoring mail storage via `scripts/restore_vmail.sh` or `BackupVerificationService` strictly enforces ownership to `vmail:vmail` (numeric UID/GID 5000:5000).
+  - Mailbox directory permissions are locked to `0700` (`drwx------`) and email files to `0600` (`-rw-------`), strictly prohibiting cross-tenant read access across local accounts.
+- **Non-Destructive Invariants on Retention Pruning:**
+  - `BackupRetentionService` strictly enforces that the most recent valid backup (index 0) is NEVER deleted, regardless of configured retention thresholds.
+  - If total backup count is ≤ 1, pruning aborts immediately without deleting files.
+  - Intermediate backup files are written to `.tmp` paths and atomically promoted; incomplete or failed backup attempts never overwrite or delete the last known-good backup archive.
+- **Atomic Concurrency Protection:**
+  - Console commands employ Redis/Cache locks (`backup_run_master_lock`, `backup_database_lock`, `backup_vmail_lock`, `backup_prune_lock`) with explicit TTLs.
+  - Companion Linux shell scripts employ non-blocking filesystem locks (`flock -n /var/lock/emailsaas_backup_*.lock`), preventing overlapping executions, resource exhaustion, and concurrent archive corruption.

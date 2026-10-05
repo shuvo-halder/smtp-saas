@@ -1,5 +1,48 @@
 # Changelog
 
+### Backup & Disaster Recovery Implementation (Step 17)
+- **Configured:** Added dedicated `backup` daily logging channel in `config/logging.php` routing to `storage/logs/backup.log`.
+- **Created:** Enterprise backup configuration in `config/backup.php` specifying storage paths, retention policies (7 daily, 4 weekly, 3 monthly), critical tables for verification, and offsite configuration placeholders.
+- **Implemented:** `App\Services\Backup\DatabaseBackupService`:
+  - Transaction-safe compressed database dumps supporting both MariaDB/MySQL (InnoDB non-blocking `--single-transaction --quick --routines --triggers --events --hex-blob`) and SQLite.
+  - Direct gzip stream compression into atomic `.tmp` files with atomic promotion.
+  - Cryptographic SHA-256 calculation and atomic companion `.manifest.json` generation.
+  - Collision guards handling same-second multiple executions with UUID suffixing.
+- **Implemented:** `App\Services\Backup\MailStorageBackupService`:
+  - Complete `/var/vmail` directory archiving preserving Maildir subdirectories (`cur`, `new`, `tmp`), permissions, and timestamps.
+  - Streaming compression into `.tar.gz` with atomic promotion and SHA-256 manifest generation.
+- **Implemented:** `App\Services\Backup\BackupVerificationService`:
+  - Physical file existence and non-zero byte size verification.
+  - Gzip magic header (`\x1f\x8b`) and stream decompression integrity check.
+  - Cryptographic SHA-256 checksum validation against companion manifests.
+  - Isolated database restore verification into disposable SQLite database, asserting critical tables and row counts without altering production state.
+  - Isolated mail storage restore verification into disposable temporary directory, asserting Maildir folder structures.
+- **Implemented:** `App\Services\Backup\BackupRetentionService`:
+  - Enforced retention rules with non-negotiable safety invariants:
+    - Never delete newest valid backup (index 0).
+    - Never delete only remaining backup (count <= 1).
+    - Stale temporary `.tmp` files older than 24 hours are reaped.
+- **Implemented:** 6 Dedicated Artisan Console Commands:
+  - `backup:run`: Master execution suite with `--only-db`, `--only-vmail`, `--verify`, and `--no-prune`.
+  - `backup:database`: Generates transaction-safe database backup with `--path=`/`--dir=`, `--connection=`, and `--verify`.
+  - `backup:vmail`: Archives mail storage with `--source=`, `--path=`/`--dir=`, and `--verify`.
+  - `backup:verify`: Validates physical and cryptographic integrity with optional `--dry-run-restore`.
+  - `backup:status`: Displays tabular status of archives, ages, storage footprint, and offsite state.
+  - `backup:prune`: Prunes expired archives according to retention limits with `--keep=`.
+- **Created:** Production Linux Shell Scripts in `scripts/`:
+  - `scripts/backup_db.sh`: Native `mariadb-dump` / `mysqldump` with `--single-transaction`, gzip, SHA-256 manifest, and `flock`.
+  - `scripts/backup_vmail.sh`: Native tar archive of `/var/vmail` with `--numeric-owner --preserve-permissions`, gzip, manifest, and `flock`.
+  - `scripts/verify_backup.sh`: Verifies archive readability, `gzip -t`, and SHA-256 match.
+  - `scripts/restore_db.sh`: Interactive database restoration with explicit safety confirmation.
+  - `scripts/restore_vmail.sh`: Mail storage restoration enforcing `vmail:vmail` (5000:5000) ownership and 700/600 permissions.
+  - `scripts/disaster_recovery.sh`: Bare-metal VPS disaster recovery orchestrator.
+- **Scheduled:** Registered scheduled tasks in `routes/console.php`:
+  - `backup:run --verify`: Scheduled daily at `02:00 UTC` with `withoutOverlapping(30)`.
+  - `backup:prune`: Scheduled daily at `03:00 UTC` with `withoutOverlapping(15)`.
+- **Created:** Comprehensive Operator Disaster Recovery Runbook (`docs/DISASTER-RECOVERY-RUNBOOK.md`) covering Scenario A (database loss), Scenario B (mail storage loss), and Scenario C (complete VPS destruction).
+- **Added:** Feature test suite in `tests/Feature/BackupAndDisasterRecoveryTest.php` (9 passing tests, 55 assertions).
+- **Suite Verification:** Full test suite expanded from 214 tests / 888 assertions to **223 passed, 943 assertions** with zero failures, zero errors, and zero regressions.
+
 ### Persistent Abuse Incident Ledger (Step 16B.4)
 - **Implemented:** Database migration `database/migrations/2026_10_06_000001_create_abuse_incidents_table.php`:
   - Created `abuse_incidents` table with auto-increment `id` and unique `uuid`.

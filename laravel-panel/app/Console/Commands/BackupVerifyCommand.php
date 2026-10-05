@@ -1,0 +1,91 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Services\Backup\BackupVerificationService;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
+use Throwable;
+
+class BackupVerifyCommand extends Command
+{
+    protected $signature = 'backup:verify 
+                            {path? : Specific backup file path to verify} 
+                            {--file= : Specific backup file path to verify} 
+                            {--dry-run-restore : Perform isolated restore test} 
+                            {--isolated-db-restore : Perform isolated database restore test} 
+                            {--isolated-mail-restore : Perform isolated mail storage restore test}';
+
+    protected $description = 'Verify physical integrity, SHA-256 checksum, and isolated restore capability of backup archives.';
+
+    public function handle(BackupVerificationService $verificationService): int
+    {
+        $filePath = $this->argument('path') ?: $this->option('file');
+
+        if (!$filePath) {
+            // Find latest database backup if none specified
+            $dbDir = config('backup.storage_path') . '/db';
+            $files = File::glob($dbDir . '/*.sql.gz');
+            if (!empty($files)) {
+                usort($files, fn($a, $b) => filemtime($b) - filemtime($a));
+                $filePath = $files[0];
+                $this->info("No file specified. Using latest database backup: {$filePath}");
+            } else {
+                $this->error('No backup file specified and no database backups found in storage path.');
+                return Command::FAILURE;
+            }
+        }
+
+        if (!file_exists($filePath)) {
+            $this->error("Backup file not found: [{$filePath}]");
+            return Command::FAILURE;
+        }
+
+        $this->info("Verifying backup archive: {$filePath}");
+        $isDb = str_ends_with($filePath, '.sql.gz');
+
+        $result = $isDb
+            ? $verificationService->verifyDatabaseBackup($filePath)
+            : $verificationService->verifyArchiveIntegrity($filePath);
+
+        $this->table(
+            ['Check', 'Status'],
+            [
+                ['File Exists', file_exists($filePath) ? 'YES' : 'NO'],
+                ['Size (Bytes)', number_format($result['size_bytes'] ?? 0)],
+                ['SHA-256', $result['sha256'] ?? 'N/A'],
+                ['Decompressed Bytes', number_format($result['decompressed_bytes'] ?? 0)],
+                ['Integrity Valid', ($result['valid'] ?? false) ? 'PASSED' : 'FAILED'],
+            ]
+        );
+
+        if (!($result['valid'] ?? false)) {
+            $this->error('Integrity checks FAILED: ' . implode(', ', $result['errors'] ?? []));
+            return Command::FAILURE;
+        }
+
+        $this->info('Physical archive and cryptographic checksum integrity: PASSED');
+
+        // Optional Isolated Restore Test
+        $shouldRestoreDb = ($this->option('isolated-db-restore') || $this->option('dry-run-restore')) && $isDb;
+        if ($shouldRestoreDb) {
+            $this->info('--> Performing isolated database restore test...');
+            try {
+                $restoreReport = $verificationService->verifyIsolatedDatabaseRestore($filePath);
+                $this->info("Isolated restore test PASSED ({$restoreReport['duration_seconds']}s). Restored {$restoreReport['tables_restored']} tables, {$restoreReport['total_rows']} total rows.");
+
+                $rows = [];
+                foreach ($restoreReport['critical_tables'] as $tbl => $found) {
+                    $rows[] = [$tbl, $found ? 'FOUND' : 'MISSING', (string) ($restoreReport['table_counts'][$tbl] ?? 0)];
+                }
+                $this->table(['Critical Table', 'Status', 'Row Count'], $rows);
+
+            } catch (Throwable $e) {
+                $this->error('Isolated database restore test FAILED: ' . $e->getMessage());
+                return Command::FAILURE;
+            }
+        }
+
+        return Command::SUCCESS;
+    }
+}

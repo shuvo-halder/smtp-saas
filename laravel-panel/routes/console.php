@@ -18,3 +18,9 @@ Schedule::command('outbound:usage-sync')->hourly()->withoutOverlapping(15);
 // Schedule Postfix mail log parsing and abuse detection every 5 minutes
 Schedule::command('mail:process-log')->everyFiveMinutes()->withoutOverlapping(10);
 
+// Schedule daily database & mail storage backup suite with verification at 02:00
+Schedule::command('backup:run --verify')->dailyAt('02:00')->withoutOverlapping(30);
+
+// Schedule daily backup retention pruning at 03:00
+Schedule::command('backup:prune')->dailyAt('03:00')->withoutOverlapping(15);
+

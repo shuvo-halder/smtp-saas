@@ -119,4 +119,32 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 ## Cross-System Coupling
 > **CRITICAL RULE:** Do NOT alter the schemas of `domains` or `mailboxes` without simultaneously verifying and updating `/etc/postfix/mysql-virtual-mailbox-*.cf` and `/etc/dovecot/dovecot-sql.conf.ext`. The mail stack relies precisely on the current table names and column structures.
 
+## Database Backup & Disaster Recovery (Step 17)
 
+EmailSaaS enforces transaction-safe, consistent point-in-time backups of the MariaDB relational database.
+
+### 1. Dump Engine & Consistency Parameters
+- **Production Engine:** `mariadb-dump` (or `mysqldump`).
+- **Flags:**
+  - `--single-transaction`: Guarantees an ACID-consistent snapshot for InnoDB tables without locking reads or writes.
+  - `--quick`: Streams rows directly rather than buffering entire tables into memory.
+  - `--routines --triggers --events`: Preserves stored routines, triggers, and scheduler events.
+  - `--hex-blob`: Dumps binary columns (such as UUIDs or binary tokens) in hex format to eliminate character-set encoding corruption.
+  - `--default-character-set=utf8mb4`: Enforces standard UTF-8 multibyte character set.
+- **Compression:** Streamed directly into gzip (`.sql.gz.tmp`), then atomically promoted to `.sql.gz` to ensure incomplete files never pose as valid backups.
+
+### 2. Cryptographic Checksum & Companion Manifest
+- Every database dump generates a companion `.manifest.json` containing:
+  - Archive filename, absolute path, and file size in bytes.
+  - UTC ISO-8601 creation timestamp.
+  - SHA-256 cryptographic digest.
+  - Engine and database name.
+- Manifests and archives are saved with `0600` permissions in `0700` directories.
+
+### 3. Isolated Restore Verification
+- Backups are tested before emergencies using `BackupVerificationService`:
+  - Physical readability check and gzip decompression stream validation.
+  - SHA-256 hash verification against the manifest.
+  - Isolated dry-run restore into a disposable SQLite database instance (in test environments) or temporary staging schema.
+  - Programmatic assertions on critical tables (`users`, `domains`, `mailboxes`, `plans`, `invoices`, `audit_logs`, `abuse_incidents`) and row counts.
+- Production and active databases are NEVER modified during restore verification.
