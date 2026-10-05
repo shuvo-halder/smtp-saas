@@ -92,7 +92,7 @@
     - `[x]` Persistent administrative `audit_logs` table (Step 16B.1 IMPLEMENTED)
     - `[x]` Tenant-level manual suspension (Step 16B.3 IMPLEMENTED)
     - `[x]` Granular RBAC / Spatie permissions (Step 16B.2 IMPLEMENTED & VERIFIED)
-    - `[ ]` Persistent abuse incident history table (DEFERRED to Step 16B.4)
+    - `[x]` Persistent abuse incident history table (Step 16B.4 IMPLEMENTED & VERIFIED)
 - `[x]` Admin Audit Logs (Step 16B.1 IMPLEMENTED):
   - `[x]` Relational append-only application audit ledger & `AuditLog` Eloquent model
   - `[x]` Centralized `AuditService` with recursive sensitive key/hash redaction and fail-safe persistence
@@ -140,5 +140,15 @@
   - `[x]` Artisan command `mail:process-log` (`--lines=1000`, `--dry-run`, `--path=`) scheduled every 5 minutes with overlap protection
   - `[x]` Deployment requirement: Ubuntu `/var/log/mail.log` requires read permissions (`adm` group or POSIX ACL for `www-data`)
 - `[x]` Admin SMTP Management & Observability (Step 16A IMPLEMENTED)
-
-
+- `[x]` Persistent Abuse Incident Ledger (Step 16B.4 IMPLEMENTED & VERIFIED):
+  - `[x]` Relational `abuse_incidents` ledger table with auto-increment `id` and unique `uuid`
+  - `[x]` Cascade-safe design with `nullOnDelete()` foreign keys and immutable snapshot columns (`tenant_email`, `domain_name`, `mailbox_email`)
+  - `[x]` Deduplication via deterministic `idempotency_key` unique index
+  - `[x]` Eloquent `AbuseIncident` model with scopes (`open`, `resolved`, `forTenant`, `ofType`, `severity`) and dual ID/UUID route binding
+  - `[x]` Centralized `AbuseIncidentService` with recursive sensitive secret scrubbing via `AuditService::sanitizeState()`
+  - `[x]` Log Parser detector integration in `AbuseDetectionService::emitAlert()` with fail-safe dispatch
+  - `[x]` Policy Daemon detector integration in `PolicyDecisionService` with atomic Redis `SET NX` daily cooldown and fail-safe SMTP rejection preservation
+  - `[x]` Administrative API endpoints (`GET /api/admin/smtp/incidents`, `GET /api/admin/smtp/incidents/{incident}`, `POST /api/admin/smtp/incidents/{incident}/resolve`)
+  - `[x]` Granular RBAC enforcement (`admin.smtp.read` and `admin.smtp.mailbox.toggle`)
+  - `[x]` Persistent administrative audit logging via `AuditService::record()` on incident resolution and dismissal
+  - `[x]` Full test coverage in `tests/Feature/AbuseIncidentLedgerTest.php` (16 passing tests, 81 assertions; test suite total: 214 passing, 888 assertions)

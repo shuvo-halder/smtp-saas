@@ -25,11 +25,17 @@ EmailSaaS is deployed as a consolidated stack on an Ubuntu Linux VPS.
 - **Delivery Path:** Routes virtual mail to `/var/vmail/`
 - **Outbound Quota Enforcement:** `smtpd_data_restrictions` delegates to Laravel Policy Daemon at `127.0.0.1:10031` with `smtpd_policy_service_default_action = DUNNO` (fail-open).
 
-### SMTP Policy Daemon
+### SMTP Policy Daemon (Outbound Policy & Abuse Recording - Step 12 / Step 16B.4)
 - **Command:** `php artisan policy:serve --host=127.0.0.1 --port=10031`
 - **Process Manager:** Supervisor (`/etc/supervisor/conf.d/mailsaas-policy.conf`)
 - **Protocol:** Postfix Policy Delegation Protocol (TCP stream)
 - **Log Path:** `storage/logs/policy.log`
+- **Quota & Abuse Ledger Integration:** Enforces tenant and mailbox outbound recipient quotas atomically in Redis (`OutboundQuotaService`). On quota rejection, records an abuse incident in `abuse_incidents` via `AbuseIncidentService` using an atomic Redis `SET NX` daily cooldown to prevent high-frequency write amplification. Persistence executes fail-safely without altering or delaying SMTP quota rejection (`REJECT 554 5.7.1`).
+
+### Mail Log Parser Daemon (Step 15 / Step 16B.4)
+- **Command:** `php artisan mail:process-log`
+- **Process Manager:** Supervisor (`/etc/supervisor/conf.d/mailsaas-log-parser.conf`)
+- **Telemetry Pipeline:** Tails Postfix/Dovecot delivery logs (`/var/log/mail.log`), correlates Queue IDs, tracks delivery outcomes, detects bounce patterns (daily hard bounce limits, consecutive bounce streaks, high bounce rates), and automatically records persistent abuse incidents in `abuse_incidents` via `AbuseDetectionService` -> `AbuseIncidentService`.
 
 ### Mail Reading (Dovecot MDA/IMAP)
 - **Ports:** 143 (IMAP), 993 (IMAPS)

@@ -1,5 +1,36 @@
 # Changelog
 
+### Persistent Abuse Incident Ledger (Step 16B.4)
+- **Implemented:** Database migration `database/migrations/2026_10_06_000001_create_abuse_incidents_table.php`:
+  - Created `abuse_incidents` table with auto-increment `id` and unique `uuid`.
+  - Configured nullable foreign keys with `nullOnDelete()` (`tenant_id`, `domain_id`, `mailbox_id`, `resolved_by`) and immutable historical snapshot columns (`tenant_email`, `domain_name`, `mailbox_email`) to guarantee data preservation when entities are purged.
+  - Added unique `idempotency_key` index preventing duplicate entries from concurrent daemons or burst alerts.
+  - Added indexes on `incident_type`, `severity`, `status`, `occurred_at`, and composite indexes on `['tenant_id', 'created_at']`, `['incident_type', 'created_at']`, `['status', 'created_at']`.
+- **Implemented:** Eloquent model `App\Models\AbuseIncident`:
+  - Defined fillable attributes, casts (JSON `evidence`, datetime `occurred_at`, `resolved_at`), auto-generated UUID and default `occurred_at` timestamp.
+  - Defined relationships (`tenant`, `domain`, `mailbox`, `resolver`) and query scopes (`open`, `resolved`, `forTenant`, `ofType`, `severity`).
+  - Added `resolveRouteBinding` supporting seamless API lookups by either integer `id` or UUID `uuid`.
+- **Implemented:** Service layer `App\Services\Abuse\AbuseIncidentService`:
+  - `record()`: Idempotency deduplication, entity snapshot extraction, recursive evidence sanitization via `AuditService::sanitizeState()` (zero plaintext credentials, passwords, tokens, hashes, or email contents), and fail-safe try/catch returning `null` on errors.
+  - `resolve()` & `dismiss()`: Mutates incident status, records attribution, and creates immutable audit entries in `audit_logs` via `AuditService::record()`.
+- **Integrated:** `AbuseDetectionService` (`App\Services\Abuse\AbuseDetectionService`):
+  - In `emitAlert()`: In addition to operational logging to `storage/logs/abuse.log`, dispatches fail-safe incident creation with deterministic idempotency keys (`log_parser:{alertType}:{tenantId}:{mailboxId}:{date}`) without interrupting log parsing flow.
+- **Integrated:** `PolicyDecisionService` (`App\Services\Policy\PolicyDecisionService`):
+  - In `evaluate()`: On `REJECTED_QUOTA`, calls `recordQuotaAbuseIncident()` with atomic Redis `SET NX` daily cooldown (`outbound:abuse:incident:cooldown:quota:{tenantId}:{mailboxId}:{date}`) to protect MariaDB from high-frequency write storms.
+  - Persistence errors are caught safely and never alter or delay the SMTP rejection decision (`REJECT 554 5.7.1`).
+- **Implemented:** API layer:
+  - Created `App\Http\Resources\AbuseIncidentResource` returning full incident context and snapshots.
+  - Created `App\Http\Controllers\Api\AdminAbuseIncidentApiController` with bounded pagination (1-50), comprehensive query filters, and resolution handling.
+  - Registered routes under `/api/admin/smtp/*`:
+    - `GET /api/admin/smtp/incidents` (`admin.permission:admin.smtp.read`)
+    - `GET /api/admin/smtp/incidents/{incident}` (`admin.permission:admin.smtp.read`)
+    - `POST /api/admin/smtp/incidents/{incident}/resolve` (`admin.permission:admin.smtp.mailbox.toggle`)
+- **Added:** Feature test suite in `tests/Feature/AbuseIncidentLedgerTest.php` (16 passing tests, 81 assertions):
+  - Verified perimeter security: unauthenticated (401), ordinary tenant (403), suspended admin (403), zero-role admin (403).
+  - Verified role segregation: Customer Support read-only (200 on index/show, 403 on resolve), Deliverability Operator read & resolve (200), Super Admin dismiss (200).
+  - Verified persistence, deduplication, snapshot preservation upon entity deletion, evidence credential scrubbing, detector integrations, fail-safe SMTP decoupling, and audit logging.
+- **Suite Verification:** Full test suite expanded to **214 passed, 888 assertions** with zero failures, zero errors, and zero regressions.
+
 ### Tenant Suspension Redesign & Billing Lifecycle Integration (Step 16B.3)
 - **Hardened:** `SuspendExpiredTenants` command (`App\Console\Commands\SuspendExpiredTenants`):
   - Added Spatie administrative role check (`whereDoesntHave('roles', fn ($q) => $q->whereIn('name', RoleEnum::adminRoles()))`) alongside `where('is_admin', false)` to guarantee 100% administrative immunity from automated expiration regardless of role vs attribute configuration.

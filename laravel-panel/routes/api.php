@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminAbuseIncidentApiController;
 use App\Http\Controllers\Api\AdminApiController;
 use App\Http\Controllers\Api\AdminAuditLogApiController;
 use App\Http\Controllers\Api\AdminSmtpApiController;
@@ -112,6 +113,14 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
                 // RBAC-DEC-03: Mailbox password reset requires admin.smtp.mailbox.reset_password
                 Route::post('/mailboxes/{mailbox}/reset-password', [AdminSmtpApiController::class, 'resetPassword'])
                     ->middleware('admin.permission:admin.smtp.mailbox.reset_password');
+
+                // Persistent Abuse Incident Ledger (Step 16B.4)
+                Route::get('/incidents', [AdminAbuseIncidentApiController::class, 'index'])
+                    ->middleware('admin.permission:admin.smtp.read');
+                Route::get('/incidents/{incident}', [AdminAbuseIncidentApiController::class, 'show'])
+                    ->middleware('admin.permission:admin.smtp.read');
+                Route::post('/incidents/{incident}/resolve', [AdminAbuseIncidentApiController::class, 'resolve'])
+                    ->middleware('admin.permission:admin.smtp.mailbox.toggle');
             });
 
             // Persistent Audit Logs (Step 16B.1)

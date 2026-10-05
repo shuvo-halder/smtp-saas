@@ -73,6 +73,9 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | POST | `/admin/smtp/mailboxes/{mailbox}/toggle` | Toggle mailbox active/disabled status with optional `{ reason }`. On enable, strictly enforces active domain, active tenant, and active subscription (HTTP 422 if violated). | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.toggle` |
 | POST | `/admin/smtp/mailboxes/{mailbox}/reset-bounces` | Reset consecutive hard bounce streak to 0 in Redis with optional `{ reason }`. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.reset_bounces` |
 | POST | `/admin/smtp/mailboxes/{mailbox}/reset-password` | Reset password with optional `{ password, reason }`. Authorized for Super Admin and Deliverability Operator. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.reset_password` |
+| GET | `/admin/smtp/incidents` | Bounded, paginated list of persistent abuse incidents. Supports `?page=&per_page=&status=&severity=&incident_type=&detection_source=&tenant_id=&mailbox_id=&domain_id=&search=&date_from=&date_to=`. Max `per_page` bounded to 50. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.read` |
+| GET | `/admin/smtp/incidents/{incident}` | Detailed single incident record with immutable identity snapshots, metric observations, and sanitized evidence. Supports lookup by integer ID or UUID. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.read` |
+| POST | `/admin/smtp/incidents/{incident}/resolve` | Resolve or dismiss an abuse incident with optional `{ notes, status }` (`status: resolved|dismissed`). Creates persistent audit log entry. Authorized for Super Admin and Deliverability Operator. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.toggle` |
 
 ## Admin Audit Log API (Step 16B.1 / 16B.2 Granular RBAC)
 | Method | Endpoint | Description | Middleware | Required Permission |
@@ -124,3 +127,14 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
   - Suspending updates user to `suspended` and only active domains to `suspended`.
   - Activating updates user to `active` and only verified domains to `active`.
   - Emits persistent audit logs with actions `'admin.users.suspend'` and `'admin.users.activate'`.
+
+## Abuse Incident Ledger Contracts (Step 16B.4)
+- **Incident Model & Identifier Resolution:**
+  - `GET /api/admin/smtp/incidents/{incident}` supports transparent lookup by either auto-increment `id` or standard UUID `uuid`.
+  - Bounded pagination defaults to 15 per page, bounded between 1 and 50.
+  - Snapshot attributes (`tenant_email`, `domain_name`, `mailbox_email`) are immutably preserved in the response even if the underlying tenant or mailbox has been deleted.
+- **Incident Resolution & Attribution:**
+  - `POST /api/admin/smtp/incidents/{incident}/resolve` accepts `{ notes?: string, status?: "resolved" | "dismissed" }` (defaults to `"resolved"`).
+  - Mutates incident status to `resolved` or `dismissed`, records `resolved_at = now()`, and binds `resolved_by = auth.user.id`.
+  - Emits persistent audit log entries with actions `'admin.abuse_incident.resolve'` or `'admin.abuse_incident.dismiss'`.
+  - Protected by `admin.smtp.mailbox.toggle` permission (Super Admin and Deliverability Operator authorized; Customer Support denied HTTP 403).

@@ -98,11 +98,23 @@ This document is the operational starting point for any AI coding agent working 
   - **Persistent Relational Audit Logging:** System auto-suspensions (`tenant.auto_suspend`), payment invoice activations (`billing.invoice_paid`), and admin user mutations (`admin.users.suspend`, `admin.users.activate`) are logged to `audit_logs` via `AuditService::record()` with sensitive credential scrubbing.
   - **Test Suite Execution:** Expanded `tests/Feature/BillingLifecycleTest.php` with 9 new feature regression tests (18 tests total, 67 assertions). Full test suite: **198 passed (807 assertions)** cleanly with zero regressions.
 
+- **Step 16B.4 — Persistent Abuse Incident Ledger (IMPLEMENTED & VERIFIED):**
+  - **Relational Ledger Schema:** Implemented `database/migrations/2026_10_06_000001_create_abuse_incidents_table.php` provisioning `abuse_incidents` table with auto-increment `id`, unique `uuid`, nullable `nullOnDelete()` foreign keys (`tenant_id`, `domain_id`, `mailbox_id`, `resolved_by`), unique `idempotency_key`, indexes on `incident_type`, `severity`, `status`, `occurred_at`, and composite indexes on `['tenant_id', 'created_at']`, `['incident_type', 'created_at']`, `['status', 'created_at']`.
+  - **Durable Historical Snapshots:** Preserves immutable entity snapshots (`tenant_email`, `domain_name`, `mailbox_email`) ensuring compliance audit trails remain intact when tenant, domain, or mailbox entities are deleted.
+  - **Eloquent Model & Scopes:** Implemented `AbuseIncident` model with auto-generated UUID, automatic `occurred_at` timestamps, query scopes (`open`, `resolved`, `forTenant`, `ofType`, `severity`), relationships, and dual `id`/`uuid` route model binding (`resolveRouteBinding`).
+  - **Centralized Service Layer:** Implemented `AbuseIncidentService` with deduplication via `idempotency_key`, recursive evidence credential scrubbing via `AuditService::sanitizeState()` (zero passwords, tokens, hashes, or payload secrets), administrative resolution/dismissal, and fail-safe try/catch error trapping.
+  - **Detector Integrations:**
+    - `AbuseDetectionService::emitAlert()`: dispatches fail-safe incident creation with deterministic idempotency keys (`log_parser:{alertType}:{tenantId}:{mailboxId}:{date}`) without interrupting log parsing flow.
+    - `PolicyDecisionService::evaluate()`: on `REJECTED_QUOTA`, records incident with atomic Redis `SET NX` daily cooldown (`outbound:abuse:incident:cooldown:quota:{tenantId}:{mailboxId}:{date}`) to protect MariaDB from high-frequency write amplification while fail-safely preserving the SMTP rejection decision (`REJECT 554 5.7.1`).
+  - **Administrative API Endpoints:** Implemented `AdminAbuseIncidentApiController` and `AbuseIncidentResource` providing bounded pagination (1-50), search, and filters under `/api/admin/smtp/*`:
+    - `GET /api/admin/smtp/incidents` (`admin.permission:admin.smtp.read`)
+    - `GET /api/admin/smtp/incidents/{incident}` (`admin.permission:admin.smtp.read`)
+    - `POST /api/admin/smtp/incidents/{incident}/resolve` (`admin.permission:admin.smtp.mailbox.toggle`)
+  - **Audit Log Integration:** Administrative incident resolution and dismissal are persistently logged to `audit_logs` via `AuditService::record()`. Background daemon ingestion does not pollute `audit_logs`.
+  - **Test Suite Execution:** Implemented `tests/Feature/AbuseIncidentLedgerTest.php` with 16 comprehensive feature tests (81 assertions). Full test suite: **214 passed (888 assertions)** cleanly with zero regressions.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 16B.4 — Persistent Abuse Incident Ledger:**
-  - Relational `abuse_incidents` table recording historical abuse threshold breaches.
 - **Step 17 — Backup & Disaster Recovery:**
   - Automated database backup pipeline and `/var/vmail` offsite sync.
-
-
-
+- **Step 18 — Next.js Admin UI Deliverability & Abuse Dashboard Expansion:**
+  - Connect the Next.js control plane to the `/api/admin/smtp/incidents` endpoints for live abuse incident tracking and administrative resolution.

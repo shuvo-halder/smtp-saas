@@ -81,6 +81,41 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 - **Fields:** `locked_at` (timestamp, nullable), `created_at`, `updated_at`
 - **Role:** Dedicated row-level mutex table used by `SuperAdminGovernanceService` (`SELECT ... FOR UPDATE` on `'super_admin_governance'`) to prevent concurrent de-escalation of the platform's last remaining active Super Admin.
 
+### `abuse_incidents` (Abuse Incident Ledger - Step 16B.4)
+- **Primary Key:** `id` (bigint unsigned, auto-increment)
+- **UUID:** `uuid` (char(36), unique index)
+- **Foreign Keys:**
+  - `tenant_id` (nullable bigint unsigned -> `users.id` with `nullOnDelete()`)
+  - `domain_id` (nullable bigint unsigned -> `domains.id` with `nullOnDelete()`)
+  - `mailbox_id` (nullable bigint unsigned -> `mailboxes.id` with `nullOnDelete()`)
+  - `resolved_by` (nullable bigint unsigned -> `users.id` with `nullOnDelete()`)
+- **Historical Snapshot Columns:**
+  - `tenant_email` (varchar, nullable)
+  - `domain_name` (varchar, nullable)
+  - `mailbox_email` (varchar, nullable)
+  - Preserves immutable identity context even if the parent tenant, domain, or mailbox is permanently deleted or purged.
+- **Classification & Metrics:**
+  - `incident_type` (varchar(64), indexed) — e.g. `smtp_quota_exceeded`, `daily_hard_bounce_limit_exceeded`, `consecutive_hard_bounces_exceeded`, `high_hard_bounce_rate`.
+  - `severity` (varchar(32), indexed) — `critical`, `high`, `medium`, `warning`, `low`.
+  - `status` (varchar(32), indexed) — `open`, `resolved`, `dismissed`.
+  - `detection_source` (varchar(64)) — `policy_daemon`, `log_parser`, etc.
+  - `summary` (varchar(500)) — concise human-readable description.
+  - `threshold_value` (varchar(64), nullable) — threshold breached.
+  - `observed_value` (varchar(64), nullable) — value observed during breach.
+- **Evidence & Deduplication:**
+  - `evidence` (json, nullable) — structured event details, recursively sanitized via `AuditService::sanitizeState()` to guarantee zero plaintext passwords, tokens, hashes, or payload secrets are stored.
+  - `idempotency_key` (varchar(191), nullable, unique index) — deduplication key preventing duplicate entries from concurrent daemon iterations or alert bursts.
+- **Lifecycle & Attribution:**
+  - `occurred_at` (timestamp, indexed) — exact detection timestamp.
+  - `resolved_at` (timestamp, nullable) — resolution timestamp.
+  - `resolved_by` (FK -> `users.id`, nullable) — administrator who resolved/dismissed the incident.
+  - `resolution_notes` (text, nullable) — administrative justification.
+  - `created_at`, `updated_at` (timestamps).
+- **Composite Indexes:**
+  - `['tenant_id', 'created_at']`, `['incident_type', 'created_at']`, `['status', 'created_at']`.
+- **Model:** `App\Models\AbuseIncident`.
+- **Audit Integration:** Administrative resolutions (`resolve`, `dismiss`) trigger immutable audit records in `audit_logs` via `AuditService::record()`. Routine background ingestion from daemons does not pollute `audit_logs`.
+
 ## Cross-System Coupling
 > **CRITICAL RULE:** Do NOT alter the schemas of `domains` or `mailboxes` without simultaneously verifying and updating `/etc/postfix/mysql-virtual-mailbox-*.cf` and `/etc/dovecot/dovecot-sql.conf.ext`. The mail stack relies precisely on the current table names and column structures.
 

@@ -3,6 +3,7 @@
 namespace App\Services\Policy;
 
 use App\Models\Mailbox;
+use App\Services\Abuse\AbuseIncidentService;
 use App\Services\OutboundQuotaService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -136,6 +137,8 @@ class PolicyDecisionService
                     'recipient_count' => $recipientCount,
                     'reason'          => $response->reason,
                 ]);
+
+                $this->recordQuotaAbuseIncident($tenant, $mailbox, $recipientCount, $saslUsername, $response->reason);
             }
 
             return $response;
@@ -199,6 +202,56 @@ class PolicyDecisionService
             Redis::setex($key, 300, $payload);
         } catch (Throwable $e) {
             // Non-fatal if cache write fails
+        }
+    }
+
+    /**
+     * Record a persistent abuse incident for SMTP quota rejections with daily cooldown.
+     * Guaranteed fail-safe: any failure must not alter or delay the SMTP rejection decision.
+     */
+    private function recordQuotaAbuseIncident($tenant, Mailbox $mailbox, int $recipientCount, string $saslUsername, ?string $reason): void
+    {
+        try {
+            $today = date('Y-m-d');
+            $cooldownKey = "outbound:abuse:incident:cooldown:quota:{$tenant->id}:{$mailbox->id}:{$today}";
+
+            // Atomic cooldown: only record one quota incident per mailbox per day to avoid spamming the database
+            $acquired = Redis::set($cooldownKey, '1', 'EX', 86400, 'NX');
+            if ($acquired !== true && $acquired !== 'OK') {
+                return;
+            }
+
+            $mailboxLimit = $tenant->plan?->mailbox_daily_outbound_recipients ?? -1;
+            $tenantLimit = $tenant->plan?->daily_outbound_recipients ?? -1;
+            $threshold = $mailboxLimit > 0 ? (string) $mailboxLimit : ($tenantLimit > 0 ? (string) $tenantLimit : null);
+
+            $idempotencyKey = "policy_daemon:quota:{$tenant->id}:{$mailbox->id}:{$today}";
+
+            app(AbuseIncidentService::class)->record([
+                'tenant_id'        => $tenant->id,
+                'domain_id'        => $mailbox->domain_id,
+                'mailbox_id'       => $mailbox->id,
+                'incident_type'    => 'smtp_quota_exceeded',
+                'severity'         => 'medium',
+                'detection_source' => 'policy_daemon',
+                'summary'          => 'Outbound SMTP recipient quota exceeded',
+                'threshold_value'  => $threshold,
+                'observed_value'   => (string) $recipientCount,
+                'evidence'         => [
+                    'recipient_count' => $recipientCount,
+                    'sasl_username'   => $saslUsername,
+                    'reason'          => $reason,
+                ],
+                'idempotency_key'  => $idempotencyKey,
+                'occurred_at'      => now(),
+            ]);
+        } catch (Throwable $e) {
+            // Fail-safe: Quota rejection MUST NOT fail even if ledger recording encounters an issue
+            $this->log('error', 'Failed to record quota abuse incident in persistent ledger', [
+                'tenant_id'  => $tenant->id,
+                'mailbox_id' => $mailbox->id,
+                'error'      => $e->getMessage(),
+            ]);
         }
     }
 

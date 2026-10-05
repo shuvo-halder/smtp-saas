@@ -457,7 +457,7 @@ class AbuseDetectionService
     }
 
     /**
-     * Emit structured operational alert.
+     * Emit structured operational alert and persist incident in ledger.
      */
     private function emitAlert(string $alertType, array $context): void
     {
@@ -465,5 +465,54 @@ class AbuseDetectionService
             'alert_type' => $alertType,
             'timestamp' => now()->toIso8601String(),
         ], $context));
+
+        try {
+            $tenantId = $context['tenant_id'] ?? null;
+            $mailboxId = $context['mailbox_id'] ?? null;
+            $date = $context['date'] ?? Carbon::now('UTC')->format('Y-m-d');
+
+            $severity = match ($alertType) {
+                'DAILY_HARD_BOUNCE_LIMIT_EXCEEDED', 'CONSECUTIVE_HARD_BOUNCES_EXCEEDED' => 'critical',
+                'HIGH_HARD_BOUNCE_RATE' => 'warning',
+                default => 'warning',
+            };
+
+            $summary = match ($alertType) {
+                'DAILY_HARD_BOUNCE_LIMIT_EXCEEDED' => "Tenant exceeded daily hard bounce limit ({$context['daily_hard_bounces']} / {$context['threshold']})",
+                'CONSECUTIVE_HARD_BOUNCES_EXCEEDED' => "Mailbox exceeded consecutive hard bounce threshold ({$context['consecutive_hard_bounces']} / {$context['threshold']})",
+                'HIGH_HARD_BOUNCE_RATE' => "Tenant hard bounce rate ({$context['bounce_rate']}) exceeded threshold on {$context['attempted_recipients']} attempts",
+                default => "Abuse alert: {$alertType}",
+            };
+
+            $thresholdVal = isset($context['threshold']) ? (string) $context['threshold'] : null;
+            $observedVal = match ($alertType) {
+                'DAILY_HARD_BOUNCE_LIMIT_EXCEEDED' => (string) ($context['daily_hard_bounces'] ?? ''),
+                'CONSECUTIVE_HARD_BOUNCES_EXCEEDED' => (string) ($context['consecutive_hard_bounces'] ?? ''),
+                'HIGH_HARD_BOUNCE_RATE' => (string) ($context['bounce_rate'] ?? ''),
+                default => null,
+            };
+
+            $idempotencyKey = "log_parser:{$alertType}:{$tenantId}:" . ($mailboxId ? "{$mailboxId}:" : "") . $date;
+
+            app(AbuseIncidentService::class)->record([
+                'tenant_id'        => $tenantId,
+                'mailbox_id'       => $mailboxId,
+                'incident_type'    => strtolower($alertType),
+                'severity'         => $severity,
+                'detection_source' => 'log_parser',
+                'summary'          => $summary,
+                'threshold_value'  => $thresholdVal,
+                'observed_value'   => $observedVal,
+                'evidence'         => $context,
+                'idempotency_key'  => $idempotencyKey,
+                'occurred_at'      => Carbon::now('UTC'),
+            ]);
+        } catch (Throwable $e) {
+            // Fail-safe: Never disrupt alert processing
+            Log::channel('abuse')->error('AbuseDetectionService: Failed to record abuse incident in ledger', [
+                'alert_type' => $alertType,
+                'error'      => $e->getMessage(),
+            ]);
+        }
     }
 }
