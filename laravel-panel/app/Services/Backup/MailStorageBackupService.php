@@ -17,14 +17,17 @@ class MailStorageBackupService
 {
     public function __construct(
         protected ?string $storagePath = null,
-        protected ?string $sourcePath = null
+        protected ?string $sourcePath = null,
+        protected ?BackupEncryptionService $encryptionService = null
     ) {
         $this->storagePath = $storagePath ?? (config('backup.storage_path') . '/vmail');
         $this->sourcePath = $sourcePath ?? config('backup.vmail_source_path', '/var/vmail');
+        $this->encryptionService = $encryptionService ?? app(BackupEncryptionService::class);
     }
 
     /**
      * Backup mail storage directory (/var/vmail) into a compressed archive with SHA-256 manifest.
+     * Supports AES-256 encryption at rest when configured.
      *
      * @param string|null $sourceDir
      * @param string|null $destinationDir
@@ -45,20 +48,24 @@ class MailStorageBackupService
         $timestamp = Carbon::now('UTC')->format('Ymd_His');
         $backupId = (string) Str::uuid();
 
+        $isEncrypted = $this->encryptionService->isEncryptionEnabled();
+        $ext = $isEncrypted ? '.tar.gz.enc' : '.tar.gz';
+
         $baseFilename = "vmail_backup_{$timestamp}";
-        $tarGzFilename = "{$baseFilename}.tar.gz";
-        $finalPath = $targetDir . DIRECTORY_SEPARATOR . $tarGzFilename;
+        $filename = "{$baseFilename}{$ext}";
+        $finalPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
 
         // If a backup with the exact same timestamp already exists, append unique suffix
         if (file_exists($finalPath)) {
             $baseFilename .= '_' . substr($backupId, 0, 8);
-            $tarGzFilename = "{$baseFilename}.tar.gz";
-            $finalPath = $targetDir . DIRECTORY_SEPARATOR . $tarGzFilename;
+            $filename = "{$baseFilename}{$ext}";
+            $finalPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
         }
 
         $tempTarPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . "vmail_tar_{$backupId}.tar";
-        $tempTarGzPath = $targetDir . DIRECTORY_SEPARATOR . "{$tarGzFilename}.tmp";
-        $manifestPath = $targetDir . DIRECTORY_SEPARATOR . "{$tarGzFilename}.manifest.json";
+        $tempTarGzPath = $targetDir . DIRECTORY_SEPARATOR . "vmail_plain_{$backupId}.tmp.gz";
+        $tempEncPath = $targetDir . DIRECTORY_SEPARATOR . "{$filename}.tmp";
+        $manifestPath = $targetDir . DIRECTORY_SEPARATOR . "{$filename}.manifest.json";
 
         $startTime = microtime(true);
 
@@ -97,8 +104,7 @@ class MailStorageBackupService
 
             unset($phar); // Flush tar to disk
 
-            // Compress the tar archive to .tar.gz
-            // We use gzopen to compress the tarball into .tar.gz.tmp
+            // Compress the tar archive to temporary gzip
             $tarHandle = fopen($tempTarPath, 'rb');
             $gzHandle = gzopen($tempTarGzPath, 'wb9');
 
@@ -123,12 +129,29 @@ class MailStorageBackupService
                 throw new RuntimeException("Generated compressed mail storage backup is empty or missing: [{$tempTarGzPath}]");
             }
 
-            $sizeBytes = filesize($tempTarGzPath);
-            $sha256 = hash_file('sha256', $tempTarGzPath);
+            $unencryptedSha256 = hash_file('sha256', $tempTarGzPath);
+            $unencryptedGzBytes = filesize($tempTarGzPath);
 
-            // Atomic promotion to final path
-            if (!rename($tempTarGzPath, $finalPath)) {
-                throw new RuntimeException("Failed to atomically promote temporary mail backup to [{$finalPath}]");
+            if ($isEncrypted) {
+                // Encrypt temporary compressed archive to target encrypted path
+                $this->encryptionService->encryptFile($tempTarGzPath, $tempEncPath);
+                @unlink($tempTarGzPath);
+
+                if (!rename($tempEncPath, $finalPath)) {
+                    throw new RuntimeException("Failed to atomically promote encrypted mail backup to [{$finalPath}]");
+                }
+
+                $sizeBytes = filesize($finalPath);
+                $sha256 = hash_file('sha256', $finalPath);
+                $cipher = $this->encryptionService->getCipher();
+            } else {
+                if (!rename($tempTarGzPath, $finalPath)) {
+                    throw new RuntimeException("Failed to atomically promote temporary mail backup to [{$finalPath}]");
+                }
+
+                $sizeBytes = $unencryptedGzBytes;
+                $sha256 = $unencryptedSha256;
+                $cipher = null;
             }
 
             $durationSeconds = round(microtime(true) - $startTime, 3);
@@ -138,21 +161,31 @@ class MailStorageBackupService
                 'timestamp'          => Carbon::now('UTC')->toIso8601String(),
                 'type'               => 'mail_storage',
                 'source_path'        => $source,
-                'filename'           => $tarGzFilename,
+                'filename'           => $filename,
                 'path'               => $finalPath,
                 'size_bytes'         => $sizeBytes,
+                'sha256'             => $sha256,
+                'encrypted'          => $isEncrypted,
+                'cipher'             => $cipher,
+                'unencrypted_sha256' => $unencryptedSha256,
                 'uncompressed_bytes' => $uncompressedBytes,
                 'file_count'         => $fileCount,
-                'sha256'             => $sha256,
                 'duration_seconds'   => $durationSeconds,
+                'verified'           => false,
+                'verified_at'        => null,
+                'restore_tested'     => false,
+                'restore_tested_at'  => null,
+                'offsite_copied'     => false,
+                'offsite_status'     => 'PENDING',
                 'status'             => 'SUCCESS',
             ];
 
             file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 
-            $this->log('info', "Mail storage backup completed successfully: {$tarGzFilename}", [
+            $this->log('info', "Mail storage backup completed successfully: {$filename}", [
                 'backup_id'        => $backupId,
                 'size_bytes'       => $sizeBytes,
+                'encrypted'        => $isEncrypted,
                 'file_count'       => $fileCount,
                 'duration_seconds' => $durationSeconds,
             ]);
@@ -165,6 +198,9 @@ class MailStorageBackupService
             }
             if (file_exists($tempTarGzPath)) {
                 @unlink($tempTarGzPath);
+            }
+            if (isset($tempEncPath) && file_exists($tempEncPath)) {
+                @unlink($tempEncPath);
             }
 
             $this->log('error', "Mail storage backup failed: {$e->getMessage()}", [

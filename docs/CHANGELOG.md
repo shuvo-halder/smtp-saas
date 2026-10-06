@@ -1,5 +1,36 @@
 # Changelog
 
+### Backup & Disaster Recovery Production Hardening + Restore Verification (Step 17.2)
+- **Implemented:** `App\Services\Backup\BackupEncryptionService`:
+  - System-level OpenSSL AES-256-CBC with PBKDF2 (10,000 iterations, SHA-256, 8-byte random salt).
+  - OpenSSL envelope format (`Salted__` + salt + ciphertext) cross-compatible between PHP OpenSSL and OpenSSL 3.x CLI.
+  - Fail-closed security: missing encryption key when encryption is enabled immediately halts execution with an exception.
+  - Keys stored strictly outside backup directories and omitted from manifests, logs, and git.
+- **Implemented:** Provider-neutral offsite replication subsystem:
+  - `App\Services\Backup\BackupOffsiteService`: supports `rsync`, `scp`, `local`, and `custom` transports.
+  - Pre-flight local integrity verification before remote replication.
+  - Fail-safe invariant: remote transfer failure never deletes, mutates, or invalidates local backup copies.
+  - `scripts/sync_offsite.sh`: companion bash offsite replication script with credential redaction.
+- **Implemented:** Calendar-aware Grandfather-Father-Son (GFS) retention in `BackupRetentionService`:
+  - Distinct calendar bucket grouping: retains 7 daily, 4 weekly (ISO `o-W`), and 3 monthly (`Y-m`) snapshots based on backup timestamps.
+  - Non-destructive safety invariants: newest valid backup strictly protected, single remaining backup never pruned, stale `.tmp` reaped after 24h.
+- **Hardened:** Disaster recovery orchestrator in `scripts/disaster_recovery.sh`:
+  - Removed silent migration failure (`migrate --force || true`).
+  - Added `php artisan migrate:status` inspection and explicit `--run-migrations` flag.
+  - Fail-closed behavior: migration errors abort script with non-zero exit code.
+- **Updated:** Server installer `scripts/install.sh`:
+  - Added Step 19: Idempotent Laravel scheduler cron job installation (`* * * * * cd /var/www/email-saas/laravel-panel && php artisan schedule:run >> /dev/null 2>&1`) without wiping or duplicating crontab.
+- **Updated:** All companion scripts and Artisan commands:
+  - `scripts/backup_db.sh` & `scripts/backup_vmail.sh`: added on-the-fly OpenSSL AES-256-CBC PBKDF2 encryption.
+  - `scripts/restore_db.sh` & `scripts/restore_vmail.sh`: added stream decryption directly into database and tar extraction without plaintext disk footprint.
+  - `scripts/verify_backup.sh`: added envelope checking and decryption testing.
+  - `backup:run`: added `--sync-offsite` flag.
+  - `backup:status`: added encryption posture and offsite status reporting.
+  - `backup:verify`: added decryption support and isolated restore options.
+- **Updated:** Manifest consistency: companion `.manifest.json` immutably tracks `encrypted`, `cipher`, `unencrypted_sha256`, `verified`, `verified_at`, `restore_tested`, `restore_tested_at`, `offsite_copied`, and `offsite_status`.
+- **Architectural Decision Recorded:** Option B for Point-in-Time Recovery (`PITR: NOT IMPLEMENTED`). System provides consistent point-of-backup snapshots.
+- **Expanded Test Suite:** Added 5 new feature tests in `tests/Feature/BackupAndDisasterRecoveryTest.php` covering AES-256 encryption at rest, decryption verification, fail-closed key validation, calendar GFS retention, and offsite fail-safe semantics (14 tests, 92 assertions; total suite: **228 passed, 980 assertions**).
+
 ### Backup & Disaster Recovery Implementation (Step 17)
 - **Configured:** Added dedicated `backup` daily logging channel in `config/logging.php` routing to `storage/logs/backup.log`.
 - **Created:** Enterprise backup configuration in `config/backup.php` specifying storage paths, retention policies (7 daily, 4 weekly, 3 monthly), critical tables for verification, and offsite configuration placeholders.

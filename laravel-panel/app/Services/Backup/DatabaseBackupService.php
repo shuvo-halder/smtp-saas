@@ -15,13 +15,16 @@ use Throwable;
 class DatabaseBackupService
 {
     public function __construct(
-        protected ?string $storagePath = null
+        protected ?string $storagePath = null,
+        protected ?BackupEncryptionService $encryptionService = null
     ) {
         $this->storagePath = $storagePath ?? (config('backup.storage_path') . '/db');
+        $this->encryptionService = $encryptionService ?? app(BackupEncryptionService::class);
     }
 
     /**
      * Generate a transaction-safe compressed database backup with SHA-256 manifest.
+     * Supports AES-256 encryption at rest when configured.
      *
      * @param string|null $destinationDir
      * @param string|null $connectionName
@@ -37,25 +40,29 @@ class DatabaseBackupService
         $timestamp = Carbon::now('UTC')->format('Ymd_His');
         $backupId = (string) Str::uuid();
 
-        $filename = "db_backup_{$timestamp}.sql.gz";
+        $isEncrypted = $this->encryptionService->isEncryptionEnabled();
+        $ext = $isEncrypted ? '.sql.gz.enc' : '.sql.gz';
+
+        $filename = "db_backup_{$timestamp}{$ext}";
         $finalPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
 
         if (file_exists($finalPath)) {
-            $filename = "db_backup_{$timestamp}_" . substr($backupId, 0, 8) . ".sql.gz";
+            $filename = "db_backup_{$timestamp}_" . substr($backupId, 0, 8) . "{$ext}";
             $finalPath = $targetDir . DIRECTORY_SEPARATOR . $filename;
         }
 
-        $tempPath = $targetDir . DIRECTORY_SEPARATOR . "{$filename}.tmp";
+        $tempPlainPath = $targetDir . DIRECTORY_SEPARATOR . "db_backup_{$timestamp}_{$backupId}.tmp.gz";
+        $tempEncPath = $targetDir . DIRECTORY_SEPARATOR . "{$filename}.tmp";
         $manifestPath = $targetDir . DIRECTORY_SEPARATOR . "{$filename}.manifest.json";
 
         $startTime = microtime(true);
         $gz = null;
 
         try {
-            // Open temp gzip stream
-            $gz = @gzopen($tempPath, 'wb9');
+            // Open temp gzip stream for raw SQL dump
+            $gz = @gzopen($tempPlainPath, 'wb9');
             if (!$gz) {
-                throw new RuntimeException("Failed to open temporary backup stream at [{$tempPath}]");
+                throw new RuntimeException("Failed to open temporary backup stream at [{$tempPlainPath}]");
             }
 
             $pdo = DB::connection($connection)->getPdo();
@@ -99,37 +106,65 @@ class DatabaseBackupService
             gzclose($gz);
             $gz = null;
 
-            // Integrity verification of the written temp file
-            if (!file_exists($tempPath) || filesize($tempPath) === 0) {
-                throw new RuntimeException("Generated temporary backup file is empty or missing: [{$tempPath}]");
+            // Integrity verification of the written temp plain gzip file
+            if (!file_exists($tempPlainPath) || filesize($tempPlainPath) === 0) {
+                throw new RuntimeException("Generated temporary backup file is empty or missing: [{$tempPlainPath}]");
             }
 
-            $sha256 = hash_file('sha256', $tempPath);
-            $sizeBytes = filesize($tempPath);
+            $unencryptedSha256 = hash_file('sha256', $tempPlainPath);
+            $unencryptedBytes = filesize($tempPlainPath);
 
-            // Atomic promotion: rename temp file to final filename
-            if (!rename($tempPath, $finalPath)) {
-                throw new RuntimeException("Failed to atomically promote temporary backup file to [{$finalPath}]");
+            if ($isEncrypted) {
+                // Encrypt temporary compressed archive to target encrypted path
+                $this->encryptionService->encryptFile($tempPlainPath, $tempEncPath);
+                @unlink($tempPlainPath);
+
+                if (!rename($tempEncPath, $finalPath)) {
+                    throw new RuntimeException("Failed to atomically promote encrypted backup file to [{$finalPath}]");
+                }
+
+                $sizeBytes = filesize($finalPath);
+                $sha256 = hash_file('sha256', $finalPath);
+                $cipher = $this->encryptionService->getCipher();
+            } else {
+                // Unencrypted mode: promote directly
+                if (!rename($tempPlainPath, $finalPath)) {
+                    throw new RuntimeException("Failed to atomically promote temporary backup file to [{$finalPath}]");
+                }
+
+                $sizeBytes = $unencryptedBytes;
+                $sha256 = $unencryptedSha256;
+                $cipher = null;
             }
 
             $durationSeconds = round(microtime(true) - $startTime, 3);
 
             // Companion Manifest
             $manifest = [
-                'backup_id'        => $backupId,
-                'timestamp'        => Carbon::now('UTC')->toIso8601String(),
-                'type'             => 'database',
-                'driver'           => $driver,
-                'database_name'    => $dbName,
-                'connection'       => $connection,
-                'filename'         => $filename,
-                'path'             => $finalPath,
-                'size_bytes'       => $sizeBytes,
-                'sha256'           => $sha256,
-                'tables_count'     => $tablesCount,
-                'tables'           => $tables,
-                'duration_seconds' => $durationSeconds,
-                'status'           => 'SUCCESS',
+                'backup_id'          => $backupId,
+                'timestamp'          => Carbon::now('UTC')->toIso8601String(),
+                'type'               => 'database',
+                'driver'             => $driver,
+                'database_name'      => $dbName,
+                'connection'         => $connection,
+                'filename'           => $filename,
+                'path'               => $finalPath,
+                'size_bytes'         => $sizeBytes,
+                'sha256'             => $sha256,
+                'encrypted'          => $isEncrypted,
+                'cipher'             => $cipher,
+                'unencrypted_sha256' => $unencryptedSha256,
+                'unencrypted_bytes'  => $unencryptedBytes,
+                'tables_count'       => $tablesCount,
+                'tables'             => $tables,
+                'duration_seconds'   => $durationSeconds,
+                'verified'           => false,
+                'verified_at'        => null,
+                'restore_tested'     => false,
+                'restore_tested_at'  => null,
+                'offsite_copied'     => false,
+                'offsite_status'     => 'PENDING',
+                'status'             => 'SUCCESS',
             ];
 
             file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -137,6 +172,7 @@ class DatabaseBackupService
             $this->log('info', "Database backup completed successfully: {$filename}", [
                 'backup_id'        => $backupId,
                 'size_bytes'       => $sizeBytes,
+                'encrypted'        => $isEncrypted,
                 'tables'           => $tablesCount,
                 'duration_seconds' => $durationSeconds,
             ]);
@@ -147,8 +183,11 @@ class DatabaseBackupService
             if ($gz) {
                 @gzclose($gz);
             }
-            if (file_exists($tempPath)) {
-                @unlink($tempPath);
+            if (file_exists($tempPlainPath)) {
+                @unlink($tempPlainPath);
+            }
+            if (isset($tempEncPath) && file_exists($tempEncPath)) {
+                @unlink($tempEncPath);
             }
 
             $this->log('error', "Database backup failed: {$e->getMessage()}", [

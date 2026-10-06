@@ -24,20 +24,32 @@ class BackupStatusCommand extends Command
         $this->info('================================================================');
         $this->line('');
 
+        // Encryption Status Header
+        $encEnabled = (bool) config('backup.encryption.enabled', false);
+        $encCipher = config('backup.encryption.cipher', 'aes-256-cbc');
+        $this->line('--- Encryption at Rest Configuration ---');
+        if ($encEnabled) {
+            $this->line("  Encryption at Rest: <info>ENABLED</info> ({$encCipher})");
+        } else {
+            $this->line("  Encryption at Rest: <comment>DISABLED</comment> (Archives stored unencrypted)");
+        }
+        $this->line('');
+
         // 1. Database Backups
-        $this->displaySectionStatus('Database Backups', $dbDir, '*.sql.gz');
+        $this->displaySectionStatus('Database Backups', $dbDir, ['*.sql.gz', '*.sql.gz.enc']);
 
         // 2. Mail Storage Backups
-        $this->displaySectionStatus('Mail Storage Backups (/var/vmail)', $vmailDir, '*.tar.gz');
+        $this->displaySectionStatus('Mail Storage Backups (/var/vmail)', $vmailDir, ['*.tar.gz', '*.tar.gz.enc']);
 
         // 3. Overall Storage & Offsite Summary
         $this->line('');
         $this->info('--- Offsite & Disaster Recovery Configuration ---');
-        $offsiteEnabled = config('backup.offsite.enabled', false);
-        $offsiteDriver = config('backup.offsite.driver', 'pending');
+        $offsiteEnabled = (bool) config('backup.offsite.enabled', false);
+        $offsiteTransport = config('backup.offsite.transport', 'rsync');
+        $offsiteHost = config('backup.offsite.host', 'remote-host');
 
         if ($offsiteEnabled) {
-            $this->line("  Offsite Sync:      <info>ENABLED</info> ({$offsiteDriver})");
+            $this->line("  Offsite Sync:      <info>ENABLED</info> ({$offsiteTransport} -> {$offsiteHost})");
         } else {
             $this->line("  Offsite Sync:      <comment>OFFSITE BACKUP — PENDING INFRASTRUCTURE</comment>");
             $this->line("  Notice:            Local backups active. Offsite replication pending remote storage provision.");
@@ -47,7 +59,14 @@ class BackupStatusCommand extends Command
         return Command::SUCCESS;
     }
 
-    protected function displaySectionStatus(string $title, string $directory, string $pattern): void
+    /**
+     * Display status table for a backup directory.
+     *
+     * @param string $title
+     * @param string $directory
+     * @param array $patterns
+     */
+    protected function displaySectionStatus(string $title, string $directory, array $patterns): void
     {
         $this->comment(">>> {$title}");
         $this->line("  Directory: " . ($directory ?: 'Not configured'));
@@ -57,7 +76,11 @@ class BackupStatusCommand extends Command
             return;
         }
 
-        $files = File::glob($directory . '/' . $pattern);
+        $files = [];
+        foreach ($patterns as $pattern) {
+            $files = array_merge($files, File::glob($directory . '/' . $pattern));
+        }
+        $files = array_unique($files);
         $totalFiles = count($files);
 
         if ($totalFiles === 0) {
@@ -75,14 +98,29 @@ class BackupStatusCommand extends Command
             $totalBytes += $size;
             $mtime = filemtime($file);
             $manifestPath = "{$file}.manifest.json";
-            $hasManifest = file_exists($manifestPath) ? 'Yes' : 'No';
+            $hasManifest = 'No';
+            $isEncrypted = str_ends_with($file, '.enc') ? 'Yes' : 'No';
+            $verified = 'No';
+            $offsite = 'Pending';
+
+            if (file_exists($manifestPath)) {
+                $hasManifest = 'Yes';
+                $manifestData = json_decode((string) @file_get_contents($manifestPath), true);
+                if (is_array($manifestData)) {
+                    $verified = !empty($manifestData['verified']) ? 'Verified' : 'No';
+                    $offsite = $manifestData['offsite_status'] ?? (!empty($manifestData['offsite_copied']) ? 'Copied' : 'Pending');
+                }
+            }
 
             if ($index < 5) {
                 $tableRows[] = [
                     basename($file),
                     $this->formatBytes($size),
+                    $isEncrypted,
                     date('Y-m-d H:i:s', $mtime),
                     Carbon::createFromTimestamp($mtime)->diffForHumans(),
+                    $verified,
+                    $offsite,
                     $hasManifest,
                 ];
             }
@@ -99,7 +137,7 @@ class BackupStatusCommand extends Command
         $this->line('');
 
         $this->table(
-            ['Archive Name', 'Size', 'Created At', 'Age', 'Manifest'],
+            ['Archive Name', 'Size', 'Encrypted', 'Created At', 'Age', 'Verified', 'Offsite', 'Manifest'],
             $tableRows
         );
     }

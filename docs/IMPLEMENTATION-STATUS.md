@@ -153,36 +153,47 @@
   - `[x]` Persistent administrative audit logging via `AuditService::record()` on incident resolution and dismissal
   - `[x]` Full test coverage in `tests/Feature/AbuseIncidentLedgerTest.php` (16 passing tests, 81 assertions; test suite total: 214 passing, 888 assertions)
 
-## Backup & Disaster Recovery (Step 17 IMPLEMENTED & VERIFIED)
+## Backup & Disaster Recovery (Step 17 & 17.2 IMPLEMENTED & HARDENED)
 - `[x]` Dedicated `backup` logging channel in `config/logging.php` (`storage/logs/backup.log`)
-- `[x]` Enterprise configuration in `config/backup.php` (storage paths, retention limits, critical tables, offsite driver settings)
+- `[x]` Enterprise configuration in `config/backup.php` (storage paths, retention limits, critical tables, encryption at rest, offsite transport settings)
 - `[x]` Transaction-safe compressed database dumps with SHA-256 manifests (`DatabaseBackupService`)
 - `[x]` Mail storage (`/var/vmail`) archiving preserving Maildir structure & numeric ownership (`MailStorageBackupService`)
-- `[x]` Three-tier integrity verification engine (`BackupVerificationService`):
+- `[x]` Production-ready AES-256-CBC PBKDF2 encryption at rest (`.sql.gz.enc` and `.tar.gz.enc`) with fail-closed security (`BackupEncryptionService`)
+- `[x]` Provider-neutral offsite replication abstraction (`BackupOffsiteService` and `scripts/sync_offsite.sh`) supporting `rsync`, `scp`, `local`, and `custom` transports with fail-safe local preservation
+- `[x]` Multi-tier integrity verification engine (`BackupVerificationService`):
   - `[x]` Physical file existence and non-empty size check
-  - `[x]` Gzip magic header (`\x1f\x8b`) and stream decompression integrity
+  - `[x]` OpenSSL envelope header (`Salted__`) and gzip magic header (`\x1f\x8b`)
+  - `[x]` On-the-fly decryption and stream decompression integrity
   - `[x]` Cryptographic SHA-256 validation against companion JSON manifests
 - `[x]` Isolated dry-run database restore verification into disposable database validating table structures and row counts
 - `[x]` Isolated dry-run mail storage restore verification validating `cur`, `new`, and `tmp` Maildir folders
-- `[x]` Retention policy service (`BackupRetentionService`) with non-negotiable safety invariants:
+- `[x]` Calendar-aware retention service (`BackupRetentionService`):
+  - `[x]` Grandfather-Father-Son (GFS) bucket allocation (7 daily, 4 weekly, 3 monthly calendar snapshots)
   - `[x]` Invariant: Newest backup (index 0) is NEVER pruned
   - `[x]` Invariant: Single remaining backup is NEVER pruned
   - `[x]` Stale `.tmp` cleanup for files older than 24 hours
 - `[x]` Complete suite of 6 Artisan commands:
-  - `[x]` `backup:run` (master pipeline with `--only-db`, `--only-vmail`, `--verify`, `--no-prune`)
-  - `[x]` `backup:database` (transaction-safe dump with `--path=`/`--dir=`, `--connection=`, `--verify`)
-  - `[x]` `backup:vmail` (mail archive with `--source=`, `--path=`/`--dir=`, `--verify`)
-  - `[x]` `backup:verify` (archive integrity, SHA-256, and optional `--dry-run-restore`)
-  - `[x]` `backup:status` (tabular overview of backup health, storage footprint, and offsite state)
-  - `[x]` `backup:prune` (retention policy enforcement with `--keep=`)
+  - `[x]` `backup:run` (master pipeline with `--only-db`, `--only-vmail`, `--verify`, `--sync-offsite`, `--no-prune`)
+  - `[x]` `backup:database` (transaction-safe dump with `--path=`, `--connection=`, optional encryption)
+  - `[x]` `backup:vmail` (mail archive with `--source=`, `--path=`, optional encryption)
+  - `[x]` `backup:verify` (archive integrity, decryption verification, SHA-256, and isolated restore test)
+  - `[x]` `backup:status` (tabular overview of backup health, encryption posture, storage footprint, and offsite state)
+  - `[x]` `backup:prune` (calendar-aware retention policy enforcement)
 - `[x]` Native Linux production scripts in `scripts/`:
-  - `[x]` `scripts/backup_db.sh` (mariadb-dump/mysqldump with `--single-transaction`, gzip, SHA-256 manifest, flock)
-  - `[x]` `scripts/backup_vmail.sh` (tar archive with `--numeric-owner --preserve-permissions`, gzip, manifest, flock)
-  - `[x]` `scripts/verify_backup.sh` (archive verification, `gzip -t`, SHA-256 cross-reference)
-  - `[x]` `scripts/restore_db.sh` (interactive database restore with safety confirmation)
-  - `[x]` `scripts/restore_vmail.sh` (interactive mail restore enforcing `vmail:vmail` 5000:5000 and 700/600 permissions)
-  - `[x]` `scripts/disaster_recovery.sh` (bare-metal VPS disaster recovery orchestrator)
+  - `[x]` `scripts/backup_db.sh` (mariadb-dump/mysqldump with `--single-transaction`, gzip, optional AES-256 encryption, SHA-256 manifest, flock)
+  - `[x]` `scripts/backup_vmail.sh` (tar archive with `--numeric-owner --preserve-permissions`, gzip, optional AES-256 encryption, manifest, flock)
+  - `[x]` `scripts/verify_backup.sh` (archive verification, decryption test, `gzip -t`, SHA-256 cross-reference)
+  - `[x]` `scripts/restore_db.sh` (interactive database restore with on-the-fly stream decryption and safety confirmation)
+  - `[x]` `scripts/restore_vmail.sh` (interactive mail restore with on-the-fly stream decryption, enforcing `vmail:vmail` 5000:5000 and 700/600 permissions)
+  - `[x]` `scripts/sync_offsite.sh` (provider-neutral replication script with fail-safe local preservation)
+  - `[x]` `scripts/disaster_recovery.sh` (hardened bare-metal VPS disaster recovery orchestrator with migration status inspection, fail-closed `--run-migrations`, and cache clearing)
+  - `[x]` `scripts/install.sh` (Step 19: idempotent Laravel scheduler cron installation)
 - `[x]` Automated scheduling registered in `routes/console.php` (daily `backup:run --verify` at 02:00, daily `backup:prune` at 03:00)
 - `[x]` Comprehensive operator disaster recovery runbook (`docs/DISASTER-RECOVERY-RUNBOOK.md`) covering Scenarios A, B, and C
-- `[ ]` Offsite replication (`OFFSITE BACKUP — PENDING INFRASTRUCTURE`)
-- `[x]` Feature test suite (`tests/Feature/BackupAndDisasterRecoveryTest.php`): 9 passing tests, 55 assertions (test suite total: 223 passing, 943 assertions, 0 failures, 0 regressions)
+- `[x]` PITR Architecture Decision: Option B (`PITR: NOT IMPLEMENTED`; point-of-backup daily snapshots documented)
+- `[x]` Verification Matrix:
+  - Local Backups, Encryption & Isolated Restores: `VERIFIED`
+  - Real MariaDB 10.11+ Live Restore: `PARTIALLY VERIFIED` (SQL syntax, transactions, and schema verified; live daemon pending remote infrastructure)
+  - Real Dovecot MDA Live Restore: `PARTIALLY VERIFIED` (Maildir extraction and permissions verified; live Dovecot indexing pending remote infrastructure)
+- `[x]` Feature test suite (`tests/Feature/BackupAndDisasterRecoveryTest.php`): 14 passing tests, 92 assertions (test suite total: 228 passing, 980 assertions, 0 failures, 0 regressions)
+

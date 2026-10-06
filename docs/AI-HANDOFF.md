@@ -113,22 +113,31 @@ This document is the operational starting point for any AI coding agent working 
   - **Audit Log Integration:** Administrative incident resolution and dismissal are persistently logged to `audit_logs` via `AuditService::record()`. Background daemon ingestion does not pollute `audit_logs`.
   - **Test Suite Execution:** Implemented `tests/Feature/AbuseIncidentLedgerTest.php` with 16 comprehensive feature tests (81 assertions). Full test suite: **214 passed (888 assertions)** cleanly with zero regressions.
 
-- **Step 17 — Backup & Disaster Recovery (IMPLEMENTED & VERIFIED):**
-  - **Logging & Configuration:** Dedicated `backup` channel in `config/logging.php` (`storage/logs/backup.log`); centralized configuration in `config/backup.php` defining storage paths, retention policies (7 daily, 4 weekly, 3 monthly), critical table lists, and offsite placeholders.
-  - **Database Backup Service:** `DatabaseBackupService` generates transaction-safe compressed `.sql.gz` archives supporting MariaDB/MySQL (InnoDB non-blocking `--single-transaction --quick --routines --triggers --events --hex-blob`) and SQLite. Includes atomic `.tmp` promotion, SHA-256 calculation, companion `.manifest.json` generation, and collision-resistant filenames.
-  - **Mail Storage Backup Service:** `MailStorageBackupService` archives `/var/vmail` into compressed `.tar.gz` preserving Maildir folder semantics (`cur`, `new`, `tmp`), ownership, and permissions.
-  - **Integrity Verification Service:** `BackupVerificationService` enforces 3-tier validation (physical file check, gzip magic header `\x1f\x8b` and decompression stream integrity, cryptographic SHA-256 cross-reference against manifest) and performs isolated restore verification:
+- **Step 17 & 17.2 — Backup & Disaster Recovery Hardening (IMPLEMENTED & VERIFIED):**
+  - **Logging & Configuration:** Dedicated `backup` channel in `config/logging.php` (`storage/logs/backup.log`); centralized configuration in `config/backup.php` defining storage paths, retention policies (7 daily, 4 weekly, 3 monthly), critical table lists, encryption settings, and provider-neutral offsite transport settings (`rsync`, `scp`, `local`, `custom`).
+  - **Backup Encryption at Rest (Step 17.2):** `BackupEncryptionService` implements OpenSSL AES-256-CBC PBKDF2 encryption at rest (`.sql.gz.enc`, `.tar.gz.enc`) with `Salted__` envelope. Keys (`BACKUP_ENCRYPTION_KEY` or file at `BACKUP_ENCRYPTION_KEY_PATH`) are kept strictly outside backup directories. Missing keys when encryption is enabled fail closed immediately.
+  - **Provider-Neutral Offsite Replication (Step 17.2):** `BackupOffsiteService` and `scripts/sync_offsite.sh` support multi-transport replication (`rsync`, `scp`, `local`, `custom`). Local archive integrity is verified prior to transfer. Remote transport failures never delete, mutate, or invalidate local backup copies (fail-safe).
+  - **Database Backup Service:** `DatabaseBackupService` generates transaction-safe compressed (and encrypted if configured) dumps supporting MariaDB/MySQL (InnoDB non-blocking `--single-transaction --quick --routines --triggers --events --hex-blob`) and SQLite. Includes atomic `.tmp` promotion, SHA-256 calculation, companion `.manifest.json` generation, and collision-resistant filenames.
+  - **Mail Storage Backup Service:** `MailStorageBackupService` archives `/var/vmail` into compressed (and encrypted if configured) archives preserving Maildir folder semantics (`cur`, `new`, `tmp`), ownership, and permissions.
+  - **Integrity Verification Service:** `BackupVerificationService` enforces multi-tier validation (physical file check, OpenSSL envelope check, on-the-fly decryption, gzip magic header `\x1f\x8b` and decompression stream integrity, cryptographic SHA-256 cross-reference against manifest) and performs isolated restore verification:
     - Isolated database restore test into a disposable SQLite database verifying schema tables and row counts.
     - Isolated mail storage restore test into a disposable temporary directory asserting Maildir structures.
-  - **Retention Service:** `BackupRetentionService` prunes expired daily archives while enforcing strict invariants: index 0 (newest backup) is NEVER deleted, single remaining backup is NEVER deleted, and stale `.tmp` files older than 24h are reaped.
-  - **Artisan Console Commands:** 6 dedicated commands in the `backup:` namespace: `backup:run` (master suite), `backup:database`, `backup:vmail`, `backup:verify`, `backup:status`, `backup:prune`.
-  - **Native Linux Production Scripts:** `scripts/backup_db.sh`, `scripts/backup_vmail.sh`, `scripts/verify_backup.sh`, `scripts/restore_db.sh`, `scripts/restore_vmail.sh`, and `scripts/disaster_recovery.sh` with `flock` locking and `vmail:vmail` (5000:5000) ownership enforcement.
+  - **Calendar-Aware Retention Service:** `BackupRetentionService` groups backups into distinct calendar buckets: 7 daily, 4 weekly (ISO `o-W`), and 3 monthly (`Y-m`) snapshots while strictly enforcing non-negotiable safety invariants: index 0 (newest backup) is NEVER deleted, single remaining backup is NEVER deleted, and stale `.tmp` files older than 24h are reaped.
+  - **Hardened Disaster Recovery Orchestrator (Step 17.2):** `scripts/disaster_recovery.sh` eliminates silent migration failure (`migrate --force || true`), adds `php artisan migrate:status` inspection, and applies pending migrations strictly with `--run-migrations`, failing closed on error.
+  - **Server Installer (Step 17.2):** `scripts/install.sh` Step 19 idempotently installs the Laravel scheduler cron job without duplicating or wiping crontab.
+  - **Artisan Console Commands:** 6 dedicated commands in the `backup:` namespace: `backup:run` (master suite with `--sync-offsite`), `backup:database`, `backup:vmail`, `backup:verify`, `backup:status`, `backup:prune`.
+  - **Native Linux Production Scripts:** `scripts/backup_db.sh`, `scripts/backup_vmail.sh`, `scripts/verify_backup.sh`, `scripts/restore_db.sh`, `scripts/restore_vmail.sh`, `scripts/sync_offsite.sh`, and `scripts/disaster_recovery.sh` with `flock` locking, stream decryption, and `vmail:vmail` (5000:5000) ownership enforcement.
   - **Automated Scheduling:** Registered in `routes/console.php`: `backup:run --verify` daily at 02:00 UTC, `backup:prune` daily at 03:00 UTC.
   - **Disaster Recovery Runbook:** Authored `docs/DISASTER-RECOVERY-RUNBOOK.md` detailing operational procedures for Scenario A (DB loss), Scenario B (Mail loss), and Scenario C (Bare-metal VPS disaster recovery), RPO/RTO metrics, and verification steps.
-  - **Offsite Posture:** Clearly designated as `OFFSITE BACKUP — PENDING INFRASTRUCTURE` pending remote storage provisioning.
-  - **Test Suite Execution:** Implemented `tests/Feature/BackupAndDisasterRecoveryTest.php` with 9 passing tests (55 assertions). Full test suite expanded to **223 passed (943 assertions)** cleanly with zero regressions.
+  - **Point-in-Time Recovery (PITR) Decision:** Option B documented (`PITR: NOT IMPLEMENTED`). System provides consistent point-of-backup snapshots.
+  - **Verification Matrix:**
+    - Local Snapshots, Encryption, and Isolated Restore: `VERIFIED`
+    - Real MariaDB 10.11+ Live Restore: `PARTIALLY VERIFIED` (SQL syntax, transactions, and schema verified; live daemon pending remote infrastructure)
+    - Real Dovecot MDA Live Restore: `PARTIALLY VERIFIED` (Maildir extraction and permissions verified; live Dovecot indexing pending remote infrastructure)
+  - **Test Suite Execution:** Implemented `tests/Feature/BackupAndDisasterRecoveryTest.php` with 14 passing tests (92 assertions). Full test suite: **228 passed (980 assertions)** cleanly with zero regressions.
 
 ## 5. Next Recommended Implementation Phase
 - **Step 18 — Next.js Admin UI Deliverability & Abuse Dashboard Expansion:**
   - Connect the Next.js control plane to the `/api/admin/smtp/incidents` endpoints for live abuse incident tracking and administrative resolution.
   - Expose backup status and disaster recovery health metrics in the Admin Control Plane.
+

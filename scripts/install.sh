@@ -235,6 +235,16 @@ certbot certonly --standalone --non-interactive --agree-tos \
     --post-hook "systemctl start nginx"
 success "SSL certificate obtained."
 
+# ─── 19. Configure Laravel Scheduler Cron Job ───────────────────────────────────
+info "Configuring Laravel scheduler cron job..."
+CRON_CMD="* * * * * cd /var/www/email-saas/laravel-panel && php artisan schedule:run >> /dev/null 2>&1"
+if crontab -l 2>/dev/null | grep -Fq "schedule:run"; then
+    info "Laravel scheduler cron job already present in crontab. Skipping."
+else
+    (crontab -l 2>/dev/null || true; echo "$CRON_CMD") | crontab -
+    success "Laravel scheduler cron job installed idempotently."
+fi
+
 # ─── Done ──────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════╗${NC}"

@@ -58,7 +58,7 @@ EmailSaaS is deployed as a consolidated stack on an Ubuntu Linux VPS.
 
 **Security Note:** `PostfixService.php` invokes shell scripts via `sudo` requiring specific `/etc/sudoers` bypass configurations for `www-data` to execute scripts located solely in `/var/www/email-saas/scripts/`.
 
-## Backup & Disaster Recovery Infrastructure (Step 17)
+## Backup & Disaster Recovery Infrastructure (Step 17 & 17.2)
 
 EmailSaaS provides an enterprise backup and disaster recovery subsystem protecting both relational state (MariaDB/MySQL) and mail object storage (`/var/vmail`).
 
@@ -66,34 +66,49 @@ EmailSaaS provides an enterprise backup and disaster recovery subsystem protecti
 
 | Path | Purpose | Permissions |
 |---|---|---|
-| `storage/backups/db` (or `/var/backups/emailsaas/db`) | Transaction-safe compressed database dumps (`.sql.gz`) with SHA-256 manifests | `0700` directory, `0600` archives |
-| `storage/backups/vmail` (or `/var/backups/emailsaas/vmail`) | Maildir storage archives (`.tar.gz`) preserving numeric ownership (5000:5000) with manifests | `0700` directory, `0600` archives |
+| `storage/backups/db` (or `/var/backups/emailsaas/db`) | Transaction-safe compressed and AES-256 encrypted database dumps (`.sql.gz`, `.sql.gz.enc`) with SHA-256 manifests | `0700` directory, `0600` archives |
+| `storage/backups/vmail` (or `/var/backups/emailsaas/vmail`) | Maildir storage archives (`.tar.gz`, `.tar.gz.enc`) preserving numeric ownership (5000:5000) with manifests | `0700` directory, `0600` archives |
+
+### Encryption at Rest (Step 17.2)
+- Backups support system-level AES-256-CBC PBKDF2 encryption at rest.
+- Encryption keys are configured via `BACKUP_ENCRYPTION_KEY` or `BACKUP_ENCRYPTION_KEY_PATH` outside backup directories.
+- If encryption is enabled and key is missing, operations fail closed immediately.
 
 ### Artisan Console Commands
 
-- `backup:run`: Master execution suite with optional `--verify`, `--only-db`, `--only-vmail`, and `--no-prune`.
-- `backup:database`: Generates transaction-safe gzip database dump with SHA-256 manifest.
-- `backup:vmail`: Archives `/var/vmail` Maildir directory with SHA-256 manifest.
-- `backup:verify`: Validates physical readability, gzip stream integrity, SHA-256 checksums, and optional isolated restore.
-- `backup:status`: Displays tabular health status, archive ages, storage footprint, and offsite state.
-- `backup:prune`: Enforces retention policies (7 daily, 4 weekly, 3 monthly) with non-negotiable protection of newest and single backups.
+- `backup:run`: Master execution suite with optional `--verify`, `--sync-offsite`, `--only-db`, `--only-vmail`, and `--no-prune`.
+- `backup:database`: Generates transaction-safe gzip database dump (optionally AES-256 encrypted) with SHA-256 manifest.
+- `backup:vmail`: Archives `/var/vmail` Maildir directory (optionally AES-256 encrypted) with SHA-256 manifest.
+- `backup:verify`: Validates physical readability, OpenSSL envelope, gzip stream integrity, SHA-256 checksums, and optional isolated restore.
+- `backup:status`: Displays tabular health status, encryption posture, archive ages, storage footprint, and offsite state.
+- `backup:prune`: Enforces calendar-aware GFS retention policies (7 daily, 4 weekly, 3 monthly) with non-negotiable protection of newest and single backups.
 
 ### Native Linux Shell Scripts
 
-- `scripts/backup_db.sh`: Native `mariadb-dump` / `mysqldump` with `--single-transaction --quick --routines --triggers --events --hex-blob`, gzip compression, atomic `.tmp` promotion, and `flock` concurrency locking.
-- `scripts/backup_vmail.sh`: Native tar archive of `/var/vmail` with `--numeric-owner --preserve-permissions`, gzip compression, and `flock` locking.
-- `scripts/verify_backup.sh`: Verifies archive readability, `gzip -t` stream integrity, and SHA-256 match against manifest.
-- `scripts/restore_db.sh`: Interactive database restoration from verified `.sql.gz` archive with safety confirmations.
-- `scripts/restore_vmail.sh`: Mail storage restoration from verified `.tar.gz` archive with automatic `vmail:vmail` (5000:5000) ownership and 700/600 permissions enforcement.
-- `scripts/disaster_recovery.sh`: End-to-end bare-metal / disaster recovery orchestrator coordinating database restoration, maildir extraction, cache clearing, and service restarts.
+- `scripts/backup_db.sh`: Native `mariadb-dump` / `mysqldump` with `--single-transaction --quick --routines --triggers --events --hex-blob`, gzip compression, optional OpenSSL AES-256-CBC encryption, atomic `.tmp` promotion, and `flock` concurrency locking.
+- `scripts/backup_vmail.sh`: Native tar archive of `/var/vmail` with `--numeric-owner --preserve-permissions`, gzip compression, optional OpenSSL AES-256-CBC encryption, and `flock` locking.
+- `scripts/verify_backup.sh`: Verifies archive readability, OpenSSL envelope / `gzip -t` stream integrity, and SHA-256 match against manifest.
+- `scripts/restore_db.sh`: Database restoration from verified `.sql.gz` or `.sql.gz.enc` archive with stream decryption directly to database engine and safety confirmations.
+- `scripts/restore_vmail.sh`: Mail storage restoration from verified `.tar.gz` or `.tar.gz.enc` archive with stream decryption, automatic `vmail:vmail` (5000:5000) ownership, and 700/600 permissions enforcement.
+- `scripts/sync_offsite.sh`: Provider-neutral offsite replication supporting `rsync`, `scp`, `local`, and `custom` transports with fail-safe local preservation.
+- `scripts/disaster_recovery.sh`: Hardened bare-metal / disaster recovery orchestrator coordinating database restoration, maildir extraction, cache clearing, migration status inspection, controlled migration execution (`--run-migrations`), and service restarts.
 
-### Automated Scheduling
+### Automated Scheduling & Installation
 
-Registered in `laravel-panel/routes/console.php`:
-- `backup:run --verify`: Scheduled daily at `02:00 UTC` (`withoutOverlapping(30)`).
-- `backup:prune`: Scheduled daily at `03:00 UTC` (`withoutOverlapping(15)`).
+- Registered in `laravel-panel/routes/console.php`:
+  - `backup:run --verify`: Scheduled daily at `02:00 UTC` (`withoutOverlapping(30)`).
+  - `backup:prune`: Scheduled daily at `03:00 UTC` (`withoutOverlapping(15)`).
+- Idempotently installed in `scripts/install.sh` (Step 19):
+  `* * * * * cd /var/www/email-saas/laravel-panel && php artisan schedule:run >> /dev/null 2>&1`
 
-### Offsite Replication Posture
+### Offsite Replication & Recovery Status Matrix
 
-- **Status:** `OFFSITE BACKUP — PENDING INFRASTRUCTURE`
-- Local snapshots are fully automated and verified. Remote synchronization to encrypted S3-compatible cold storage or secondary SSH vault is architected and pending infrastructure provisioning.
+| Component | Status | Verification Notes |
+|---|---|---|
+| Local Snapshots & Verification | `VERIFIED` | Automated SHA-256 digests and isolated restore tests pass. |
+| Encryption at Rest | `VERIFIED` | OpenSSL AES-256-CBC PBKDF2 cross-compatible between PHP and bash. |
+| Offsite Transport Abstraction | `VERIFIED` | `BackupOffsiteService` and `sync_offsite.sh` implemented with fail-safe semantics. |
+| Real MariaDB Engine Restore | `PARTIALLY VERIFIED` | SQL dump syntax, transactions, and schema verified; live daemon pending remote infrastructure. |
+| Real Dovecot MDA Restore | `PARTIALLY VERIFIED` | Maildir extraction and numeric permissions verified; live Dovecot indexing pending remote infrastructure. |
+| Point-in-Time Recovery (PITR) | `NOT IMPLEMENTED` | Architecture relies on daily point-of-backup snapshots. |
+

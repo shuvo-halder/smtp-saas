@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Backup\BackupOffsiteService;
 use App\Services\Backup\BackupRetentionService;
 use App\Services\Backup\BackupVerificationService;
 use App\Services\Backup\DatabaseBackupService;
@@ -16,15 +17,17 @@ class BackupRunCommand extends Command
                             {--only-db : Back up database only} 
                             {--only-vmail : Back up mail storage only} 
                             {--verify : Verify backups immediately after creation} 
+                            {--sync-offsite : Trigger offsite replication after backup} 
                             {--no-prune : Skip retention pruning}';
 
-    protected $description = 'Execute scheduled full EmailSaaS backup suite (database, mail storage, verification, retention).';
+    protected $description = 'Execute scheduled full EmailSaaS backup suite (database, mail storage, verification, retention, offsite).';
 
     public function handle(
         DatabaseBackupService $dbBackupService,
         MailStorageBackupService $mailBackupService,
         BackupVerificationService $verificationService,
-        BackupRetentionService $retentionService
+        BackupRetentionService $retentionService,
+        BackupOffsiteService $offsiteService
     ): int {
         $lock = Cache::lock('backup_run_master_lock', 1200);
 
@@ -36,9 +39,11 @@ class BackupRunCommand extends Command
         $onlyDb = (bool) $this->option('only-db');
         $onlyVmail = (bool) $this->option('only-vmail');
         $verify = (bool) $this->option('verify');
+        $syncOffsite = (bool) $this->option('sync-offsite') || $offsiteService->isEnabled();
         $noPrune = (bool) $this->option('no-prune');
 
         $success = true;
+        $createdArchives = [];
 
         try {
             // 1. Database Backup
@@ -46,7 +51,9 @@ class BackupRunCommand extends Command
                 $this->info('--> Running database backup...');
                 try {
                     $dbManifest = $dbBackupService->backup();
-                    $this->info("Database backup created: {$dbManifest['filename']} (" . number_format($dbManifest['size_bytes']) . " bytes)");
+                    $createdArchives[] = $dbManifest['path'];
+                    $encText = !empty($dbManifest['encrypted']) ? ' [ENCRYPTED]' : '';
+                    $this->info("Database backup created: {$dbManifest['filename']}{$encText} (" . number_format($dbManifest['size_bytes']) . " bytes)");
 
                     if ($verify) {
                         $this->info('--> Verifying database backup integrity...');
@@ -69,7 +76,9 @@ class BackupRunCommand extends Command
                 $this->info('--> Running mail storage backup (/var/vmail)...');
                 try {
                     $mailManifest = $mailBackupService->backup();
-                    $this->info("Mail storage backup created: {$mailManifest['filename']} (" . number_format($mailManifest['size_bytes']) . " bytes)");
+                    $createdArchives[] = $mailManifest['path'];
+                    $encText = !empty($mailManifest['encrypted']) ? ' [ENCRYPTED]' : '';
+                    $this->info("Mail storage backup created: {$mailManifest['filename']}{$encText} (" . number_format($mailManifest['size_bytes']) . " bytes)");
 
                     if ($verify) {
                         $this->info('--> Verifying mail storage backup integrity...');
@@ -87,9 +96,23 @@ class BackupRunCommand extends Command
                 }
             }
 
-            // 3. Retention Pruning
+            // 3. Offsite Replication
+            if ($syncOffsite && $success && !empty($createdArchives)) {
+                $this->info('--> Replicating backups offsite...');
+                foreach ($createdArchives as $archivePath) {
+                    $offsiteRes = $offsiteService->syncBackup($archivePath);
+                    if ($offsiteRes['success']) {
+                        $this->info("  [OFFSITE] " . basename($archivePath) . " replicated successfully via {$offsiteRes['transport']}.");
+                    } else {
+                        $this->warn("  [OFFSITE WARNING] " . basename($archivePath) . " replication failed: " . ($offsiteRes['error'] ?? $offsiteRes['status']));
+                        // Invariant: local backup remains valid and preserved
+                    }
+                }
+            }
+
+            // 4. Retention Pruning
             if (!$noPrune && $success) {
-                $this->info('--> Running backup retention pruning...');
+                $this->info('--> Running calendar-aware backup retention pruning...');
                 $pruned = $retentionService->pruneAll();
                 $prunedDbCount = count($pruned['database']['pruned'] ?? []);
                 $prunedMailCount = count($pruned['mail_storage']['pruned'] ?? []);

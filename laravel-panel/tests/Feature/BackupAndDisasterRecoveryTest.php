@@ -8,6 +8,7 @@ use App\Services\Backup\BackupRetentionService;
 use App\Services\Backup\BackupVerificationService;
 use App\Services\Backup\DatabaseBackupService;
 use App\Services\Backup\MailStorageBackupService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -288,5 +289,167 @@ class BackupAndDisasterRecoveryTest extends TestCase
         // Assert initial known-good backup is untouched
         $this->assertFileExists($initial['path']);
         $this->assertSame($initialSize, filesize($initial['path']));
+    }
+
+    public function test_encrypted_database_backup_and_decryption_verification(): void
+    {
+        config([
+            'backup.encryption.enabled' => true,
+            'backup.encryption.key'     => 'test_secure_passphrase_987654321',
+        ]);
+
+        User::factory()->create(['email' => 'encrypted_user@example.com']);
+
+        $service = new DatabaseBackupService($this->testTempDir . '/db');
+        $manifest = $service->backup();
+
+        $this->assertFileExists($manifest['path']);
+        $this->assertStringEndsWith('.sql.gz.enc', $manifest['filename']);
+        $this->assertTrue($manifest['encrypted']);
+        $this->assertSame('aes-256-cbc', $manifest['cipher']);
+        $this->assertNotNull($manifest['unencrypted_sha256']);
+
+        // Check OpenSSL header
+        $fh = fopen($manifest['path'], 'rb');
+        $magic = fread($fh, 8);
+        fclose($fh);
+        $this->assertSame('Salted__', $magic);
+
+        // Verification with valid key
+        $verificationService = new BackupVerificationService();
+        $verifyResult = $verificationService->verifyDatabaseBackup($manifest['path']);
+        $this->assertTrue($verifyResult['valid']);
+
+        // Isolated restore test with decryption
+        $restoreResult = $verificationService->verifyIsolatedDatabaseRestore($manifest['path']);
+        $this->assertTrue($restoreResult['restored']);
+        $this->assertContains('users', $restoreResult['tables']);
+        $this->assertGreaterThan(0, $restoreResult['table_counts']['users']);
+
+        // Verification with wrong key fails
+        $wrongKeyResult = $verificationService->verifyArchiveIntegrity($manifest['path'], null, 'completely_wrong_key');
+        $this->assertFalse($wrongKeyResult['valid']);
+        $this->assertNotEmpty($wrongKeyResult['errors']);
+    }
+
+    public function test_encrypted_mail_storage_backup_and_decryption_verification(): void
+    {
+        config([
+            'backup.encryption.enabled' => true,
+            'backup.encryption.key'     => 'mail_secret_key_1122334455',
+        ]);
+
+        $userMaildir = $this->testMailDir . '/secure-domain.com/ceo';
+        File::ensureDirectoryExists("{$userMaildir}/cur");
+        file_put_contents("{$userMaildir}/cur/secret.eml", "Top secret email body");
+
+        $service = new MailStorageBackupService($this->testTempDir . '/vmail', $this->testMailDir);
+        $manifest = $service->backup();
+
+        $this->assertFileExists($manifest['path']);
+        $this->assertStringEndsWith('.tar.gz.enc', $manifest['filename']);
+        $this->assertTrue($manifest['encrypted']);
+
+        // Verification with valid key
+        $verificationService = new BackupVerificationService();
+        $verifyResult = $verificationService->verifyArchiveIntegrity($manifest['path']);
+        $this->assertTrue($verifyResult['valid']);
+
+        // Isolated restore test
+        $restoreTarget = $this->testTempDir . '/restore_enc_vmail';
+        $restoreResult = $verificationService->verifyMailStorageBackup($manifest['path'], $restoreTarget);
+        $this->assertTrue($restoreResult['restored']);
+        $this->assertFileExists($restoreTarget . '/secure-domain.com/ceo/cur/secret.eml');
+        $this->assertSame("Top secret email body", file_get_contents($restoreTarget . '/secure-domain.com/ceo/cur/secret.eml'));
+    }
+
+    public function test_calendar_aware_retention_with_gfs_daily_weekly_monthly(): void
+    {
+        $dir = $this->testTempDir . '/db';
+        $retentionService = new BackupRetentionService($this->testTempDir);
+
+        $now = Carbon::now('UTC');
+
+        // Create archives across different calendar points:
+        $fileDay0 = "{$dir}/db_backup_" . $now->copy()->format('Ymd_His') . ".sql.gz";
+        $fileDay2 = "{$dir}/db_backup_" . $now->copy()->subDays(2)->format('Ymd_His') . ".sql.gz";
+        $fileDay4 = "{$dir}/db_backup_" . $now->copy()->subDays(4)->format('Ymd_His') . ".sql.gz";
+        $fileDay6 = "{$dir}/db_backup_" . $now->copy()->subDays(6)->format('Ymd_His') . ".sql.gz";
+        $fileWeek2 = "{$dir}/db_backup_" . $now->copy()->subWeeks(2)->format('Ymd_His') . ".sql.gz";
+        $fileMonth1 = "{$dir}/db_backup_" . $now->copy()->subMonths(1)->format('Ymd_His') . ".sql.gz";
+        $fileMonth2 = "{$dir}/db_backup_" . $now->copy()->subMonths(2)->format('Ymd_His') . ".sql.gz";
+        $fileMonth5 = "{$dir}/db_backup_" . $now->copy()->subMonths(5)->format('Ymd_His') . ".sql.gz";
+
+        $allFiles = [$fileDay0, $fileDay2, $fileDay4, $fileDay6, $fileWeek2, $fileMonth1, $fileMonth2, $fileMonth5];
+        foreach ($allFiles as $f) {
+            file_put_contents($f, 'synthetic backup content');
+            file_put_contents("{$f}.manifest.json", json_encode(['sha256' => hash_file('sha256', $f)]));
+        }
+
+        $res = $retentionService->pruneDirectory($dir);
+
+        // Assert recent daily, weekly, monthly are retained
+        $this->assertContains(basename($fileDay0), $res['retained']);
+        $this->assertContains(basename($fileDay2), $res['retained']);
+        $this->assertContains(basename($fileWeek2), $res['retained']);
+        $this->assertContains(basename($fileMonth1), $res['retained']);
+        $this->assertContains(basename($fileMonth2), $res['retained']);
+
+        // Assert ancient 5-month-old backup was pruned
+        $this->assertContains(basename($fileMonth5), $res['pruned']);
+        $this->assertFileDoesNotExist($fileMonth5);
+        $this->assertFileDoesNotExist("{$fileMonth5}.manifest.json");
+    }
+
+    public function test_offsite_service_sync_and_fail_safe_semantics(): void
+    {
+        $remoteDir = $this->testTempDir . '/remote_offsite';
+        File::ensureDirectoryExists($remoteDir);
+
+        config([
+            'backup.offsite.enabled'   => true,
+            'backup.offsite.transport' => 'local',
+            'backup.offsite.path'      => $remoteDir,
+        ]);
+
+        $dbService = new DatabaseBackupService($this->testTempDir . '/db');
+        $manifest = $dbService->backup();
+
+        $offsiteService = new \App\Services\Backup\BackupOffsiteService();
+        $result = $offsiteService->syncBackup($manifest['path']);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('COPIED', $result['status']);
+        $this->assertFileExists($remoteDir . '/' . basename($manifest['path']));
+        $this->assertFileExists($remoteDir . '/' . basename($manifest['path']) . '.manifest.json');
+
+        // Test fail-safe behavior: failure must NOT delete or mutate local backup
+        config([
+            'backup.offsite.transport' => 'custom',
+            'backup.offsite.command'   => 'exit 1',
+        ]);
+
+        $failResult = $offsiteService->syncBackup($manifest['path']);
+        $this->assertFalse($failResult['success']);
+        $this->assertSame('FAILED', $failResult['status']);
+
+        // Invariant: local backup remains intact and untouched
+        $this->assertFileExists($manifest['path']);
+        $this->assertFileExists($manifest['path'] . '.manifest.json');
+    }
+
+    public function test_encryption_fails_closed_when_key_is_missing(): void
+    {
+        config([
+            'backup.encryption.enabled'  => true,
+            'backup.encryption.key'      => null,
+            'backup.encryption.key_path' => null,
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('neither BACKUP_ENCRYPTION_KEY nor BACKUP_ENCRYPTION_KEY_PATH');
+
+        $dbService = new DatabaseBackupService($this->testTempDir . '/db');
+        $dbService->backup();
     }
 }
