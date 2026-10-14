@@ -112,6 +112,16 @@
   - `[x]` Zero default privileges for new administrators; fail-closed least privilege (`RBAC-DEC-10`)
   - `[x]` Granular route middleware `RequireAdminPermission` across all administrative endpoints
   - `[x]` Tenant invoice authorization hardening in `InvoicePolicy::view()` (Finding 6 Remediation: explicit `admin.invoices.read` required; legacy `is_admin` bypass eliminated)
+- `[x]` Admin Deliverability, Abuse & DR Health Visibility (Step 18 IMPLEMENTED):
+  - `[x]` Persistent Abuse Incident Ledger UI (`/admin/smtp?tab=incidents`) with summary metrics (Open, Critical, High, Resolved, Total in view), severity badges, multi-criteria filters (status, severity, incident type, detection source, search, date range), and paginated data table
+  - `[x]` Incident Investigation Modal displaying UUID, type, severity, detection source, timestamps, immutable snapshot entities (tenant, domain, mailbox), metric observation breaches, and sanitized evidence payload inspector (HTML-safe JSON)
+  - `[x]` Incident Resolution & Dismissal workflow with status selection (`resolved` / `dismissed`), optional operational notes (max 1000 chars), duplicate submission prevention, and RBAC error handling (`admin.smtp.mailbox.toggle` required)
+  - `[x]` Deliverability Overview integration (`/admin/smtp?tab=overview`) with real cluster telemetry, mail queue size, and active abuse warnings
+  - `[x]` Disaster Recovery & Backup Health Dashboard (`/admin/backup-dr`) displaying verified backup pipelines, cryptographic posture (OpenSSL AES-256-CBC PBKDF2), provider-neutral offsite replication, and restore verification matrix
+  - `[x]` DR Health HTTP API Gap documented with status `REQUIRES ARCHITECTURE APPROVAL`, providing complete proposed endpoint contract (`GET /api/admin/system/backup-status`) and security boundaries
+  - `[x]` Admin navigation sidebar updated with `Backup & DR` (`ShieldCheck`)
+  - `[x]` Zero-hardcoded-English policy strictly enforced with comprehensive `next-intl` localization dictionaries in `frontend/messages/en.json`
+  - `[x]` Frontend verification test suite (`npm run test:step18`) and Next.js production build (`npm run build`) 100% passing
 
 
 ## SMTP Architecture & Management

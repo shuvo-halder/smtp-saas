@@ -42,7 +42,7 @@ export default function SmtpOverview({ overview, isLoading, onRefresh }: SmtpOve
       {/* Telemetry Status Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-lg border shadow-sm gap-4">
         <div className="flex items-center space-x-3">
-          <span className="text-sm font-medium text-gray-700">Cluster Status:</span>
+          <span className="text-sm font-medium text-gray-700">{t('cluster_status')}</span>
           {telemetryAvailable ? (
             <div className="flex items-center space-x-2">
               <span className="relative flex h-2.5 w-2.5">
@@ -71,7 +71,7 @@ export default function SmtpOverview({ overview, isLoading, onRefresh }: SmtpOve
             className="flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border rounded-md transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
+            {t('refresh')}
           </button>
         )}
       </div>
@@ -260,7 +260,7 @@ export default function SmtpOverview({ overview, isLoading, onRefresh }: SmtpOve
       <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg flex items-start space-x-3 text-gray-600">
         <Info className="w-5 h-5 text-gray-400 shrink-0 mt-0.5" />
         <div className="text-xs leading-relaxed">
-          <p className="font-semibold text-gray-700">Deliverability Metrics Note</p>
+          <p className="font-semibold text-gray-700">{t('metrics_note_title')}</p>
           <p className="mt-0.5">{t('overview.denominator_note')}</p>
         </div>
       </div>

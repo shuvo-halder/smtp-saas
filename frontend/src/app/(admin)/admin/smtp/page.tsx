@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import api from '@/lib/api';
 import { SmtpOverview as SmtpOverviewType } from '@/types';
@@ -9,15 +10,25 @@ import SmtpOverview from '@/components/admin/smtp/SmtpOverview';
 import SmtpTenantsTable from '@/components/admin/smtp/SmtpTenantsTable';
 import SmtpMailboxesTable from '@/components/admin/smtp/SmtpMailboxesTable';
 import SmtpAbuseTable from '@/components/admin/smtp/SmtpAbuseTable';
-import { Activity, Users, Mail, AlertTriangle } from 'lucide-react';
+import SmtpIncidentsTable from '@/components/admin/smtp/SmtpIncidentsTable';
+import { Spinner } from '@/components/ui/spinner';
+import { Activity, Users, Mail, AlertTriangle, ShieldAlert } from 'lucide-react';
 
-type TabKey = 'overview' | 'tenants' | 'mailboxes' | 'abuse';
+type TabKey = 'overview' | 'incidents' | 'tenants' | 'mailboxes' | 'abuse';
 
-export default function AdminSmtpPage() {
+function AdminSmtpContent() {
   const t = useTranslations('Admin.smtp');
+  const searchParams = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const [mailboxSearch, setMailboxSearch] = useState('');
+
+  useEffect(() => {
+    const tabParam = searchParams?.get('tab');
+    if (tabParam && ['overview', 'incidents', 'tenants', 'mailboxes', 'abuse'].includes(tabParam)) {
+      setActiveTab(tabParam as TabKey);
+    }
+  }, [searchParams]);
 
   const fetcher = (url: string) => api.get(url).then(res => res.data);
   const { data: overview, isLoading: isOverviewLoading, mutate: mutateOverview } = useSWR<SmtpOverviewType>(
@@ -36,6 +47,7 @@ export default function AdminSmtpPage() {
 
   const tabs: { key: TabKey; label: string; icon: any; count?: number | null }[] = [
     { key: 'overview', label: t('tabs.overview'), icon: Activity },
+    { key: 'incidents', label: t('tabs.incidents'), icon: ShieldAlert },
     { key: 'tenants', label: t('tabs.tenants'), icon: Users },
     { key: 'mailboxes', label: t('tabs.mailboxes'), icon: Mail },
     { 
@@ -94,6 +106,12 @@ export default function AdminSmtpPage() {
           />
         )}
 
+        {activeTab === 'incidents' && (
+          <SmtpIncidentsTable
+            onActionComplete={handleActionComplete}
+          />
+        )}
+
         {activeTab === 'tenants' && (
           <SmtpTenantsTable />
         )}
@@ -113,5 +131,13 @@ export default function AdminSmtpPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function AdminSmtpPage() {
+  return (
+    <Suspense fallback={<div className="flex h-64 items-center justify-center"><Spinner /></div>}>
+      <AdminSmtpContent />
+    </Suspense>
   );
 }

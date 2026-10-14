@@ -48,6 +48,7 @@
       "mailboxes": "Mailboxes",
       "plans": "Plans",
       "smtp": "SMTP Management",
+      "backup_dr": "Backup & DR",
       "audit_logs": "Audit Logs",
       "invoices": "Invoices",
       "settings": "System Settings"
@@ -176,8 +177,12 @@
       "telemetry_live": "Live Telemetry",
       "telemetry_unavailable": "Telemetry Unavailable (Redis Disconnected)",
       "telemetry_warning": "Warning: Real-time Redis telemetry is currently unreachable. Live bounce and quota metrics cannot be retrieved.",
+      "cluster_status": "Cluster Status:",
+      "refresh": "Refresh",
+      "metrics_note_title": "Deliverability Metrics Note",
       "tabs": {
         "overview": "Overview",
+        "incidents": "Abuse Incidents",
         "tenants": "Tenants SMTP",
         "mailboxes": "Mailboxes SMTP",
         "abuse": "Abuse & Warnings"
@@ -256,6 +261,7 @@
       "abuse": {
         "title": "Active Deliverability & Abuse Warnings",
         "subtitle": "Current threshold breaches flagged by Step 15 telemetry for today.",
+        "healthy_title": "Cluster Deliverability Healthy",
         "no_warnings": "No active abuse warnings detected. Cluster deliverability is within standard operational thresholds.",
         "table": {
           "type": "Type",
@@ -264,6 +270,108 @@
           "current_vs_limit": "Current / Threshold",
           "details": "Details",
           "actions": "Quick Actions"
+        }
+      },
+      "incidents": {
+        "title": "Persistent Abuse Incident Ledger",
+        "subtitle": "Historical relational ledger tracking outbound abuse spikes, delivery failures, and SMTP policy violations.",
+        "search_placeholder": "Search by summary, tenant, domain, or mailbox...",
+        "filter_status": "All Statuses",
+        "filter_severity": "All Severities",
+        "filter_type": "All Types",
+        "filter_source": "All Sources",
+        "date_from": "From Date",
+        "date_to": "To Date",
+        "reset_filters": "Reset Filters",
+        "refresh": "Refresh",
+        "no_incidents": "No abuse incidents found matching the specified criteria.",
+        "cards": {
+          "open_view": "Open Incidents (View)",
+          "critical_view": "Critical (View)",
+          "high_view": "High Severity (View)",
+          "resolved_view": "Resolved (View)",
+          "total_view": "Total In View"
+        },
+        "table": {
+          "severity": "Severity",
+          "type": "Incident Type",
+          "source": "Source",
+          "tenant": "Tenant",
+          "domain": "Domain",
+          "mailbox": "Mailbox",
+          "occurred": "Occurred At",
+          "status": "Status",
+          "actions": "Actions"
+        },
+        "severity": {
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "critical": "Critical"
+        },
+        "status": {
+          "open": "Open",
+          "resolved": "Resolved",
+          "dismissed": "Dismissed"
+        },
+        "types": {
+          "bounce_rate_spike": "Bounce Rate Spike",
+          "daily_hard_bounce_threshold": "Daily Hard Bounces Exceeded",
+          "consecutive_hard_bounces": "Consecutive Hard Bounces",
+          "outbound_quota_breach": "Outbound Quota Breach",
+          "rate_limit_spike": "Rate Limit Spike",
+          "suspicious_volume_spike": "Suspicious Sending Spike"
+        },
+        "sources": {
+          "log_parser": "Log Parser",
+          "policy_daemon": "Policy Daemon",
+          "system": "System"
+        },
+        "actions": {
+          "view": "View Details",
+          "resolve": "Resolve",
+          "dismiss": "Dismiss"
+        },
+        "detail_modal": {
+          "title": "Abuse Incident Details",
+          "incident_id": "Incident ID",
+          "uuid": "UUID",
+          "severity": "Severity",
+          "status": "Status",
+          "occurred_at": "Occurred At",
+          "detected_at": "Logged At",
+          "source": "Detection Source",
+          "summary": "Summary",
+          "metrics": "Metric Breach Details",
+          "threshold": "Threshold Value",
+          "observed": "Observed Value",
+          "entities": "Affected Entities (Snapshot)",
+          "tenant": "Tenant Email",
+          "domain": "Domain Name",
+          "mailbox": "Mailbox Email",
+          "idempotency": "Idempotency Key",
+          "evidence": "Sanitized Evidence Payload",
+          "no_evidence": "No telemetry evidence recorded for this event.",
+          "resolution": "Resolution Information",
+          "resolved_at": "Resolved At",
+          "resolved_by": "Resolved By",
+          "notes": "Resolution Notes",
+          "close": "Close"
+        },
+        "resolve_modal": {
+          "resolve_title": "Resolve Abuse Incident",
+          "dismiss_title": "Dismiss Abuse Incident",
+          "resolve_desc": "Mark this incident as resolved after investigation and taking corrective action.",
+          "dismiss_desc": "Dismiss this incident if identified as a false positive or acceptable operational anomaly. The action will be logged in the administrative audit ledger.",
+          "notes_label": "Resolution Notes (Optional):",
+          "notes_placeholder": "Document root cause, corrective measures, or false positive reason...",
+          "confirm_resolve": "Confirm Resolution",
+          "confirm_dismiss": "Confirm Dismissal",
+          "cancel": "Cancel",
+          "submitting": "Submitting...",
+          "resolve_success": "Abuse incident marked as resolved.",
+          "dismiss_success": "Abuse incident dismissed.",
+          "permission_denied": "You do not have permission to resolve abuse incidents (admin.smtp.mailbox.toggle required)."
         }
       }
     },
@@ -299,6 +407,66 @@
         "after": "After Mutation",
         "no_state": "No state mutation payload recorded for this event.",
         "close": "Close"
+      }
+    },
+    "backup_dr": {
+      "title": "Disaster Recovery & Backup Health",
+      "subtitle": "Operational visibility into database dumps, mail storage archives, encryption posture, and restore verification.",
+      "refresh": "Refresh Status",
+      "gap_banner": {
+        "title": "DR Health HTTP API — Architecture Approval Required",
+        "description": "The backend backup and disaster recovery subsystem is fully operational and hardened (Step 17.2 CLI commands and bash scripts). An authenticated web API (e.g. GET /api/admin/system/backup-status) has not yet been authorized. See the architectural gap specification below.",
+        "badge": "REQUIRES ARCHITECTURE APPROVAL"
+      },
+      "posture": {
+        "title": "Verified System Health Posture (Step 17.2)",
+        "backup_db": "Database Backup Pipeline",
+        "backup_db_desc": "Daily compressed MariaDB/MySQL dumps with SHA-256 manifests via DatabaseBackupService and scripts/backup_db.sh.",
+        "backup_vmail": "Mail Storage Backup Pipeline",
+        "backup_vmail_desc": "Weekly tar archives of /var/vmail preserving numeric ownership (5000:5000) and Maildir hierarchy.",
+        "encryption": "Cryptographic Protection at Rest",
+        "encryption_desc": "OpenSSL AES-256-CBC PBKDF2 streaming envelope ('Salted__' + 8-byte salt) with fail-closed key validation.",
+        "offsite": "Provider-Neutral Offsite Replication",
+        "offsite_desc": "BackupOffsiteService and scripts/sync_offsite.sh supporting rsync, scp, local, and custom transports with fail-safe local retention.",
+        "gfs_retention": "GFS Calendar-Aware Retention",
+        "gfs_retention_desc": "Grandfather-Father-Son grouping (7 daily, 4 weekly, 3 monthly) with inviolable newest-backup preservation."
+      },
+      "matrix": {
+        "title": "Restore Verification Matrix",
+        "archive_integrity": "Archive Header & Magic Byte Integrity",
+        "archive_integrity_desc": "Validated via gzopen and tar magic byte checking and SHA-256 manifest matching.",
+        "isolated_schema": "Isolated Database Schema Restore",
+        "isolated_schema_desc": "Validated by executing decrypted SQL statements into isolated sandbox database.",
+        "isolated_mail": "Isolated Maildir Hierarchy Restore",
+        "isolated_mail_desc": "Validated by extracting archives and verifying cur, new, and tmp directories.",
+        "live_mariadb": "Live MariaDB 10.11+ Daemon Restore",
+        "live_mariadb_desc": "SQL syntax and transactional dump flags verified. Real daemon test pending remote infrastructure deployment.",
+        "live_dovecot": "Live Dovecot MDA / Index Restore",
+        "live_dovecot_desc": "Maildir structure and permissions verified. Live doveadm index test pending remote infrastructure deployment.",
+        "pitr": "Point-In-Time Recovery (PITR)",
+        "pitr_desc": "Option B chosen: Binlog continuous replication is not implemented for single-node deployment."
+      },
+      "statuses": {
+        "verified": "VERIFIED",
+        "partially_verified": "PARTIALLY VERIFIED",
+        "pending_infrastructure": "PENDING INFRASTRUCTURE",
+        "not_implemented": "NOT IMPLEMENTED",
+        "healthy": "HEALTHY",
+        "warning": "WARNING"
+      },
+      "gap_spec": {
+        "title": "Documented DR Health API Gap Specification",
+        "endpoint": "Proposed Endpoint: GET /api/admin/system/backup-status",
+        "middleware": "Required Middleware: auth:sanctum, EnsureAdmin, RequireAdminPermission:admin.stats.read",
+        "security": "Security Boundaries: Never expose encryption keys, SSH private keys, database passwords, or execute shell commands via web server.",
+        "response_title": "Proposed Response Contract (JSON):"
+      },
+      "runbook": {
+        "title": "Operational Runbook References",
+        "desc": "In case of failure or disaster recovery, consult docs/DISASTER-RECOVERY-RUNBOOK.md for step-by-step procedures.",
+        "scenario_a": "Scenario A: Application/Database Corruption (scripts/restore_db.sh)",
+        "scenario_b": "Scenario B: Mail Storage Loss (scripts/restore_vmail.sh)",
+        "scenario_c": "Scenario C: Complete Host/VPS Destruction (scripts/disaster_recovery.sh)"
       }
     },
     "common": {

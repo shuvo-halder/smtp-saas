@@ -175,7 +175,7 @@ export default function SmtpAbuseTable({ onSelectMailbox, onRefresh }: SmtpAbuse
               <CheckCircle2 className="w-8 h-8" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-gray-900">Cluster Deliverability Healthy</h3>
+              <h3 className="text-base font-bold text-gray-900">{t('healthy_title')}</h3>
               <p className="text-xs text-gray-600 max-w-md mt-1">
                 {t('no_warnings')}
               </p>

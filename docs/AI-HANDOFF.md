@@ -136,8 +136,17 @@ This document is the operational starting point for any AI coding agent working 
     - Real Dovecot MDA Live Restore: `PARTIALLY VERIFIED` (Maildir extraction and permissions verified; live Dovecot indexing pending remote infrastructure)
   - **Test Suite Execution:** Implemented `tests/Feature/BackupAndDisasterRecoveryTest.php` with 14 passing tests (92 assertions). Full test suite: **228 passed (980 assertions)** cleanly with zero regressions.
 
-## 5. Next Recommended Implementation Phase
-- **Step 18 — Next.js Admin UI Deliverability & Abuse Dashboard Expansion:**
-  - Connect the Next.js control plane to the `/api/admin/smtp/incidents` endpoints for live abuse incident tracking and administrative resolution.
-  - Expose backup status and disaster recovery health metrics in the Admin Control Plane.
+- **Step 18 — Admin Control Plane Deliverability, Abuse & DR Health Visibility (IMPLEMENTED):**
+  - **Persistent Abuse Incident Ledger UI:** Implemented in `frontend/src/components/admin/smtp/SmtpIncidentsTable.tsx` and integrated as a dedicated tab under `/(admin)/admin/smtp`. Consumes `/api/admin/smtp/incidents`, `/api/admin/smtp/incidents/{incident}`, and `/api/admin/smtp/incidents/{incident}/resolve`.
+  - **Multi-Criteria Filtering & Pagination:** Full server-side filtering by status (`open`, `resolved`, `dismissed`), severity (`critical`, `high`, `medium`, `low`), incident type, detection source, search query, and date ranges. Respects Laravel bounded pagination with query state preservation.
+  - **Incident Investigation & Resolution:** Detailed modal presenting immutable snapshot entities (tenant, domain, mailbox), metric observation breaches, resolution details, and HTML-safe JSON evidence viewer. Dedicated resolution/dismissal workflow with operational notes (up to 1000 characters), duplicate submission protection, and RBAC error handling (`admin.smtp.mailbox.toggle` required).
+  - **Disaster Recovery & Backup Health Dashboard:** Implemented at `/(admin)/admin/backup-dr` and added to `AdminSidebar.tsx`. Provides visibility into backup pipelines, AES-256-CBC PBKDF2 encryption at rest, provider-neutral offsite replication, and restore verification matrix (Verified vs Pending Infrastructure vs Option B PITR Not Implemented).
+  - **DR Health HTTP API Gap (Section 5 & 29):** Formally documented as `REQUIRES ARCHITECTURE APPROVAL`, specifying proposed endpoint `GET /api/admin/system/backup-status`, permissions (`admin.stats.read`), JSON schema, and strict security boundaries prohibiting shell execution via web.
+  - **Strict Internationalization:** Followed the zero-hardcoded-English policy via `next-intl` dictionaries in `frontend/messages/en.json`.
+  - **Verification:** Custom test suite (`npm run test:step18`) passes 100%; Next.js production build (`npm run build`) generates all 23 static pages cleanly with zero errors; full backend regression suite passes cleanly (**228 tests / 980 assertions**).
 
+## 5. Next Recommended Implementation Phase
+- **Step 18.1 / Step 19 — Operational Production Deployment & Real Daemon Restore Validation:**
+  - Deploy to target Linux VPS environment with Postfix, Dovecot, MariaDB 10.11+, and Redis.
+  - Execute live daemon restore tests against active MariaDB service and Dovecot MDA indexer (`doveadm index`) to elevate status from `PARTIALLY VERIFIED` to `VERIFIED`.
+  - Review and obtain architecture approval for the read-only Disaster Recovery Health HTTP API contract (`GET /api/admin/system/backup-status`).

@@ -189,4 +189,95 @@ export interface AuditLog {
   created_at: string;
 }
 
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IncidentStatus = 'open' | 'resolved' | 'dismissed';
 
+export interface AbuseIncident {
+  id: number;
+  uuid: string;
+  tenant_id: number | null;
+  tenant_email: string | null;
+  domain_id: number | null;
+  domain_name: string | null;
+  mailbox_id: number | null;
+  mailbox_email: string | null;
+  incident_type: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  detection_source: string;
+  summary: string;
+  threshold_value: string | number | null;
+  observed_value: string | number | null;
+  evidence: Record<string, any>;
+  idempotency_key: string;
+  occurred_at: string;
+  resolved_at: string | null;
+  resolved_by: number | null;
+  resolver_name: string | null;
+  resolution_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AbuseIncidentFilters {
+  page?: number;
+  per_page?: number;
+  status?: string;
+  severity?: string;
+  incident_type?: string;
+  detection_source?: string;
+  search?: string;
+  tenant_id?: number;
+  domain_id?: number;
+  mailbox_id?: number;
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface BackupStatusItem {
+  name: string;
+  size_formatted: string;
+  size_bytes: number;
+  is_encrypted: boolean;
+  created_at: string;
+  age_formatted: string;
+  verified: string;
+  offsite_status: string;
+  has_manifest: boolean;
+}
+
+export interface BackupSectionStatus {
+  title: string;
+  directory: string;
+  total_archives: number;
+  total_size_formatted: string;
+  latest_archive: string | null;
+  latest_age_hours: number | null;
+  health_status: 'healthy' | 'warning' | 'critical' | 'not_configured';
+  archives: BackupStatusItem[];
+}
+
+export interface BackupHealthPosture {
+  encryption: {
+    enabled: boolean;
+    cipher: string;
+    kdf: string;
+    envelope: string;
+    fail_closed: boolean;
+  };
+  offsite: {
+    enabled: boolean;
+    transport: string;
+    host: string;
+    pre_flight_check: boolean;
+    fail_safe_local_preservation: boolean;
+  };
+  verification_matrix: {
+    archive_integrity: 'VERIFIED' | 'FAILED' | 'PENDING';
+    isolated_schema_restore: 'VERIFIED' | 'FAILED' | 'PENDING';
+    isolated_mail_restore: 'VERIFIED' | 'FAILED' | 'PENDING';
+    live_mariadb_restore: 'PARTIALLY VERIFIED' | 'PENDING INFRASTRUCTURE';
+    live_dovecot_restore: 'PARTIALLY VERIFIED' | 'PENDING INFRASTRUCTURE';
+    pitr: 'NOT IMPLEMENTED';
+  };
+}

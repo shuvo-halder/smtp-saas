@@ -1,5 +1,32 @@
 # Changelog
 
+### Admin Control Plane Deliverability, Abuse & DR Health Visibility (Step 18)
+- **Implemented:** Persistent Abuse Incident Ledger UI (`frontend/src/components/admin/smtp/SmtpIncidentsTable.tsx`):
+  - Consumes `/api/admin/smtp/incidents`, displaying real-time paginated abuse records with summary cards (Open, Critical, High, Resolved, Total in view).
+  - Multi-criteria server-side filtering: search query, status (`open`, `resolved`, `dismissed`), severity (`critical`, `high`, `medium`, `low`), incident type, detection source, and date ranges.
+  - Severity visual hierarchy badges with accessible iconography and distinct color coding.
+  - Detailed Incident Investigation Modal with UUID, full timestamps, immutable entity snapshots (tenant, domain, mailbox), metric observation breaches, resolution details, and HTML-safe JSON evidence viewer.
+  - Incident Resolution & Dismissal Modal with status selection (`resolved` vs `dismissed`), operational notes field (up to 1000 characters), duplicate submission prevention, and RBAC error handling (`admin.smtp.mailbox.toggle` required).
+- **Integrated:** SMTP Administration Navigation (`frontend/src/app/(admin)/admin/smtp/page.tsx`):
+  - Added dedicated `incidents` tab alongside `overview`, `tenants`, `mailboxes`, and `abuse`.
+  - Added URL search parameter synchronization (`?tab=incidents`) wrapped in React `Suspense` for Next.js 14 CSR bailout compatibility.
+- **Implemented:** Disaster Recovery & Backup Health Dashboard (`frontend/src/app/(admin)/admin/backup-dr/page.tsx`):
+  - Comprehensive operational health visibility into verified backup pipelines (MariaDB dumps, /var/vmail tar archives, GFS calendar retention).
+  - Cryptographic protection at rest display (OpenSSL AES-256-CBC PBKDF2 with fail-closed key validation).
+  - Provider-neutral offsite replication status (rsync/scp/local/custom with pre-flight check and fail-safe local preservation).
+  - Complete Restore Verification Matrix detailing Verified, Partially Verified, and Not Implemented tiers (Option B PITR).
+  - Operational runbook quick reference for Scenarios A, B, and C.
+- **Documented:** DR Health HTTP API Gap (Section 5 & 29):
+  - Documented missing REST API contract for backup status as `REQUIRES ARCHITECTURE APPROVAL`.
+  - Specified proposed endpoint `GET /api/admin/system/backup-status`, required permissions (`admin.stats.read`), JSON response structure, and strict security prohibitions on shell execution over web.
+- **Updated:** Admin Sidebar Navigation (`frontend/src/components/admin/AdminSidebar.tsx`):
+  - Added `Backup & DR` item with `ShieldCheck` icon.
+- **Enforced:** Strict Zero-Hardcoded-English Policy:
+  - Added comprehensive localization dictionaries in `frontend/messages/en.json` under `Admin.smtp.incidents` and `Admin.backup_dr`.
+  - Corrected legacy unlocalized strings in `SmtpOverview.tsx` and `SmtpAbuseTable.tsx`.
+- **Verified:** Frontend test suite (`frontend/scripts/verify-step18.mjs`) passing 100%; Next.js production build (`npm run build`) passing 100% with all 23 static routes generated.
+- **Verified:** Zero regressions in backend test suite (`228 passed / 980 assertions`).
+
 ### Backup & Disaster Recovery Production Hardening + Restore Verification (Step 17.2)
 - **Implemented:** `App\Services\Backup\BackupEncryptionService`:
   - System-level OpenSSL AES-256-CBC with PBKDF2 (10,000 iterations, SHA-256, 8-byte random salt).

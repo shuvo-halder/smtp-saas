@@ -138,3 +138,18 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
   - Mutates incident status to `resolved` or `dismissed`, records `resolved_at = now()`, and binds `resolved_by = auth.user.id`.
   - Emits persistent audit log entries with actions `'admin.abuse_incident.resolve'` or `'admin.abuse_incident.dismiss'`.
   - Protected by `admin.smtp.mailbox.toggle` permission (Super Admin and Deliverability Operator authorized; Customer Support denied HTTP 403).
+
+## Admin Control Plane Deliverability, Abuse & DR Health Visibility (Step 18)
+- **Frontend Dashboard Integration:**
+  - The Next.js Admin Control Plane consumes `GET /api/admin/smtp/incidents`, `GET /api/admin/smtp/incidents/{incident}`, and `POST /api/admin/smtp/incidents/{incident}/resolve` via SWR and Axios with CSRF cookie binding.
+  - Multi-criteria server-side filtering is supported: `status` (`open`, `resolved`, `dismissed`), `severity` (`critical`, `high`, `medium`, `low`), `incident_type`, `detection_source`, `search`, `date_from`, `date_to`.
+  - Standard Laravel bounded pagination (`current_page`, `last_page`, `per_page`, `total`) is respected with query persistence across page transitions.
+- **Incident Action Security Boundaries:**
+  - `POST /api/admin/smtp/incidents/{incident}/resolve` strictly enforces backend authorization via `RequireAdminPermission:admin.smtp.mailbox.toggle`.
+  - The UI protects against duplicate submission with asynchronous request state locking (`isSubmitting`) and provides clear error feedback when permission is denied (HTTP 403).
+- **Disaster Recovery Health API Gap (Section 5 & 29):**
+  - **Status:** `REQUIRES ARCHITECTURE APPROVAL`
+  - **Context:** The backend backup CLI engine (`backup:run`, `backup:status`, `backup:verify`, `backup:prune`) and shell scripts (`scripts/backup_db.sh`, `scripts/backup_vmail.sh`, `scripts/restore_db.sh`, `scripts/restore_vmail.sh`, `scripts/disaster_recovery.sh`) are operational (Step 17.2). However, no HTTP endpoint currently exposes backup health to web clients.
+  - **Proposed Future Endpoint:** `GET /api/admin/system/backup-status`
+  - **Proposed Middleware:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
+  - **Security Mandate:** The web API must be strictly read-only. It must NEVER execute shell commands or Artisan processes on request, and must NEVER expose encryption keys (`BACKUP_ENCRYPTION_KEY`), SSH private keys, database passwords, or secret credentials.
