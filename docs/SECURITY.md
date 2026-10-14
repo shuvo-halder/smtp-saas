@@ -164,3 +164,14 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Console commands employ Redis/Cache locks (`backup_run_master_lock`, `backup_database_lock`, `backup_vmail_lock`, `backup_prune_lock`) with explicit TTLs.
   - Companion Linux shell scripts employ non-blocking filesystem locks (`flock -n /var/lock/emailsaas_backup_*.lock`), preventing overlapping executions, resource exhaustion, and concurrent archive corruption.
 
+## 17. Operational Reliability, Scheduled Jobs & System Health Security Boundaries (Step 19)
+- **Public Minimal Liveness Isolation:** The public probe endpoint (`GET /api/health` and `/up`) returns strictly minimal operational state (`{"status": "HEALTHY", "timestamp": "..."}`). Zero internal server topology, connection latencies, database hosts, PHP configurations, or environment details are disclosed to unauthenticated callers.
+- **Administrative Diagnostic Boundary:** Comprehensive multi-component diagnostics (`GET /api/admin/system/health` and `/api/admin/system/tasks`) are strictly guarded behind `auth:sanctum`, `EnsureAdmin`, and granular permission `admin.permission:admin.stats.read`. Non-administrators, suspended administrators, and zero-role administrators are immediately denied access with HTTP 403.
+- **Fail-Safe Task Execution Tracking:** The `ScheduledTaskTrackerService` wraps all persistence logic in try/catch handlers. Database failures or lock timeouts encountered during run recording log safe warnings and never crash or interrupt scheduled business logic.
+- **Single-Point Sanitization of Task Failures:** When a scheduled task fails with an unhandled exception, `ScheduledTaskTrackerService::sanitizeSummary()` automatically sanitizes the message before saving it to `scheduled_task_runs`:
+  - Database DSN credentials (`mysql://user:pass@host/db`) are replaced with `[REDACTED]`.
+  - Passwords, access tokens, API keys, and passphrases are scrubbed via regex.
+  - Cryptographic hashes (`$6$`, `$2y$`, `$argon2`) are redacted.
+  - Bearer authorization headers are masked.
+- **Read-Only Health Semantics & No Web Shell Execution:** The system health service is strictly read-only and diagnostic. Web clients cannot trigger backup dumps, restore operations, daemon restarts, or arbitrary CLI commands from the browser.
+- **DR Health API Governance Respect:** Step 18 governance mandating architectural approval for `GET /api/admin/system/backup-status` is strictly upheld. No unapproved backup HTTP API was silently created; backup status within system health is derived from local trusted companion manifests.

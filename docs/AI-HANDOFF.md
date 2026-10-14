@@ -145,8 +145,27 @@ This document is the operational starting point for any AI coding agent working 
   - **Strict Internationalization:** Followed the zero-hardcoded-English policy via `next-intl` dictionaries in `frontend/messages/en.json`.
   - **Verification:** Custom test suite (`npm run test:step18`) passes 100%; Next.js production build (`npm run build`) generates all 23 static pages cleanly with zero errors; full backend regression suite passes cleanly (**228 tests / 980 assertions**).
 
+- **Step 19 — Operational Reliability, Scheduled Jobs & System Health (IMPLEMENTED & VERIFIED):**
+  - **Relational Scheduled Task Execution Ledger:** Implemented migration `2026_10_15_000001_create_scheduled_task_runs_table.php` provisioning `scheduled_task_runs` table (`uuid`, `task_name`, `expression`, `status`, `started_at`, `finished_at`, `duration_ms`, `failure_summary`, `created_at`, `updated_at`) with composite indexes on `['task_name', 'created_at']` and `['status', 'created_at']`.
+  - **Eloquent Model & Scopes:** Implemented `ScheduledTaskRun` model with auto-generated UUID, casts (`started_at`, `finished_at`, `duration_ms`), and query scopes (`successful`, `failed`, `recent`, `forTask`).
+  - **Fail-Safe Task Tracking Service:** Implemented `ScheduledTaskTrackerService` hooked into Laravel's native console lifecycle events (`ScheduledTaskStarting`, `ScheduledTaskFinished`, `ScheduledTaskFailed`, `ScheduledTaskSkipped`). All tracking is non-blocking (try/catch protected) ensuring no scheduler job is ever aborted by tracking failures.
+  - **Automated Failure Sanitization:** `ScheduledTaskTrackerService::sanitizeSummary()` automatically scrubs sensitive connection strings, DSNs, passwords, Bearer tokens, and cryptographic keys before persisting into the database.
+  - **Scheduler Audit & Concurrency Hardening:** Identified missing mutex on `tenant:suspend-expired` in `routes/console.php` and appended `withoutOverlapping(10)` to eliminate race conditions. Registered `scheduled-tasks:prune` daily at 04:00 UTC (7-day retention).
+  - **Comprehensive Multi-Component Health Service:** Implemented `SystemHealthService` delivering deterministic, classified states (`HEALTHY`, `DEGRADED`, `UNHEALTHY`, `UNKNOWN`, `NOT_CONFIGURED`) across 7 diagnostic subsystems: App, Database, Redis, Scheduler Freshness, Task Failure Reliability, Queue, and Backup Posture (derived exclusively from local manifest files, strictly adhering to Step 18 governance; zero unapproved HTTP endpoints).
+  - **Dual API Surface:**
+    - Public Liveness Probe: `GET /api/health` and `/up` returning minimal non-sensitive JSON payload (`{ "status": "ok", "timestamp": "..." }`) with zero leak of internal metrics, environment names, or dependency versions.
+    - Authenticated Administrative Health: `GET /api/admin/system/health` protected by `admin.permission:admin.stats.read` returning comprehensive diagnostics, latencies, and component statuses.
+    - Authenticated Task Run History: `GET /api/admin/system/tasks` protected by `admin.permission:admin.stats.read` supporting bounded pagination (10-100/page), status filter (`all`, `success`, `failed`, `skipped`), and task name search.
+  - **Admin System Health UI:** Implemented responsive Next.js 14 dashboard at `/(admin)/admin/system-health` and added to `AdminSidebar.tsx`. Features overall system status banner with pulse indicator, 7 diagnostic component cards, task execution table with status badges and duration metrics, and failure inspection modal.
+  - **Verification:** Custom test suite (`npm run test:step19`) passes 100%; Next.js production build (`npm run build`) generates all 24 static pages cleanly with zero errors; full backend regression suite passes cleanly (**243 tests / 1064 assertions**, 15 new tests / 84 assertions).
+  - **Deferred Items & Architecture Invariants:**
+    - Live MariaDB restore: `PENDING INFRASTRUCTURE`
+    - Live Dovecot restore: `PENDING INFRASTRUCTURE`
+    - Point-in-time Recovery (PITR): `NOT IMPLEMENTED` (Option B accepted)
+    - Standalone `/api/admin/system/backup-status` HTTP API: `REQUIRES ARCHITECTURE APPROVAL`
+
 ## 5. Next Recommended Implementation Phase
-- **Step 18.1 / Step 19 — Operational Production Deployment & Real Daemon Restore Validation:**
+- **Step 19.1 / Step 20 — Production Staging & Linux Infrastructure Validation:**
   - Deploy to target Linux VPS environment with Postfix, Dovecot, MariaDB 10.11+, and Redis.
   - Execute live daemon restore tests against active MariaDB service and Dovecot MDA indexer (`doveadm index`) to elevate status from `PARTIALLY VERIFIED` to `VERIFIED`.
-  - Review and obtain architecture approval for the read-only Disaster Recovery Health HTTP API contract (`GET /api/admin/system/backup-status`).
+  - Review and obtain architecture approval for the standalone Disaster Recovery Health HTTP API contract (`GET /api/admin/system/backup-status`).

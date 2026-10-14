@@ -111,13 +111,29 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
   - `resolved_by` (FK -> `users.id`, nullable) — administrator who resolved/dismissed the incident.
   - `resolution_notes` (text, nullable) — administrative justification.
   - `created_at`, `updated_at` (timestamps).
-- **Composite Indexes:**
-  - `['tenant_id', 'created_at']`, `['incident_type', 'created_at']`, `['status', 'created_at']`.
 - **Model:** `App\Models\AbuseIncident`.
 - **Audit Integration:** Administrative resolutions (`resolve`, `dismiss`) trigger immutable audit records in `audit_logs` via `AuditService::record()`. Routine background ingestion from daemons does not pollute `audit_logs`.
 
+### `scheduled_task_runs` (Operational Scheduler Ledger - Step 19)
+- **Primary Key:** `id` (bigint unsigned, auto-increment)
+- **UUID:** `uuid` (char(36), unique index)
+- **Fields:**
+  - `task_name` (varchar(191), indexed) — Canonical command identifier (e.g. `tenant:suspend-expired`, `outbound:usage-sync`, `mail:process-log`, `backup:run --verify`, `backup:prune`).
+  - `expression` (varchar(64), nullable) — Cron expression (e.g. `* * * * *`, `0 * * * *`).
+  - `status` (varchar(32), indexed) — Execution state: `running`, `success`, `failed`, `skipped`.
+  - `started_at` (timestamp, indexed) — Execution start timestamp.
+  - `finished_at` (timestamp, nullable) — Execution completion timestamp.
+  - `duration_ms` (unsigned integer, nullable) — Execution duration in milliseconds.
+  - `failure_summary` (varchar(500), nullable) — Sanitized error summary (passwords, tokens, API keys, DSN credentials, and cryptographic hashes are strictly redacted before persistence).
+  - `created_at`, `updated_at` (timestamps).
+- **Composite Indexes:**
+  - `['task_name', 'created_at']`, `['status', 'created_at']`.
+- **Model:** `App\Models\ScheduledTaskRun`.
+- **Retention & Pruning Policy:** Retained for 7 days; automatically pruned via daily scheduled task (`scheduled-tasks:prune`) at 04:00 UTC using `withoutOverlapping(15)`.
+
 ## Cross-System Coupling
 > **CRITICAL RULE:** Do NOT alter the schemas of `domains` or `mailboxes` without simultaneously verifying and updating `/etc/postfix/mysql-virtual-mailbox-*.cf` and `/etc/dovecot/dovecot-sql.conf.ext`. The mail stack relies precisely on the current table names and column structures.
+
 
 ## Database Backup & Disaster Recovery (Step 17 & 17.2)
 

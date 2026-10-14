@@ -24,6 +24,9 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
     Route::post('/billing/fail', [BillingApiController::class, 'fail']);
     Route::post('/billing/cancel', [BillingApiController::class, 'cancel']);
 
+    // Public Minimal Liveness (Step 19)
+    Route::get('/health', [\App\Http\Controllers\Api\HealthApiController::class, 'liveness']);
+
     // Authenticated Routes
     Route::middleware('auth:sanctum')->group(function () {
         
@@ -54,11 +57,17 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
 
         // Admin Routes
         Route::middleware(EnsureAdmin::class)->prefix('admin')->group(function () {
-            // Stats / Dashboard
+            // Stats / Dashboard & System Health (Step 19)
             Route::middleware('admin.permission:admin.stats.read')->group(function () {
                 Route::get('/stats', [AdminApiController::class, 'stats']);
                 Route::get('/charts', [AdminApiController::class, 'chartData']);
                 Route::get('/server-stats', [AdminApiController::class, 'serverStats']);
+
+                // System Health & Scheduled Task Reliability (Step 19)
+                Route::prefix('system')->group(function () {
+                    Route::get('/health', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'index']);
+                    Route::get('/tasks', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'tasks']);
+                });
             });
             
             // Users / Tenants

@@ -207,3 +207,46 @@
   - Real Dovecot MDA Live Restore: `PARTIALLY VERIFIED` (Maildir extraction and permissions verified; live Dovecot indexing pending remote infrastructure)
 - `[x]` Feature test suite (`tests/Feature/BackupAndDisasterRecoveryTest.php`): 14 passing tests, 92 assertions (test suite total: 228 passing, 980 assertions, 0 failures, 0 regressions)
 
+## Operational Reliability, Scheduled Jobs & System Health (Step 19 IMPLEMENTED & VERIFIED)
+- `[x]` Scheduler reliability audit:
+  - `[x]` Added `withoutOverlapping(10)` mutex to `tenant:suspend-expired` preventing concurrency collisions under load
+  - `[x]` Verified mutex locks across all 6 scheduled tasks (`outbound:usage-sync`, `mail:process-log`, `backup:run`, `backup:prune`, `tenant:suspend-expired`, `scheduled-tasks:prune`)
+  - `[x]` Confirmed UTC timezone consistency across scheduling routines
+- `[x]` Scheduled task execution tracking ledger:
+  - `[x]` Migration `2026_10_15_000001_create_scheduled_task_runs_table.php` provisioning relational `scheduled_task_runs` table with UUID and composite indexes
+  - `[x]` Eloquent model `ScheduledTaskRun` with scopes (`successful`, `failed`, `recent`, `forTask`)
+  - `[x]` `ScheduledTaskTrackerService` implementing fail-safe execution tracking for task starting, completion, failure, and skipping
+  - `[x]` Single-point failure sanitization stripping DSNs, passwords, Bearer tokens, hashes, and secrets
+  - `[x]` Automated 7-day retention pruning via daily scheduled task (`scheduled-tasks:prune`) at 04:00 UTC
+- `[x]` Native Laravel 11 Console Event listeners wired in `AppServiceProvider`:
+  - `[x]` `ScheduledTaskStarting` -> `recordStart()`
+  - `[x]` `ScheduledTaskFinished` -> `recordFinish()` with duration in milliseconds
+  - `[x]` `ScheduledTaskFailed` -> `recordFailure()` with sanitized error summary
+  - `[x]` `ScheduledTaskSkipped` -> `recordSkipped()` with reason
+- `[x]` Multi-component `SystemHealthService`:
+  - `[x]` Application core status (PHP version, Laravel version, environment, timezone, debug mode)
+  - `[x]` Database connectivity and latency measurement (`SELECT 1`) with sanitized error trapping
+  - `[x]` Redis connectivity and latency measurement with graceful degradation (`fail-open` mode detection)
+  - `[x]` Scheduler freshness calculation based on execution heartbeat (`fresh` <= 5m, `delayed` 5-15m, `stale` > 15m)
+  - `[x]` 24-hour task failure reliability monitoring
+  - `[x]` Queue health monitoring (pending jobs, failed jobs in 24h)
+  - `[x]` Backup posture inspection from trusted local companion manifests (respecting Step 18 governance; zero unapproved HTTP endpoints)
+  - `[x]` Composite system status resolution (`HEALTHY`, `DEGRADED`, `UNHEALTHY`, `UNKNOWN`, `NOT_CONFIGURED`)
+- `[x]` API Endpoints:
+  - `[x]` Minimal public liveness probe (`GET /api/health` and `/up`)
+  - `[x]` Authenticated Admin System Health diagnostics (`GET /api/admin/system/health`, protected by `EnsureAdmin` and `admin.stats.read`)
+  - `[x]` Authenticated Admin Task Runs history (`GET /api/admin/system/tasks`, bounded max 50/page)
+- `[x]` Admin System Health Dashboard UI:
+  - `[x]` Responsive Next.js 14 page at `/admin/system-health`
+  - `[x]` Dynamic status banner with live heartbeat timestamps and manual refresh
+  - `[x]` 7 Component diagnostic posture cards
+  - `[x]` Recent scheduled task execution ledger table with status pills, durations, and failure inspection modal
+  - `[x]` RBAC 403 Forbidden handling and error retry states
+  - `[x]` Admin navigation sidebar updated with `System Health` (`Activity` icon)
+  - `[x]` Strict zero-hardcoded-English policy enforced via `next-intl` dictionaries in `frontend/messages/en.json`
+- `[x]` Verification Matrix:
+  - `[x]` Automated frontend test suite (`npm run test:step19`): 100% passed
+  - `[x]` TypeScript typecheck (`npx tsc --noEmit`): 0 errors
+  - `[x]` Next.js production build (`npm run build`): 24/24 static pages generated cleanly
+  - `[x]` Feature test suite (`tests/Feature/SystemHealthAndSchedulerTest.php`): 15 tests, 84 assertions passing
+  - `[x]` Full regression test suite (`php artisan test`): **243 passed / 1064 assertions / 0 failures / 0 regressions**

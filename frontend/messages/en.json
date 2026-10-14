@@ -49,6 +49,7 @@
       "plans": "Plans",
       "smtp": "SMTP Management",
       "backup_dr": "Backup & DR",
+      "system_health": "System Health",
       "audit_logs": "Audit Logs",
       "invoices": "Invoices",
       "settings": "System Settings"
@@ -467,6 +468,122 @@
         "scenario_a": "Scenario A: Application/Database Corruption (scripts/restore_db.sh)",
         "scenario_b": "Scenario B: Mail Storage Loss (scripts/restore_vmail.sh)",
         "scenario_c": "Scenario C: Complete Host/VPS Destruction (scripts/disaster_recovery.sh)"
+      }
+    },
+    "system_health": {
+      "title": "System Health & Operational Reliability",
+      "subtitle": "Real-time diagnostic telemetry, scheduler freshness, dependency readiness, and scheduled task executions.",
+      "refresh": "Refresh Diagnostics",
+      "last_checked": "Last checked",
+      "auto_refresh_note": "Auto-refreshes every 30 seconds with SWR deduplication.",
+      "overall_status": {
+        "healthy": "All Systems Operational",
+        "degraded": "System Operating in Degraded Mode",
+        "unhealthy": "System Failure Detected",
+        "unknown": "System Status Unknown"
+      },
+      "posture": {
+        "HEALTHY": "Healthy",
+        "DEGRADED": "Degraded",
+        "UNHEALTHY": "Unhealthy",
+        "UNKNOWN": "Unknown",
+        "NOT_CONFIGURED": "Not Configured"
+      },
+      "components": {
+        "app": {
+          "title": "Application Core",
+          "desc": "Laravel runtime, framework environment, and timezone."
+        },
+        "database": {
+          "title": "Database Engine",
+          "desc": "MariaDB relational store and query connectivity."
+        },
+        "redis": {
+          "title": "Redis Telemetry & Quotas",
+          "desc": "In-memory atomic quotas, log cursor, and Roundcube OTPs."
+        },
+        "scheduler": {
+          "title": "Scheduler Freshness",
+          "desc": "Cron heartbeat and automated task runner execution."
+        },
+        "task_failures": {
+          "title": "Task Reliability",
+          "desc": "Scheduled task execution failures in the last 24 hours."
+        },
+        "queue": {
+          "title": "Queue Subsystem",
+          "desc": "Queue connection worker health and pending jobs."
+        },
+        "backup": {
+          "title": "Disaster Recovery Posture",
+          "desc": "Local backup archives and cryptographic verification."
+        }
+      },
+      "labels": {
+        "environment": "Environment",
+        "php_version": "PHP Version",
+        "framework": "Framework",
+        "timezone": "Timezone",
+        "debug_mode": "Debug Mode",
+        "connection": "Connection",
+        "latency": "Latency",
+        "client": "Client Driver",
+        "last_run": "Last Executed",
+        "seconds_ago": "seconds ago",
+        "freshness": "Heartbeat",
+        "fresh": "Fresh (<= 5m)",
+        "delayed": "Delayed (5-15m)",
+        "stale": "Stale (> 15m)",
+        "registered_tasks": "Registered Tasks",
+        "failures_24h": "Failures (24h)",
+        "last_failed": "Last Failed Task",
+        "last_failed_at": "Failed At",
+        "driver": "Driver",
+        "pending_jobs": "Pending Jobs",
+        "failed_jobs": "Failed Jobs (24h)",
+        "latest_db": "Latest Database Backup",
+        "latest_vmail": "Latest Mail Backup",
+        "encryption": "Encryption at Rest",
+        "verified": "Verified",
+        "not_verified": "Pending Verification",
+        "enabled": "Enabled",
+        "disabled": "Disabled"
+      },
+      "tasks": {
+        "title": "Recent Scheduled Task Executions",
+        "subtitle": "Execution audit log of automated system jobs, runtimes, and outcomes.",
+        "table": {
+          "task_name": "Task Name",
+          "expression": "Cron Schedule",
+          "status": "Result",
+          "duration": "Duration",
+          "started_at": "Started (UTC)",
+          "finished_at": "Finished (UTC)",
+          "actions": "Details"
+        },
+        "status": {
+          "running": "Running",
+          "success": "Success",
+          "failed": "Failed",
+          "skipped": "Skipped"
+        },
+        "no_tasks": "No scheduled task execution records found.",
+        "inspect": "Inspect Failure",
+        "modal_title": "Scheduled Task Execution Failure",
+        "task_identifier": "Task Identifier",
+        "execution_uuid": "Execution UUID",
+        "started_time": "Started Timestamp",
+        "finished_time": "Finished Timestamp",
+        "runtime": "Runtime Duration",
+        "failure_summary": "Sanitized Failure Summary",
+        "close": "Close"
+      },
+      "errors": {
+        "forbidden_title": "Access Forbidden",
+        "forbidden_desc": "You do not have permission to view system health diagnostics. (admin.stats.read required)",
+        "failed_title": "Failed to Fetch Diagnostics",
+        "failed_desc": "Unable to communicate with the system health API. Verify network connectivity and server status.",
+        "retry": "Retry"
       }
     },
     "common": {

@@ -1,5 +1,43 @@
 # Changelog
 
+### Operational Reliability, Scheduled Jobs & System Health (Step 19)
+- **Implemented:** Scheduled task execution tracking ledger (`scheduled_task_runs` table, migration `2026_10_15_000001_create_scheduled_task_runs_table.php`, and `ScheduledTaskRun` Eloquent model):
+  - Records canonical task identifier, cron expression, start time, completion time, duration in milliseconds, result state (`running`, `success`, `failed`, `skipped`), and sanitized failure summaries.
+  - Fail-safe operational tracking via `App\Services\Scheduling\ScheduledTaskTrackerService`.
+  - Single-point failure sanitization stripping DSNs, passwords, Bearer tokens, hashes, and secrets.
+  - Automated 7-day retention pruning via daily scheduled task (`scheduled-tasks:prune`) at 04:00 UTC using `withoutOverlapping(15)`.
+- **Integrated:** Laravel 11 Console Scheduling Events wired in `AppServiceProvider`:
+  - `ScheduledTaskStarting` -> `recordStart()`
+  - `ScheduledTaskFinished` -> `recordFinish()`
+  - `ScheduledTaskFailed` -> `recordFailure()`
+  - `ScheduledTaskSkipped` -> `recordSkipped()`
+- **Audited & Hardened:** Scheduler reliability in `laravel-panel/routes/console.php`:
+  - Added `withoutOverlapping(10)` mutex to `tenant:suspend-expired` to prevent concurrent collisions under high queue latency.
+  - Verified mutexes across all 6 scheduled tasks (`tenant:suspend-expired`, `outbound:usage-sync`, `mail:process-log`, `backup:run`, `backup:prune`, `scheduled-tasks:prune`).
+  - Confirmed UTC timezone consistency across all routines.
+- **Implemented:** Comprehensive `App\Services\Health\SystemHealthService`:
+  - Application core diagnostics (PHP version, Laravel version, environment, timezone, debug mode).
+  - Database connectivity and latency measurement (`SELECT 1`) with fail-closed error trapping.
+  - Redis connectivity and latency measurement with graceful degradation (`fail-open` mode detection).
+  - Scheduler freshness calculation based on execution heartbeat (`fresh` <= 5m, `delayed` 5-15m, `stale` > 15m).
+  - 24-hour task failure reliability monitoring.
+  - Queue subsystem health (driver, pending jobs, failed jobs in 24h).
+  - Backup posture inspection from trusted local companion manifests (respecting Step 18 governance; zero unapproved HTTP endpoints).
+  - Composite system status resolution (`HEALTHY`, `DEGRADED`, `UNHEALTHY`, `UNKNOWN`, `NOT_CONFIGURED`).
+- **Implemented:** Public and administrative health API endpoints:
+  - Minimal public liveness probe (`GET /api/health` and `/up`), exposing zero internal topology or credentials.
+  - Authenticated admin system health diagnostics (`GET /api/admin/system/health`), protected by `EnsureAdmin` and `admin.stats.read`.
+  - Authenticated admin task runs history (`GET /api/admin/system/tasks`), bounded max 50/page.
+- **Implemented:** Admin System Health Dashboard UI (`frontend/src/app/(admin)/admin/system-health/page.tsx`):
+  - Responsive Next.js 14 page featuring overall status banner with live heartbeat timestamps and manual refresh.
+  - 7 Component diagnostic posture cards with latency metrics and status pills.
+  - Recent scheduled task execution ledger table with status badges, runtimes, and failure inspection modal.
+  - RBAC 403 Forbidden handling and error retry states.
+  - Admin navigation sidebar updated with `System Health` (`Activity` icon).
+  - Strict zero-hardcoded-English policy enforced via `next-intl` dictionaries in `frontend/messages/en.json`.
+- **Verified:** Frontend verification suite (`npm run test:step19`) passing 100%; TypeScript typecheck (`npx tsc --noEmit`) 0 errors; Next.js production build (`npm run build`) passing 100% with 24/24 static pages generated.
+- **Verified:** Feature test suite (`tests/Feature/SystemHealthAndSchedulerTest.php`) 15 tests, 84 assertions passing; full backend regression suite passing with **243 passed / 1064 assertions / 0 failures / 0 regressions**.
+
 ### Admin Control Plane Deliverability, Abuse & DR Health Visibility (Step 18)
 - **Implemented:** Persistent Abuse Incident Ledger UI (`frontend/src/components/admin/smtp/SmtpIncidentsTable.tsx`):
   - Consumes `/api/admin/smtp/incidents`, displaying real-time paginated abuse records with summary cards (Open, Critical, High, Resolved, Total in view).

@@ -10,7 +10,7 @@ Artisan::command('inspire', function () {
 // Schedule the tenant suspension check to run every minute
 use Illuminate\Support\Facades\Schedule;
 
-Schedule::command('tenant:suspend-expired')->everyMinute();
+Schedule::command('tenant:suspend-expired')->everyMinute()->withoutOverlapping(10);
 
 // Schedule Redis -> MariaDB outbound recipient usage synchronization hourly
 Schedule::command('outbound:usage-sync')->hourly()->withoutOverlapping(15);
@@ -23,4 +23,9 @@ Schedule::command('backup:run --verify')->dailyAt('02:00')->withoutOverlapping(3
 
 // Schedule daily backup retention pruning at 03:00
 Schedule::command('backup:prune')->dailyAt('03:00')->withoutOverlapping(15);
+
+// Schedule daily pruning of scheduled task execution records (keep 7 days) at 04:00
+Schedule::call(function () {
+    app(\App\Services\Scheduling\ScheduledTaskTrackerService::class)->prune(7);
+})->dailyAt('04:00')->name('scheduled-tasks:prune')->withoutOverlapping(15);
 

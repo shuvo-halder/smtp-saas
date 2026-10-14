@@ -281,3 +281,42 @@ export interface BackupHealthPosture {
     pitr: 'NOT IMPLEMENTED';
   };
 }
+
+// ==========================================
+// STEP 19: SYSTEM HEALTH & SCHEDULED JOBS
+// ==========================================
+
+export type SystemHealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' | 'UNKNOWN' | 'NOT_CONFIGURED';
+
+export interface ComponentHealth {
+  status: SystemHealthStatus;
+  details: Record<string, any>;
+}
+
+export interface ScheduledTaskRunItem {
+  id: number;
+  uuid: string;
+  task_name: string;
+  expression: string | null;
+  status: 'running' | 'success' | 'failed' | 'skipped';
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  failure_summary: string | null;
+}
+
+export interface SystemHealthResponse {
+  status: SystemHealthStatus;
+  timestamp: string;
+  environment: string;
+  components: {
+    app: ComponentHealth;
+    database: ComponentHealth;
+    redis: ComponentHealth;
+    scheduler: ComponentHealth;
+    task_failures: ComponentHealth;
+    queue: ComponentHealth;
+    backup: ComponentHealth;
+  };
+  recent_tasks: ScheduledTaskRunItem[];
+}

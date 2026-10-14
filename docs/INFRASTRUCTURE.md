@@ -15,8 +15,12 @@ EmailSaaS is deployed as a consolidated stack on an Ubuntu Linux VPS.
 - **Web Server:** Nginx (`panel.mailsaas.com`)
 - **Queue Manager:** Supervisor (`/etc/supervisor/conf.d/mailsaas-worker.conf`)
 - **Scheduler:** Cron (`* * * * * cd /var/www/email-saas/laravel-panel && php artisan schedule:run`)
-  - `tenant:suspend-expired`: Runs every minute to enforce subscription lifecycle.
+  - `tenant:suspend-expired`: Runs every minute (`withoutOverlapping(10)`) to enforce subscription lifecycle.
   - `outbound:usage-sync`: Runs hourly (`0 * * * *`) with `withoutOverlapping(15)` and atomic lock `Cache::lock('outbound_usage_sync_lock', 600)` to sync Redis counters to MariaDB `tenant_outbound_usage`.
+  - `mail:process-log`: Runs every 5 minutes with `withoutOverlapping(10)` and atomic lock `Cache::lock('mail_process_log_lock', 300)`.
+  - `backup:run --verify`: Runs daily at 02:00 UTC (`withoutOverlapping(30)`).
+  - `backup:prune`: Runs daily at 03:00 UTC (`withoutOverlapping(15)`).
+  - `scheduled-tasks:prune`: Runs daily at 04:00 UTC (`withoutOverlapping(15)`) to prune task execution records older than 7 days.
 
 ### Mail Delivery (Postfix MTA)
 - **Ports:** 25 (SMTP), 587 (Submission), 465 (SMTPS)
@@ -96,8 +100,12 @@ EmailSaaS provides an enterprise backup and disaster recovery subsystem protecti
 ### Automated Scheduling & Installation
 
 - Registered in `laravel-panel/routes/console.php`:
+  - `tenant:suspend-expired`: Scheduled every minute (`withoutOverlapping(10)`).
+  - `outbound:usage-sync`: Scheduled hourly (`withoutOverlapping(15)`).
+  - `mail:process-log`: Scheduled every 5 minutes (`withoutOverlapping(10)`).
   - `backup:run --verify`: Scheduled daily at `02:00 UTC` (`withoutOverlapping(30)`).
   - `backup:prune`: Scheduled daily at `03:00 UTC` (`withoutOverlapping(15)`).
+  - `scheduled-tasks:prune`: Scheduled daily at `04:00 UTC` (`withoutOverlapping(15)`).
 - Idempotently installed in `scripts/install.sh` (Step 19):
   `* * * * * cd /var/www/email-saas/laravel-panel && php artisan schedule:run >> /dev/null 2>&1`
 

@@ -153,3 +153,113 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
   - **Proposed Future Endpoint:** `GET /api/admin/system/backup-status`
   - **Proposed Middleware:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
   - **Security Mandate:** The web API must be strictly read-only. It must NEVER execute shell commands or Artisan processes on request, and must NEVER expose encryption keys (`BACKUP_ENCRYPTION_KEY`), SSH private keys, database passwords, or secret credentials.
+
+## Operational Reliability, Scheduled Jobs & System Health API (Step 19)
+
+### 1. Minimal Public Liveness Probe
+| Method | Endpoint | Description | Middleware | Required Permission |
+|---|---|---|---|---|
+| GET | `/api/health` | Minimal public liveness probe. Fast 200 OK. Exposes zero internal topology or secrets. | `IdentifyTenant` | None (Public) |
+
+- **Response Payload (Minimal Public):**
+  ```json
+  {
+    "status": "HEALTHY",
+    "timestamp": "2026-10-15T01:30:00+00:00"
+  }
+  ```
+
+### 2. Authenticated Admin System Health Diagnostics
+| Method | Endpoint | Description | Middleware | Required Permission |
+|---|---|---|---|---|
+| GET | `/api/admin/system/health` | Comprehensive multi-component diagnostics, scheduler heartbeat, latencies, and recent task executions. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.stats.read` |
+| GET | `/api/admin/system/tasks` | Bounded paginated historical ledger of scheduled task executions. Supports `?status=&search=&date_from=&date_to=&page=&per_page=`. Max `per_page` bounded to 50. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.stats.read` |
+
+- **Response Payload (`GET /api/admin/system/health`):**
+  ```json
+  {
+    "status": "HEALTHY",
+    "timestamp": "2026-10-15T01:30:00+00:00",
+    "environment": "production",
+    "components": {
+      "app": {
+        "status": "HEALTHY",
+        "details": {
+          "php_version": "8.2.20",
+          "framework": "Laravel 11.0",
+          "environment": "production",
+          "timezone": "UTC",
+          "debug_mode": false
+        }
+      },
+      "database": {
+        "status": "HEALTHY",
+        "details": {
+          "connection": "mysql",
+          "latency_ms": 1.45
+        }
+      },
+      "redis": {
+        "status": "HEALTHY",
+        "details": {
+          "latency_ms": 0.82,
+          "client": "phpredis"
+        }
+      },
+      "scheduler": {
+        "status": "HEALTHY",
+        "details": {
+          "freshness": "fresh",
+          "last_run_at": "2026-10-15T01:29:00+00:00",
+          "seconds_since_last_run": 60,
+          "registered_tasks_count": 6
+        }
+      },
+      "task_failures": {
+        "status": "HEALTHY",
+        "details": {
+          "failures_24h": 0,
+          "last_failure_at": null,
+          "last_failed_command": null,
+          "last_failure_summary": null
+        }
+      },
+      "queue": {
+        "status": "HEALTHY",
+        "details": {
+          "driver": "database",
+          "pending_jobs": 0,
+          "failed_jobs_24h": 0
+        }
+      },
+      "backup": {
+        "status": "HEALTHY",
+        "details": {
+          "latest_db_backup_at": "2026-10-15T02:00:00Z",
+          "latest_vmail_backup_at": "2026-10-15T02:00:00Z",
+          "db_verified": true,
+          "encryption_enabled": true,
+          "note": "Posture verified from local companion manifests; HTTP API requires approval"
+        }
+      }
+    },
+    "recent_tasks": [
+      {
+        "id": 1,
+        "uuid": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "task_name": "tenant:suspend-expired",
+        "expression": "* * * * *",
+        "status": "success",
+        "started_at": "2026-10-15T01:29:00+00:00",
+        "finished_at": "2026-10-15T01:29:01+00:00",
+        "duration_ms": 450,
+        "failure_summary": null
+      }
+    ]
+  }
+  ```
+- **Classification Invariants:**
+  - `status` values across system and components: `HEALTHY`, `DEGRADED`, `UNHEALTHY`, `UNKNOWN`, `NOT_CONFIGURED`.
+  - Database or Application Core failure triggers overall `UNHEALTHY`.
+  - Component failure/degradation (e.g. Redis disconnect or recent task failures) triggers overall `DEGRADED`.
+  - Sensitive connection parameters, passwords, encryption keys, DSNs, and stack traces are strictly scrubbed prior to output.
