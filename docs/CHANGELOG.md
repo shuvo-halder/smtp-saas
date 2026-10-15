@@ -1,5 +1,24 @@
 # Changelog
 
+### Tenant Self-Service Billing & Subscription Management (Step 26)
+- **Implemented:** Dedicated Tenant Subscription API (`GET /api/billing/subscription`):
+  - Returns authoritative plan configuration, lifecycle state (`active`, `expired`, `suspended`, `inactive`), countdown remaining days, `is_expiring_soon` flag (<= 7 days), and `can_renew` capability.
+  - Returns live quota consumption metrics: domains used/limit, mailboxes used/limit, today's outbound recipient usage from `tenant_outbound_usage`, daily outbound limit, and per-mailbox storage ceiling.
+  - Placed outside `EnsureActiveSubscription` middleware so expired or suspended tenants can view their subscription status and initiate renewal.
+- **Enhanced:** Invoice APIs (`BillingApiController` & `routes/api.php`):
+  - Enhanced `GET /api/billing/invoices` with bounded pagination (`per_page` clamped between 1 and 50) and validated status filtering (`paid`, `pending`, `failed`, `cancelled`).
+  - Implemented `GET /api/billing/invoices/{invoice}` for single invoice inspection, governed by `InvoicePolicy::view` (tenant owner or administrator with `admin.invoices.read` permission).
+  - Added `mailboxes(): HasManyThrough` relationship to `User` model for efficient mailbox queries.
+- **Implemented:** Next.js Tenant Self-Service Billing Experience (`frontend/`):
+  - **Billing Dashboard (`/billing`)**: Displays real-time subscription posture, warning banners for expired/expiring/suspended subscriptions, resource usage progress bars (domains, mailboxes, daily outbound emails, storage), one-click renewal flow, plan change action, and payment gateway callback feedback alerts (`?status=success|failed|cancelled`).
+  - **Invoice Ledger (`InvoiceTable.tsx` & `InvoiceDetailModal.tsx`)**: Bounded pagination controls, status filtering, printable invoice detail modal layout, and direct PDF download links.
+  - **Plans & Pricing (`/billing/plans` & `PlanCard.tsx`)**: Monthly/yearly billing switcher, clear feature matrices with daily outbound recipient limits and currency formatting (`BDT`), current plan badges, and SSLCommerz checkout redirect with active loading state.
+- **Automated Verification & Test Coverage**:
+  - Added `tests/Feature/TenantBillingManagementTest.php` with 12 feature tests covering subscription states, expiring-soon alerts, expired/suspended access, bounded invoice pagination, status filters, ownership policy enforcement, and SSLCommerz payment initiation.
+  - Full backend test suite passing: **311 tests, 1,346 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Full frontend production build passing: **Next.js 14 compiles and optimizes all 24 static pages with zero errors or warnings**.
+  - Git working tree verified: Zero git staging, zero commits, zero pushes.
+
 ### Final Local Integration Audit, Dummy Data Seeding & Security Verification (Step 25)
 - **Implemented:** Dedicated Local Dummy Data Seeder Tooling (`SeedAuditDemoCommand`):
   - Created `App\Console\Commands\SeedAuditDemoCommand` (`php artisan emailsaas:seed-audit-demo`) supporting `--dry-run` and `--cleanup`.

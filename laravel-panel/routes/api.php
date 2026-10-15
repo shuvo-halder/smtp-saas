@@ -35,10 +35,12 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
         Route::get('/auth/user', [AuthController::class, 'user']);
         Route::post('/webmail/sso', [\App\Http\Controllers\Api\SsoController::class, 'webmailSso']);
         
-        // Billing Plans (Active Subscription not required)
+        // Billing Plans & Subscription (Active Subscription not required)
+        Route::get('/billing/subscription', [BillingApiController::class, 'subscription']);
         Route::get('/billing/plans', [BillingApiController::class, 'plans']);
         Route::post('/billing/checkout', [BillingApiController::class, 'checkout']);
         Route::get('/billing/invoices', [BillingApiController::class, 'invoices']);
+        Route::get('/billing/invoices/{invoice}', [BillingApiController::class, 'show']);
         Route::get('/billing/invoices/{invoice}/download', [BillingApiController::class, 'downloadInvoice']);
 
         // Active Subscription Required

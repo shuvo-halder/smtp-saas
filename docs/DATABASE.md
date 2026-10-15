@@ -8,6 +8,7 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 - **Primary Key:** `id`
 - **Fields:** `name`, `email`, `password`, `status` (`active`, `suspended`, `pending`), `plan_id`, `plan_expires_at`
 - **Role:** Core tenant identity. `IdentifyTenant` middleware binds requests to a `User` instance.
+- **Relationships:** `hasMany(Domain::class)`, `hasManyThrough(Mailbox::class, Domain::class)`, `hasMany(Invoice::class)`, `belongsTo(Plan::class)`.
 
 ### `plans`
 - **Primary Key:** `id`

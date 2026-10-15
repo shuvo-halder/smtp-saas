@@ -284,8 +284,26 @@ This document is the operational starting point for any AI coding agent working 
     - Full backend regression test suite: **299 passed (1,300 assertions)** cleanly with zero failures and zero regressions.
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 24/24 static pages)**.
 
+- **Step 26 — Tenant Self-Service Billing & Subscription Management (IMPLEMENTED & VERIFIED):**
+  - **Tenant Subscription API (`BillingApiController@subscription`):**
+    - Created `GET /api/billing/subscription` providing authoritative subscription posture, lifecycle state (`active`, `expired`, `suspended`, `inactive`), remaining days countdown, `is_expiring_soon` warning flag (<= 7 days), and live resource usage.
+    - Placed outside `EnsureActiveSubscription` middleware so expired or suspended tenants can view their status and initiate renewal.
+    - Added `User::mailboxes(): HasManyThrough` relationship for fast tenant-scoped mailbox counts.
+  - **Enhanced Invoice Management (`BillingApiController`):**
+    - Enhanced `GET /api/billing/invoices` with bounded pagination (`per_page` clamped between 1 and 50) and status filtering (`paid`, `pending`, `failed`, `cancelled`).
+    - Added `GET /api/billing/invoices/{invoice}` for single invoice inspection, strictly authorized via `InvoicePolicy::view` (tenant ownership or `admin.invoices.read` RBAC permission).
+  - **Next.js Self-Service Billing Experience (`frontend/`):**
+    - Dashboard (`/billing`): Displays plan posture, remaining days badge, warning banners (expired, expiring soon, suspended), usage progress bars (domains, mailboxes, daily outbound emails, mailbox storage), one-click renewal flow, and payment gateway callback feedback alerts (`?status=success|failed|cancelled`).
+    - Invoice Ledger (`InvoiceTable.tsx` & `InvoiceDetailModal.tsx`): Bounded pagination controls, status filtering, printable invoice detail modal layout, and direct PDF download links.
+    - Plans & Pricing (`/billing/plans` & `PlanCard.tsx`): Monthly/yearly billing switcher, clear feature matrices with daily outbound recipient limits and currency formatting (`BDT`), current plan badges, and SSLCommerz checkout redirect with active loading state.
+  - **Automated Testing & Verification:**
+    - Authored `tests/Feature/TenantBillingManagementTest.php` with 12 comprehensive feature tests (46 assertions).
+    - Full backend regression test suite: **311 passed (1,346 assertions)** cleanly with zero failures and zero regressions (100% pass rate).
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 24/24 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 26 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
+- **Step 27 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.

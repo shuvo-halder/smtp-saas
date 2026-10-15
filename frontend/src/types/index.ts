@@ -327,3 +327,25 @@ export interface SystemHealthResponse {
   };
   recent_tasks: ScheduledTaskRunItem[];
 }
+
+export interface TenantSubscriptionSummary {
+  plan: Plan | null;
+  subscription: {
+    status: 'active' | 'expired' | 'suspended' | 'inactive';
+    is_active: boolean;
+    expires_at: string | null;
+    days_remaining: number | null;
+    is_expiring_soon: boolean;
+    can_renew: boolean;
+  };
+  usage: {
+    domains_used: number;
+    domains_limit: number;
+    mailboxes_used: number;
+    mailboxes_limit: number;
+    max_mailboxes_per_domain: number;
+    outbound_today: number;
+    outbound_daily_limit: number;
+    storage_mb_per_mailbox: number;
+  };
+}

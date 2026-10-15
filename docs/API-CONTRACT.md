@@ -35,8 +35,12 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 ## Billing & SSO API
 | Method | Endpoint | Description | Middleware |
 |---|---|---|---|
+| GET | `/billing/subscription` | Authoritative tenant subscription posture, quota limits, today's outbound count, and remaining days. Accessible even if expired or suspended. | `IdentifyTenant`, `auth:sanctum` |
 | GET | `/billing/plans` | List available subscription plans. | `IdentifyTenant`, `auth:sanctum` |
 | POST | `/billing/checkout` | Initiate SSLCommerz checkout session. | `IdentifyTenant`, `auth:sanctum` |
+| GET | `/billing/invoices` | Tenant's own invoices. Supports `per_page` (clamped 1-50), `page`, and `status` filter (`paid`, `pending`, `failed`, `cancelled`). | `IdentifyTenant`, `auth:sanctum` |
+| GET | `/billing/invoices/{invoice}` | Single invoice details. Governed by `InvoicePolicy::view` (tenant owner or `admin.invoices.read`). | `IdentifyTenant`, `auth:sanctum` |
+| GET | `/billing/invoices/{invoice}/download` | Download invoice PDF. Governed by `InvoicePolicy::view` (tenant owner or `admin.invoices.read`). | `IdentifyTenant`, `auth:sanctum` |
 | POST | `/billing/ipn` | SSLCommerz Server-to-Server webhook. | `IdentifyTenant` (No CSRF) |
 | POST | `/billing/success` | SSLCommerz Payment Success webhook. | `IdentifyTenant` (No CSRF) |
 | POST | `/billing/fail` | SSLCommerz Payment Fail webhook. | `IdentifyTenant` (No CSRF) |

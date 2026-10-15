@@ -108,4 +108,12 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - Enhanced `AdminSmtpTenantResource`: Provides live remaining quota, usage percentages, over-quota flags, and granular subscription states.
 - Enhanced Next.js UI (`SmtpTenantsTable.tsx`): Displays remaining daily quota, over-quota alerts, and subscription states.
 
-
+## 15. Tenant Self-Service Billing & Subscription Management (Step 26)
+**Status:** IMPLEMENTED & VERIFIED (Step 26)
+**Purpose:** End-to-end self-service billing, plan selection, renewal management, and invoice inspection for tenant accounts.
+**Components:**
+- `BillingApiController`: Exposes `/api/billing/subscription` (authoritative posture, limits, outbound usage, remaining days; accessible without active subscription), `/api/billing/plans`, `/api/billing/checkout`, `/api/billing/invoices` (bounded pagination 1-50, status filtering), and `/api/billing/invoices/{invoice}` (authorized via `InvoicePolicy::view`).
+- `User` Model: Added `mailboxes(): HasManyThrough` relationship for direct mailbox aggregate queries.
+- Next.js Dashboard UI (`/billing`): Real-time subscription posture, remaining days badge, quota progress indicators (domains, mailboxes, daily outbound emails, mailbox storage), renewal CTA, and payment gateway callback alerts (`?status=success|failed|cancelled`).
+- Next.js Invoice Ledger (`InvoiceTable.tsx` & `InvoiceDetailModal.tsx`): Bounded pagination, status filtering (`paid`, `pending`, `failed`, `cancelled`), printable modal layout, and direct PDF download links.
+- Next.js Plans & Checkout UI (`/billing/plans` & `PlanCard.tsx`): Monthly/yearly billing toggle, plan feature comparison, recommended tier badge, current plan indicator, and SSLCommerz checkout redirect.

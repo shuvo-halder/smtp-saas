@@ -417,3 +417,19 @@ ACCEPTED & IMPLEMENTED
 5. **Admin Control Plane Visibility:** Enhanced `AdminSmtpTenantResource` with `remaining_daily_quota`, `quota_usage_percent`, `is_over_quota`, and `subscription_state`. Exposed `GET /api/admin/reconciliation/report` and `GET /api/admin/reconciliation/tenants/{user}` protected by `admin.permission:admin.stats.read`.
 ### DO NOT CHANGE WITHOUT APPROVAL
 Yes
+
+---
+
+## Decision: Tenant Self-Service Billing & Subscription Management (Step 26)
+### Status
+ACCEPTED & IMPLEMENTED
+### Date
+2026-10-16 (Step 26)
+### Decision
+1. **Unrestricted Subscription Posture Endpoint:** `GET /api/billing/subscription` is registered directly under `auth:sanctum` without `EnsureActiveSubscription` middleware, ensuring expired, expiring, and suspended tenants can authoritatively inspect subscription dates, days remaining, live quota limits, and outbound consumption without being blocked.
+2. **Strict Invoice Authorization & Bounded Pagination:** `GET /api/billing/invoices` enforces bounded pagination (`per_page` clamped strictly to $1 \le \text{per\_page} \le 50$) and validates status filtering. `GET /api/billing/invoices/{invoice}` enforces tenant ownership isolation via `InvoicePolicy::view`, rejecting cross-tenant inspections with HTTP 403 unless the authenticated actor holds the explicit `admin.invoices.read` RBAC permission.
+3. **Model Relation Integrity:** Added `mailboxes(): HasManyThrough` on `User` model, bridging `users -> domains -> mailboxes` for performant, relational tenant mailbox counts.
+4. **Tenant Self-Service UI Posture:** Implemented Next.js `/billing` with real-time countdown badges, warning banners for expired/expiring accounts, quota consumption progress bars, one-click checkout renewal, and payment callback alert states (`?status=success|failed|cancelled`).
+5. **Printable Invoice Inspection:** Created `InvoiceDetailModal.tsx` providing a standalone printable modal layout and direct PDF downloads.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes

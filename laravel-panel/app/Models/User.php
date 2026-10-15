@@ -8,6 +8,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable
@@ -48,6 +49,11 @@ class User extends Authenticatable
     public function domains(): HasMany
     {
         return $this->hasMany(Domain::class);
+    }
+
+    public function mailboxes(): HasManyThrough
+    {
+        return $this->hasManyThrough(Mailbox::class, Domain::class);
     }
 
     public function invoices(): HasMany

@@ -60,6 +60,18 @@
   - [x] Strict IPN currency validation (`currency` matching `invoice->currency` [BDT]) in addition to amount checking
   - [x] Dual audit logging: `AuditService::record()` logging on auto-suspension, payment activation, and admin suspend/activate
   - [x] Comprehensive test coverage in `BillingLifecycleTest.php` (18 passing tests, 67 assertions)
+- [x] Tenant Self-Service Billing & Subscription Management (Step 26 IMPLEMENTED & VERIFIED):
+  - [x] `GET /api/billing/subscription` endpoint returning authoritative plan, status, days remaining, domain count, mailbox count, and today's outbound usage
+  - [x] `GET /api/billing/invoices` endpoint with bounded pagination (1-50) and status filtering (`paid`, `pending`, `failed`, `cancelled`)
+  - [x] `GET /api/billing/invoices/{invoice}` single invoice inspection endpoint with `InvoicePolicy::view` authorization
+  - [x] `User::mailboxes()` HasManyThrough relationship for direct mailbox queries
+  - [x] Next.js `/billing` dashboard with real-time countdown badge, warning banners (expired, expiring soon, suspended), usage progress bars (domains, mailboxes, daily outbound recipients, storage), and one-click renewal flow
+  - [x] Next.js `InvoiceTable` with bounded pagination and status filtering
+  - [x] Next.js `InvoiceDetailModal` with print-friendly layout and PDF download
+  - [x] Next.js `/billing/plans` & `PlanCard` with monthly/yearly toggle, current plan indicator, feature list, and SSLCommerz redirect
+  - [x] Gateway return feedback banners (`?status=success|failed|cancelled`)
+  - [x] Comprehensive automated test coverage in `TenantBillingManagementTest.php` (12 passing tests, 46 assertions; suite total: 311 tests, 1,346 assertions)
+  - [x] Next.js 14 production build verified (24/24 static pages compiled, zero errors)
 
 ## Background Automation
 - [x] System Cron configured
