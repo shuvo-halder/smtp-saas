@@ -142,10 +142,12 @@ class AbuseIncidentService
             entityId: $incident->id,
             before: ['status' => $beforeStatus],
             after: [
+                'incident_uuid'    => $incident->uuid,
                 'status'           => 'resolved',
                 'resolved_at'      => $incident->resolved_at?->toIso8601String(),
                 'resolved_by'      => $actor->id,
                 'resolution_notes' => $incident->resolution_notes,
+                'outcome'          => 'success',
             ],
             actor: $actor,
             reason: $notes ?? 'Administrative abuse incident resolution'
@@ -179,10 +181,12 @@ class AbuseIncidentService
             entityId: $incident->id,
             before: ['status' => $beforeStatus],
             after: [
+                'incident_uuid'    => $incident->uuid,
                 'status'           => 'dismissed',
                 'resolved_at'      => $incident->resolved_at?->toIso8601String(),
                 'resolved_by'      => $actor->id,
                 'resolution_notes' => $incident->resolution_notes,
+                'outcome'          => 'success',
             ],
             actor: $actor,
             reason: $notes ?? 'Administrative abuse incident dismissal'

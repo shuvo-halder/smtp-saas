@@ -61,6 +61,22 @@ class MailboxApiController extends Controller
             return $mb;
         });
 
+        app(\App\Services\AuditService::class)->record(
+            action: 'mailbox.create',
+            entityType: 'Mailbox',
+            entityId: $mailbox->id,
+            before: null,
+            after: [
+                'email'     => $mailbox->email,
+                'quota_mb'  => $mailbox->quota_mb,
+                'is_active' => $mailbox->is_active,
+                'outcome'   => 'success',
+            ],
+            actor: $request->user(),
+            reason: 'Mailbox created by tenant',
+            request: $request
+        );
+
         return response()->json(new MailboxResource($mailbox), 201);
     }
 
@@ -77,6 +93,21 @@ class MailboxApiController extends Controller
             'password' => crypt($validated['password'], '$6$' . $salt . '$')
         ]);
 
+        app(\App\Services\AuditService::class)->record(
+            action: 'mailbox.change_password',
+            entityType: 'Mailbox',
+            entityId: $mailbox->id,
+            before: null,
+            after: [
+                'email'          => $mailbox->email,
+                'password_reset' => true,
+                'outcome'        => 'success',
+            ],
+            actor: $request->user(),
+            reason: 'Mailbox password changed by tenant',
+            request: $request
+        );
+
         return response()->json(['message' => __('messages.mailbox_password_changed')]);
     }
 
@@ -84,9 +115,25 @@ class MailboxApiController extends Controller
     {
         $this->authorize('update', $mailbox->domain);
 
+        $beforeState = ['is_active' => (bool) $mailbox->is_active];
+
         $mailbox->update([
             'is_active' => !$mailbox->is_active
         ]);
+
+        app(\App\Services\AuditService::class)->record(
+            action: 'mailbox.toggle',
+            entityType: 'Mailbox',
+            entityId: $mailbox->id,
+            before: $beforeState,
+            after: [
+                'is_active' => (bool) $mailbox->is_active,
+                'outcome'   => 'success',
+            ],
+            actor: request()->user(),
+            reason: 'Mailbox active status toggled by tenant',
+            request: request()
+        );
 
         return response()->json(new MailboxResource($mailbox));
     }
@@ -95,8 +142,27 @@ class MailboxApiController extends Controller
     {
         $this->authorize('delete', $mailbox->domain);
 
+        $beforeState = [
+            'email' => $mailbox->email,
+        ];
+        $mailboxId = $mailbox->id;
+
         $postfixService->removeMailbox($mailbox);
         $mailbox->delete();
+
+        app(\App\Services\AuditService::class)->record(
+            action: 'mailbox.delete',
+            entityType: 'Mailbox',
+            entityId: $mailboxId,
+            before: $beforeState,
+            after: [
+                'deleted' => true,
+                'outcome' => 'success',
+            ],
+            actor: request()->user(),
+            reason: 'Mailbox deleted by tenant',
+            request: request()
+        );
 
         return response()->json(null, 204);
     }

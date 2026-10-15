@@ -65,7 +65,40 @@ class AdminAuditLogApiController extends Controller
             }
         }
 
-        $paginator = $query->latest('id')->paginate($perPage);
+        if ($request->filled('outcome')) {
+            $outcome = strtolower((string) $request->input('outcome'));
+            if ($outcome === 'denial') {
+                $query->where(function ($q) {
+                    $q->where('action', 'like', '%.denied')
+                      ->orWhere('action', 'like', '%denial%')
+                      ->orWhere('after_state->outcome', 'denial');
+                });
+            } elseif ($outcome === 'failure') {
+                $query->where(function ($q) {
+                    $q->where('action', 'like', '%.failed')
+                      ->orWhere('after_state->outcome', 'failure');
+                });
+            } elseif ($outcome === 'success') {
+                $query->where(function ($q) {
+                    $q->where('after_state->outcome', 'success')
+                      ->orWhere(function ($sub) {
+                          $sub->where('action', 'not like', '%.failed')
+                              ->where('action', 'not like', '%.denied')
+                              ->where('action', 'not like', '%denial%')
+                              ->where(function ($s2) {
+                                  $s2->whereNull('after_state->outcome')
+                                     ->orWhereNotIn('after_state->outcome', ['failure', 'denial']);
+                              });
+                      });
+                });
+            }
+        }
+
+        $allowedSortBy = ['id', 'created_at', 'action', 'entity_type'];
+        $sortBy = in_array($request->input('sort_by'), $allowedSortBy, true) ? $request->input('sort_by') : 'id';
+        $direction = strtolower((string) $request->input('direction', 'desc')) === 'asc' ? 'asc' : 'desc';
+
+        $paginator = $query->orderBy($sortBy, $direction)->paginate($perPage);
 
         return AdminAuditLogResource::collection($paginator);
     }

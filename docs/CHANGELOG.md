@@ -1,5 +1,35 @@
 # Changelog
 
+### Admin Audit Trail & Security Event Monitoring (Step 23)
+- **Implemented:** Comprehensive Security Event & Mutation Taxonomy across the platform:
+  - Authentication lifecycle: `auth.login`, `auth.logout`, `auth.failed` (recording `attempted_email` and guard; passwords/credentials strictly omitted from payload).
+  - Perimeter security: `security.authorization_denied` persisted to `audit_logs` with fail-safe error isolation ensuring fail-closed authorization.
+  - Tenant & mail mutations: `tenant.register`, `admin.users.suspend`, `admin.users.activate`, `domain.create`, `domain.delete`, `mailbox.create`, `mailbox.change_password`, `mailbox.toggle`, `mailbox.delete`.
+  - Subscription plans: `plan.create`, `plan.update`, `plan.delete`.
+  - Admin governance: `admin.roles.assign`, `admin.roles.demote`, `admin.emergency_recovery`.
+  - Backup & Disaster Recovery: `backup.database.create`, `backup.vmail.create`, `backup.verify`, `backup.prune`.
+  - Abuse management: `admin.abuse_incident.resolve`, `admin.abuse_incident.dismiss` with `incident_uuid` correlation.
+- **Enhanced:** Centralized Sensitive Data Sanitizer (`AuditService::sanitizeState()`):
+  - Expanded `SENSITIVE_KEYS` to 38+ keys including `db_password`, `encryption_key`, `backup_encryption_key`, `passphrase`, `authorization`, `bearer`, `cookie`, `session`, `x_csrf_token`, `card_number`.
+  - Added recursive masking replacing sensitive keys with `[REDACTED]`.
+  - Added pattern matching for cryptographic password hashes (`$6$`, `$2y$`, `$2a$`, `$argon2`) and JWT/Bearer tokens (`eyJ...`).
+- **Enhanced:** Server-Side Querying & API Resource (`AdminAuditLogApiController` & `AdminAuditLogResource`):
+  - Enforced `admin.permission:admin.audit_logs.read` and bounded limit (max 50 records).
+  - Added `outcome` filter (`success`, `failure`, `denial`).
+  - Added validated `sort_by` (`id`, `created_at`, `action`, `entity_type`) and `direction` (`asc`, `desc`).
+  - Enhanced API resource with computed `outcome` attribute.
+- **Enhanced:** Frontend Admin UI Observability (`AuditLogsTable.tsx`):
+  - Added dedicated HTTP 403 Forbidden permission-denied UI alert card.
+  - Expanded Action Filter with categorized optgroups.
+  - Added Outcome Filter (`success`, `failure`, `denial`) and visual outcome badges (`CheckCircle2`, `XCircle`, `ShieldAlert`).
+  - Added Outcome display to detail inspection modal.
+- **Added:** Automated Test Suite (`tests/Feature/AdminAuditTrailCoverageTest.php`):
+  - 7 comprehensive feature tests covering auth logging, password scrubbing, authorization denial fail-closed behavior, tenant/mailbox mutations, governance role changes, recursive secret scrubbing, outcome filtering, and sorting.
+- **Verified:** Complete application health:
+  - Backend PHPUnit test suite: **269 tests / 1,217 assertions passed cleanly (0 failures, 0 errors, 100%)**.
+  - Frontend production build: **Next.js 14 compiles and builds all 24 pages cleanly with zero TypeScript errors**.
+  - Git state: Zero staged changes, zero commits, zero pushes.
+
 ### Local Database Bootstrap, Seeder Audit & Safe Environment Configuration (Step 22)
 - **Verified:** Local Laragon MySQL 8.4.3 connectivity (`127.0.0.1:3306`) with dedicated database `emailsaas_local`.
 - **Audited:** All 16 database migrations:

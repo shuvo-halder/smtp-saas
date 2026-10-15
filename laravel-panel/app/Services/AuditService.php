@@ -40,6 +40,20 @@ class AuditService
         'remember_token',
         'auth',
         'credentials',
+        'db_password',
+        'encryption_key',
+        'backup_encryption_key',
+        'passphrase',
+        'authorization',
+        'bearer',
+        'cookie',
+        'set_cookie',
+        'session',
+        'x_csrf_token',
+        'cvv',
+        'cvc',
+        'card_number',
+        'credit_card',
     ];
 
     /**
@@ -75,9 +89,14 @@ class AuditService
             $sanitizedBefore = $this->sanitizeState($before);
             $sanitizedAfter  = $this->sanitizeState($after);
 
+            if ($actor === null && function_exists('auth') && auth()->check()) {
+                /** @var User|null $actor */
+                $actor = auth()->user();
+            }
+
             return AuditLog::create([
                 'actor_user_id' => $actor?->id,
-                'actor_email'   => $actor?->email,
+                'actor_email'   => $actor?->email ?? ($sanitizedAfter['attempted_email'] ?? null),
                 'action'        => $action,
                 'entity_type'   => $entityType,
                 'entity_id'     => is_numeric($entityId) ? (int) $entityId : null,
@@ -187,6 +206,7 @@ class AuditService
         return str_starts_with($value, '$6$')
             || str_starts_with($value, '$2y$')
             || str_starts_with($value, '$2a$')
-            || str_starts_with($value, '$argon2');
+            || str_starts_with($value, '$argon2')
+            || (str_starts_with($value, 'eyJ') && strlen($value) > 30);
     }
 }

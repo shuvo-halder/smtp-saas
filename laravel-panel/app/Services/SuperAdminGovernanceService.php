@@ -116,7 +116,26 @@ class SuperAdminGovernanceService
     {
         $this->executeWithLock(function () use ($targetUser) {
             $this->assertCanDeescalateOrDeactivate($targetUser->id);
+            $beforeRoles = $targetUser->getRoleNames()->toArray();
             $targetUser->removeRole(RoleEnum::SUPER_ADMIN->value);
+
+            try {
+                app(AuditService::class)->record(
+                    action: 'admin.roles.demote',
+                    entityType: 'user',
+                    entityId: (string) $targetUser->id,
+                    before: ['roles' => $beforeRoles],
+                    after: [
+                        'roles' => $targetUser->fresh()->getRoleNames()->toArray(),
+                        'demoted_role' => RoleEnum::SUPER_ADMIN->value,
+                        'outcome' => 'success',
+                    ],
+                    actor: auth()->user(),
+                    reason: 'Super Admin privileges revoked'
+                );
+            } catch (Throwable $e) {
+                Log::warning('Failed to log admin.roles.demote audit record: ' . $e->getMessage());
+            }
         });
     }
 
@@ -127,7 +146,26 @@ class SuperAdminGovernanceService
     {
         $this->executeWithLock(function () use ($targetUser) {
             if (! $targetUser->hasRole(RoleEnum::SUPER_ADMIN->value)) {
+                $beforeRoles = $targetUser->getRoleNames()->toArray();
                 $targetUser->assignRole(RoleEnum::SUPER_ADMIN->value);
+
+                try {
+                    app(AuditService::class)->record(
+                        action: 'admin.roles.assign',
+                        entityType: 'user',
+                        entityId: (string) $targetUser->id,
+                        before: ['roles' => $beforeRoles],
+                        after: [
+                            'roles' => $targetUser->fresh()->getRoleNames()->toArray(),
+                            'assigned_role' => RoleEnum::SUPER_ADMIN->value,
+                            'outcome' => 'success',
+                        ],
+                        actor: auth()->user(),
+                        reason: 'Super Admin privileges granted'
+                    );
+                } catch (Throwable $e) {
+                    Log::warning('Failed to log admin.roles.assign audit record: ' . $e->getMessage());
+                }
             }
         });
     }

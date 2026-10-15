@@ -16,7 +16,11 @@ import {
   ChevronRight, 
   FileText,
   Shield,
-  Clock
+  ShieldAlert,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Lock
 } from 'lucide-react';
 
 export default function AuditLogsTable() {
@@ -27,6 +31,7 @@ export default function AuditLogsTable() {
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState('');
   const [entityFilter, setEntityFilter] = useState('');
+  const [outcomeFilter, setOutcomeFilter] = useState('');
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null);
 
   // Build query string
@@ -36,12 +41,15 @@ export default function AuditLogsTable() {
   if (search.trim()) queryParams.append('search', search.trim());
   if (actionFilter) queryParams.append('action', actionFilter);
   if (entityFilter) queryParams.append('entity_type', entityFilter);
+  if (outcomeFilter) queryParams.append('outcome', outcomeFilter);
 
   const fetcher = (url: string) => api.get(url).then(res => res.data);
   const { data, error, isLoading } = useSWR<PaginatedResponse<AuditLog>>(
     `/api/admin/audit-logs?${queryParams.toString()}`,
     fetcher
   );
+
+  const isForbidden = error?.response?.status === 403 || error?.status === 403;
 
   const formatUtcDate = (dateStr: string) => {
     try {
@@ -53,23 +61,72 @@ export default function AuditLogsTable() {
     }
   };
 
-  const getActionBadge = (action: string) => {
-    if (action.includes('toggle')) {
-      return <Badge variant="warning">{action}</Badge>;
+  const getOutcomeBadge = (outcome?: string, action?: string) => {
+    const resolved = outcome || (action?.includes('denied') ? 'denial' : action?.includes('failed') ? 'failure' : 'success');
+    if (resolved === 'denial') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300">
+          <ShieldAlert className="w-3 h-3 mr-1 text-amber-600" />
+          {t('outcome_denial')}
+        </span>
+      );
     }
-    if (action.includes('password')) {
+    if (resolved === 'failure') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-300">
+          <XCircle className="w-3 h-3 mr-1 text-red-600" />
+          {t('outcome_failure')}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-300">
+        <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
+        {t('outcome_success')}
+      </span>
+    );
+  };
+
+  const getActionBadge = (action: string) => {
+    if (action.includes('denied') || action.includes('denial')) {
+      return <Badge variant="destructive" className="bg-red-600 text-white">{action}</Badge>;
+    }
+    if (action.includes('failed') || action.includes('delete') || action.includes('demote')) {
       return <Badge variant="destructive">{action}</Badge>;
     }
-    if (action.includes('bounce') || action.includes('reset')) {
-      return <Badge variant="secondary">{action}</Badge>;
+    if (action.includes('toggle') || action.includes('suspend') || action.includes('password')) {
+      return <Badge variant="warning">{action}</Badge>;
+    }
+    if (action.includes('login') || action.includes('logout')) {
+      return <Badge variant="secondary" className="bg-blue-100 text-blue-800 hover:bg-blue-200 border-blue-200">{action}</Badge>;
+    }
+    if (action.includes('backup')) {
+      return <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">{action}</Badge>;
+    }
+    if (action.includes('create') || action.includes('register') || action.includes('activate') || action.includes('assign')) {
+      return <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300">{action}</Badge>;
     }
     return <Badge variant="outline">{action}</Badge>;
   };
 
+  if (isForbidden) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-center space-y-3">
+        <div className="flex justify-center">
+          <Lock className="h-10 w-10 text-red-600" />
+        </div>
+        <h3 className="text-base font-semibold text-red-900">{t('access_denied_title')}</h3>
+        <p className="text-sm text-red-700 max-w-lg mx-auto">
+          {t('access_denied_desc')}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Controls: Search and Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+      <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
           <input
@@ -84,7 +141,7 @@ export default function AuditLogsTable() {
           />
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap sm:flex-nowrap gap-2">
           {/* Action Filter */}
           <select
             value={actionFilter}
@@ -96,9 +153,48 @@ export default function AuditLogsTable() {
             className="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
           >
             <option value="">{t('filter_action')}</option>
-            <option value="admin.smtp.mailbox.toggle">admin.smtp.mailbox.toggle</option>
-            <option value="admin.smtp.mailbox.reset_password">admin.smtp.mailbox.reset_password</option>
-            <option value="admin.smtp.mailbox.reset_consecutive_bounces">admin.smtp.mailbox.reset_consecutive_bounces</option>
+            <optgroup label="Authentication & Security">
+              <option value="auth.login">auth.login</option>
+              <option value="auth.logout">auth.logout</option>
+              <option value="auth.failed">auth.failed</option>
+              <option value="security.authorization_denied">security.authorization_denied</option>
+            </optgroup>
+            <optgroup label="Mailboxes">
+              <option value="mailbox.create">mailbox.create</option>
+              <option value="mailbox.change_password">mailbox.change_password</option>
+              <option value="mailbox.toggle">mailbox.toggle</option>
+              <option value="mailbox.delete">mailbox.delete</option>
+              <option value="admin.smtp.mailbox.toggle">admin.smtp.mailbox.toggle</option>
+              <option value="admin.smtp.mailbox.reset_password">admin.smtp.mailbox.reset_password</option>
+              <option value="admin.smtp.mailbox.reset_consecutive_bounces">admin.smtp.mailbox.reset_consecutive_bounces</option>
+            </optgroup>
+            <optgroup label="Domains & Tenants">
+              <option value="domain.create">domain.create</option>
+              <option value="domain.delete">domain.delete</option>
+              <option value="tenant.register">tenant.register</option>
+              <option value="admin.users.suspend">admin.users.suspend</option>
+              <option value="admin.users.activate">admin.users.activate</option>
+            </optgroup>
+            <optgroup label="Plans">
+              <option value="plan.create">plan.create</option>
+              <option value="plan.update">plan.update</option>
+              <option value="plan.delete">plan.delete</option>
+            </optgroup>
+            <optgroup label="Admin Governance">
+              <option value="admin.roles.assign">admin.roles.assign</option>
+              <option value="admin.roles.demote">admin.roles.demote</option>
+              <option value="admin.emergency_recovery">admin.emergency_recovery</option>
+            </optgroup>
+            <optgroup label="Backup & DR">
+              <option value="backup.database.create">backup.database.create</option>
+              <option value="backup.vmail.create">backup.vmail.create</option>
+              <option value="backup.verify">backup.verify</option>
+              <option value="backup.prune">backup.prune</option>
+            </optgroup>
+            <optgroup label="Abuse Incidents">
+              <option value="admin.abuse_incident.resolve">admin.abuse_incident.resolve</option>
+              <option value="admin.abuse_incident.dismiss">admin.abuse_incident.dismiss</option>
+            </optgroup>
           </select>
 
           {/* Entity Type Filter */}
@@ -113,8 +209,27 @@ export default function AuditLogsTable() {
           >
             <option value="">{t('filter_entity')}</option>
             <option value="mailbox">Mailbox</option>
-            <option value="tenant">Tenant</option>
             <option value="domain">Domain</option>
+            <option value="user">User / Tenant</option>
+            <option value="plan">Plan</option>
+            <option value="backup">Backup</option>
+            <option value="AbuseIncident">Abuse Incident</option>
+          </select>
+
+          {/* Outcome Filter */}
+          <select
+            value={outcomeFilter}
+            onChange={(e) => {
+              setOutcomeFilter(e.target.value);
+              setPage(1);
+            }}
+            aria-label={t('filter_outcome')}
+            className="border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+          >
+            <option value="">{t('filter_outcome')}</option>
+            <option value="success">{t('outcome_success')}</option>
+            <option value="failure">{t('outcome_failure')}</option>
+            <option value="denial">{t('outcome_denial')}</option>
           </select>
         </div>
       </div>
@@ -129,6 +244,7 @@ export default function AuditLogsTable() {
                   <th className="px-5 py-3.5 whitespace-nowrap">{t('table.date')}</th>
                   <th className="px-5 py-3.5 whitespace-nowrap">{t('table.actor')}</th>
                   <th className="px-5 py-3.5 whitespace-nowrap">{t('table.action')}</th>
+                  <th className="px-5 py-3.5 whitespace-nowrap">{t('table.outcome')}</th>
                   <th className="px-5 py-3.5 whitespace-nowrap">{t('table.entity')}</th>
                   <th className="px-5 py-3.5 whitespace-nowrap">{t('table.reason')}</th>
                   <th className="px-5 py-3.5 whitespace-nowrap">{t('table.ip')}</th>
@@ -138,7 +254,7 @@ export default function AuditLogsTable() {
               <tbody className="divide-y divide-gray-200">
                 {isLoading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center">
+                    <td colSpan={8} className="px-6 py-12 text-center">
                       <div className="flex justify-center items-center space-x-2 text-gray-500">
                         <Spinner />
                         <span>{tCommon('loading')}</span>
@@ -147,7 +263,7 @@ export default function AuditLogsTable() {
                   </tr>
                 ) : error ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-red-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-red-500">
                       {tCommon('error')}
                     </td>
                   </tr>
@@ -163,6 +279,9 @@ export default function AuditLogsTable() {
                       </td>
                       <td className="px-5 py-3.5 whitespace-nowrap">
                         {getActionBadge(log.action)}
+                      </td>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        {getOutcomeBadge(log.outcome, log.action)}
                       </td>
                       <td className="px-5 py-3.5 whitespace-nowrap">
                         <span className="font-mono text-xs text-gray-700 font-semibold">
@@ -192,7 +311,7 @@ export default function AuditLogsTable() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                       <FileText className="mx-auto h-8 w-8 text-gray-400 mb-2" />
                       <p>{t('no_logs')}</p>
                     </td>
@@ -252,6 +371,12 @@ export default function AuditLogsTable() {
               <div className="bg-gray-50 p-3 rounded border">
                 <span className="text-gray-500 block mb-0.5">{t('modal.action')}</span>
                 <span className="font-mono font-bold text-gray-900">{selectedLog.action}</span>
+              </div>
+              <div className="bg-gray-50 p-3 rounded border">
+                <span className="text-gray-500 block mb-0.5">{t('modal.outcome')}</span>
+                <div className="mt-1">
+                  {getOutcomeBadge(selectedLog.outcome, selectedLog.action)}
+                </div>
               </div>
               <div className="bg-gray-50 p-3 rounded border">
                 <span className="text-gray-500 block mb-0.5">{t('modal.target')}</span>

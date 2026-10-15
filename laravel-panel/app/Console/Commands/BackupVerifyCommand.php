@@ -87,6 +87,25 @@ class BackupVerifyCommand extends Command
 
         if (!($result['valid'] ?? false)) {
             $this->error('Integrity checks FAILED: ' . implode(', ', $result['errors'] ?? []));
+
+            try {
+                app(\App\Services\AuditService::class)->record(
+                    action: 'backup.verify',
+                    entityType: 'backup',
+                    entityId: basename($filePath),
+                    before: null,
+                    after: [
+                        'file_path' => $filePath,
+                        'valid'     => false,
+                        'errors'    => $result['errors'] ?? [],
+                        'outcome'   => 'failure',
+                    ],
+                    reason: 'Backup archive verification failed'
+                );
+            } catch (Throwable) {
+                // Non-blocking
+            }
+
             return Command::FAILURE;
         }
 
@@ -123,6 +142,25 @@ class BackupVerifyCommand extends Command
                 $this->error('Isolated mail storage restore test FAILED: ' . $e->getMessage());
                 return Command::FAILURE;
             }
+        }
+
+        try {
+            app(\App\Services\AuditService::class)->record(
+                action: 'backup.verify',
+                entityType: 'backup',
+                entityId: basename($filePath),
+                before: null,
+                after: [
+                    'file_path' => $filePath,
+                    'valid'     => true,
+                    'is_db'     => $isDb,
+                    'encrypted' => $isEncrypted,
+                    'outcome'   => 'success',
+                ],
+                reason: 'Backup archive verification passed'
+            );
+        } catch (Throwable) {
+            // Non-blocking
         }
 
         return Command::SUCCESS;

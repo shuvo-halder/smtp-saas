@@ -179,13 +179,14 @@ export interface AuditLog {
   actor_email: string;
   action: string;
   entity_type: string | null;
-  entity_id: number | null;
+  entity_id: string | number | null;
   before_state: Record<string, any> | null;
   after_state: Record<string, any> | null;
   reason: string | null;
   ip_address: string | null;
   user_agent: string | null;
   request_id: string | null;
+  outcome?: string;
   created_at: string;
 }
 

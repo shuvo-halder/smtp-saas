@@ -23,7 +23,25 @@ class AdminAuditLogResource extends JsonResource
             'ip_address'    => $this->ip_address,
             'user_agent'    => $this->user_agent,
             'request_id'    => $this->request_id,
+            'outcome'       => $this->resolveOutcome(),
             'created_at'    => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    protected function resolveOutcome(): string
+    {
+        if (is_array($this->after_state) && isset($this->after_state['outcome'])) {
+            return (string) $this->after_state['outcome'];
+        }
+
+        if (str_contains($this->action, 'denied') || str_contains($this->action, 'denial')) {
+            return 'denial';
+        }
+
+        if (str_contains($this->action, 'failed')) {
+            return 'failure';
+        }
+
+        return 'success';
     }
 }

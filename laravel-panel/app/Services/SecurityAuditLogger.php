@@ -66,6 +66,28 @@ class SecurityAuditLogger
             ];
 
             Log::channel('security')->warning('SECURITY_DENIAL: ' . $reason, $payload);
+
+            // 2. Persist to relational audit_logs ledger with fail-safe error handling
+            try {
+                app(AuditService::class)->record(
+                    action: 'security.authorization_denied',
+                    entityType: $targetType ?? 'Route',
+                    entityId: is_numeric($targetId) ? (int) $targetId : null,
+                    before: null,
+                    after: array_merge([
+                        'reason'              => $reason,
+                        'required_permission' => $requiredPermission,
+                        'route'               => $request?->path(),
+                        'method'              => $request?->method(),
+                        'outcome'             => 'denial',
+                    ], $sanitizedContext),
+                    actor: $user,
+                    reason: $reason,
+                    request: $request
+                );
+            } catch (Throwable) {
+                // Secondary persistence failure must never fail-open
+            }
         } catch (Throwable $e) {
             // Operational log failure must never break execution or compromise fail-closed security
         }

@@ -77,11 +77,11 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | GET | `/admin/smtp/incidents/{incident}` | Detailed single incident record with immutable identity snapshots, metric observations, and sanitized evidence. Supports lookup by integer ID or UUID. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.read` |
 | POST | `/admin/smtp/incidents/{incident}/resolve` | Resolve or dismiss an abuse incident with optional `{ notes, status }` (`status: resolved|dismissed`). Creates persistent audit log entry. Authorized for Super Admin and Deliverability Operator. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.smtp.mailbox.toggle` |
 
-## Admin Audit Log API (Step 16B.1 / 16B.2 Granular RBAC)
+## Admin Audit Log API (Step 16B.1 / Step 23 Enhanced)
 | Method | Endpoint | Description | Middleware | Required Permission |
 |---|---|---|---|---|
-| GET | `/admin/audit-logs` | Paginated list of persistent audit records. Supports `?page=&per_page=&search=&action=&entity_type=&entity_id=&actor_user_id=&date_from=&date_to=`. Max `per_page` bounded to 50. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.audit_logs.view` |
-| GET | `/admin/audit-logs/{id}` | Detailed single audit event record with eager-loaded actor relationship. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.audit_logs.view` |
+| GET | `/admin/audit-logs` | Paginated list of persistent audit records. Supports `?page=&per_page=&search=&action=&entity_type=&entity_id=&actor_user_id=&date_from=&date_to=&outcome=&sort_by=&direction=`. Max `per_page` bounded to 50. `outcome` supports `success`, `failure`, `denial`. `sort_by` supports `id`, `created_at`, `action`, `entity_type`. `direction` supports `asc`, `desc`. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.audit_logs.read` |
+| GET | `/admin/audit-logs/{id}` | Detailed single audit event record with eager-loaded actor relationship, before/after state diff, and resolved `outcome` (`success`, `failure`, `denial`). | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.audit_logs.read` |
 
 ## RBAC Error Responses & Contracts (Step 16B.2)
 - **Granular Permission Denial (HTTP 403 Forbidden):**

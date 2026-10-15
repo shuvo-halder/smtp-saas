@@ -221,3 +221,29 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **CLI Decryption Tooling & Secret Scrubbing:**
   - Added Artisan command `backup:decrypt {archive} {target?} {--key=} {--stdout}` supporting streaming pipe decryption directly into `mysql` or `tar`.
   - Passphrases and derived keys are strictly scrubbed from CLI outputs, logs, and exception messages.
+
+## 20. Comprehensive Admin Audit Trail & Security Event Monitoring (Step 23)
+- **Unified Security & Mutation Event Taxonomy:**
+  - All critical administrative mutations, security denials, authentication events, and system operations are recorded in the central append-only `audit_logs` ledger:
+    - **Authentication Events:** `auth.login` (successful login), `auth.logout` (session termination), `auth.failed` (failed authentication attempt recording attempted email and guard, strictly omitting submitted passwords/credentials).
+    - **Perimeter & Authorization Events:** `security.authorization_denied` (persisted on 403 authorization denials, recording actor, client IP, route, required permission, and target resource).
+    - **Tenant & Mail Administration:** `tenant.register`, `admin.users.suspend`, `admin.users.activate`, `domain.create`, `domain.delete`, `mailbox.create`, `mailbox.change_password`, `mailbox.toggle`, `mailbox.delete`, `admin.smtp.mailbox.toggle`, `admin.smtp.mailbox.reset_password`, `admin.smtp.mailbox.reset_consecutive_bounces`.
+    - **Subscription Billing:** `plan.create`, `plan.update`, `plan.delete`.
+    - **Super Admin Governance:** `admin.roles.assign`, `admin.roles.demote`, `admin.emergency_recovery`.
+    - **Backup & Disaster Recovery:** `backup.database.create`, `backup.vmail.create`, `backup.verify`, `backup.prune`.
+    - **Abuse Management:** `admin.abuse_incident.resolve`, `admin.abuse_incident.dismiss` with `incident_uuid` correlation in state snapshot.
+- **Fail-Closed Security Posture:**
+  - In `SecurityAuditLogger::logDenial()`, audit ledger persistence is wrapped in a fail-safe `try/catch` block. If database persistence encounters transient failure or lock contention, the operational security log is updated, and the HTTP 403 authorization denial remains strictly fail-closed.
+- **Recursive Sensitive Data Protection:**
+  - `AuditService::sanitizeState()` enforces single-point, recursive scrubbing across nested payloads:
+    - **Expanded Sensitive Key Masking:** Masked with `'[REDACTED]'` across 38+ keys including `password`, `token`, `secret`, `api_key`, `db_password`, `encryption_key`, `backup_encryption_key`, `passphrase`, `authorization`, `bearer`, `cookie`, `session`, `x_csrf_token`, `card_number`.
+    - **Content-Based Hash & JWT Masking:** Masked with `'[REDACTED]'` upon detecting cryptographic password hashes (`$6$`, `$2y$`, `$2a$`, `$argon2`) or JWT/Bearer token patterns (`eyJ...` length > 30) anywhere in scalar values.
+    - **Failed Authentication Credential Scrubbing:** Event listener explicitly reads only `$event->credentials['email']` and discards the credentials array entirely.
+- **Server-Side Authorization & Bounded Pagination:**
+  - `GET /api/admin/audit-logs` and `GET /api/admin/audit-logs/{id}` are strictly guarded by `RequireAdminPermission:admin.audit_logs.read` and Sanctum `web` guard.
+  - Pagination limit is strictly clamped (`min(max($perPage, 1), 50)`), preventing database exhaustion.
+  - Validated sorting parameters: `sort_by` (`id`, `created_at`, `action`, `entity_type`) and `direction` (`asc`, `desc`).
+  - Validated filtering parameters: `action`, `entity_type`, `entity_id`, `actor_user_id`, `search`, `date_from`, `date_to`, and `outcome` (`success`, `failure`, `denial`).
+- **Application Ledger Tamper-Resistance Boundaries:**
+  - **Implemented Protection:** Append-only relational ledger at application layer. Zero mutation endpoints (`POST`, `PUT`, `PATCH`, `DELETE` return HTTP 405 Method Not Allowed), Eloquent `$timestamps = false` with `const UPDATED_AT = null`, and audit log rows cannot be updated via the API.
+  - **Infrastructure Limitations:** Application-layer append-only ledgers do not guarantee tamper-resistance against an attacker possessing direct MariaDB `root` access or physical storage access. True tamper-resistance requires database-level cryptographic hash chains, write-once-read-many (WORM) storage, or streaming to a remote SIEM / syslog server.

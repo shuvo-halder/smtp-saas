@@ -194,8 +194,37 @@ This document is the operational starting point for any AI coding agent working 
   - **Hardened Server Installer (`scripts/install.sh`):** Parameterized installer with CLI flags (`--domain`, `--db-name`, `--db-user`, `--db-pass`, `--staging`, `--skip-ssl`, `--skip-ufw`, `--reset-ufw`, `--skip-hostname`, `--allow-placeholder`, `--dry-run`). Added fail-closed check on placeholder domain `mail.yourdomain.com`, idempotent `/etc/hosts` editing, UFW rule preservation by default, config template substitutions in Postfix `main.cf` and Dovecot `10-ssl.conf`, and non-destructive Certbot error handling.
   - **Verification:** Full backend regression suite: **262 tests / 1,151 assertions passing cleanly (0 failures, 0 errors, 0 regressions)**. Frontend Next.js 14 build compiles all 24 static pages cleanly with zero errors. Git tree clean of whitespace errors.
 
+- **Step 23 — Admin Audit Trail & Security Event Monitoring (IMPLEMENTED & VERIFIED):**
+  - **Unified Security & Mutation Event Ledger:**
+    - Authentication events: `auth.login`, `auth.logout`, `auth.failed` (capturing `attempted_email` and guard; passwords/credentials strictly omitted from payload).
+    - Perimeter security: `security.authorization_denied` persisted to `audit_logs` with fail-safe error isolation ensuring fail-closed authorization.
+    - Tenant & mail mutations: `tenant.register`, `admin.users.suspend`, `admin.users.activate`, `domain.create`, `domain.delete`, `mailbox.create`, `mailbox.change_password`, `mailbox.toggle`, `mailbox.delete`.
+    - Subscription plans: `plan.create`, `plan.update`, `plan.delete`.
+    - Admin governance: `admin.roles.assign`, `admin.roles.demote`, `admin.emergency_recovery`.
+    - Backup & Disaster Recovery: `backup.database.create`, `backup.vmail.create`, `backup.verify`, `backup.prune`.
+    - Abuse management: `admin.abuse_incident.resolve`, `admin.abuse_incident.dismiss` with `incident_uuid` correlation.
+  - **Enhanced Centralized Sensitive Data Sanitizer (`AuditService::sanitizeState()`):**
+    - Expanded `SENSITIVE_KEYS` to 38+ keys including `db_password`, `encryption_key`, `backup_encryption_key`, `passphrase`, `authorization`, `bearer`, `cookie`, `session`, `x_csrf_token`, `card_number`.
+    - Recursive state sanitization replacing sensitive keys with `[REDACTED]`.
+    - Pattern matching for cryptographic password hashes (`$6$`, `$2y$`, `$2a$`, `$argon2`) and JWT/Bearer tokens (`eyJ...`).
+  - **Enhanced Server-Side Querying & API Resource (`AdminAuditLogApiController` & `AdminAuditLogResource`):**
+    - Enforced `admin.permission:admin.audit_logs.read` and bounded pagination (max 50 records).
+    - Added `outcome` filter (`success`, `failure`, `denial`).
+    - Added validated `sort_by` (`id`, `created_at`, `action`, `entity_type`) and `direction` (`asc`, `desc`).
+    - Enhanced API resource with computed `outcome` attribute.
+  - **Enhanced Frontend Admin UI Observability (`AuditLogsTable.tsx`):**
+    - Added dedicated HTTP 403 Forbidden permission-denied UI alert card.
+    - Expanded Action Filter with categorized optgroups.
+    - Added Outcome Filter (`success`, `failure`, `denial`) and visual outcome badges (`CheckCircle2`, `XCircle`, `ShieldAlert`).
+    - Added Outcome display to detail inspection modal.
+  - **Automated Testing & Verification:**
+    - Authored `tests/Feature/AdminAuditTrailCoverageTest.php` with 7 comprehensive feature tests (66 assertions).
+    - Existing `tests/Feature/AdminAuditLogTest.php`: 10 tests / 51 assertions passing (100%).
+    - Full regression test suite: **269 tests / 1,217 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 100%)**.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 23 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
+- **Step 24 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.

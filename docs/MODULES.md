@@ -90,4 +90,14 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - `RbacEmergencyRecoveryCommand` (`php artisan rbac:emergency-recovery`): Disaster recovery CLI tool restoring Super Admin privileges while preserving account suspension status unless `--reactivate` is passed.
 - Pure-DML Migration Backfill & Non-Destructive Rollback: Backfills existing administrators with provenance tag (`migration_step_16b2_backfill`) ensuring safe schema rollback without dropping runtime role assignments.
 
+## 12. Admin Audit Trail & Security Event Monitoring
+**Status:** IMPLEMENTED & VERIFIED (Step 23)
+**Purpose:** Centralized, append-only security audit ledger tracking authentication, authorization denials, tenant lifecycle, mail administration, plans, governance, backups, and abuse management with recursive secret scrubbing, server-side filtering, and frontend UI observability.
+**Components:**
+- `AuditService`: Comprehensive single-point recording engine with 38+ redacted sensitive keys, regex/prefix detection for password hashes and JWT tokens, and automated actor/request metadata resolution.
+- `SecurityAuditLogger`: Intercepts authorization denials, logging to operational security logs and persisting `security.authorization_denied` events into `audit_logs` without breaking fail-closed perimeter defense.
+- `AppServiceProvider`: Global auth event listeners for `Login` (`auth.login`), `Logout` (`auth.logout`), and `Failed` (`auth.failed` with email-only attribution and strict credential omission).
+- `AdminAuditLogApiController`: Bounded (<= 50) paginated API protected by `admin.permission:admin.audit_logs.read` with validated filtering (`outcome`, `action`, `entity_type`, `search`, `dates`) and sorting (`id`, `created_at`, `action`, `entity_type`).
+- Next.js Admin UI (`/admin/audit-logs`): Full-featured audit table with categorized action optgroups, outcome filters, visual outcome badges (`success`, `failure`, `denial`), 403 Forbidden permission-denied UI alert card, and JSON before/after state diff modal.
+
 

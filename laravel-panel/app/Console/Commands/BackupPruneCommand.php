@@ -60,9 +60,45 @@ class BackupPruneCommand extends Command
             $this->line('');
             $this->info('Backup pruning completed successfully.');
 
+            try {
+                app(\App\Services\AuditService::class)->record(
+                    action: 'backup.prune',
+                    entityType: 'backup',
+                    entityId: 'retention_prune',
+                    before: null,
+                    after: [
+                        'db_retained_count'    => count($dbResult['retained']),
+                        'db_pruned_count'      => count($dbResult['pruned']),
+                        'vmail_retained_count' => count($vmailResult['retained']),
+                        'vmail_pruned_count'   => count($vmailResult['pruned']),
+                        'outcome'              => 'success',
+                    ],
+                    reason: 'Backup retention pruning completed'
+                );
+            } catch (Throwable) {
+                // Non-blocking
+            }
+
             return Command::SUCCESS;
         } catch (Throwable $e) {
             $this->error('Backup pruning encountered an error: ' . $e->getMessage());
+
+            try {
+                app(\App\Services\AuditService::class)->record(
+                    action: 'backup.prune',
+                    entityType: 'backup',
+                    entityId: 'retention_prune',
+                    before: null,
+                    after: [
+                        'error'   => $e->getMessage(),
+                        'outcome' => 'failure',
+                    ],
+                    reason: 'Backup retention pruning failed'
+                );
+            } catch (Throwable) {
+                // Non-blocking
+            }
+
             return Command::FAILURE;
         } finally {
             $lock->release();

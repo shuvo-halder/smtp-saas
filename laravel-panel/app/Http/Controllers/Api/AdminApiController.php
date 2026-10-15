@@ -227,6 +227,17 @@ class AdminApiController extends Controller
         ]);
 
         $plan = Plan::create($validated);
+
+        app(AuditService::class)->record(
+            action: 'plan.create',
+            entityType: 'Plan',
+            entityId: $plan->id,
+            before: null,
+            after: array_merge($plan->toArray(), ['outcome' => 'success']),
+            actor: $request->user(),
+            reason: 'Subscription plan created via control plane',
+            request: $request
+        );
         
         return response()->json(new PlanResource($plan), 201);
     }
@@ -255,7 +266,20 @@ class AdminApiController extends Controller
             'is_active' => 'boolean',
         ]);
 
+        $beforeState = $plan->toArray();
+
         $plan->update($validated);
+
+        app(AuditService::class)->record(
+            action: 'plan.update',
+            entityType: 'Plan',
+            entityId: $plan->id,
+            before: $beforeState,
+            after: array_merge($plan->fresh()->toArray(), ['outcome' => 'success']),
+            actor: $request->user(),
+            reason: 'Subscription plan updated via control plane',
+            request: $request
+        );
         
         return response()->json(new PlanResource($plan));
     }
@@ -269,7 +293,22 @@ class AdminApiController extends Controller
             ], 422);
         }
 
+        $beforeState = $plan->toArray();
+        $planId = $plan->id;
+
         $plan->delete();
+
+        app(AuditService::class)->record(
+            action: 'plan.delete',
+            entityType: 'Plan',
+            entityId: $planId,
+            before: $beforeState,
+            after: ['deleted' => true, 'outcome' => 'success'],
+            actor: request()->user(),
+            reason: 'Subscription plan deleted via control plane',
+            request: request()
+        );
+
         return response()->json(null, 204);
     }
 

@@ -1,4 +1,4 @@
-﻿# Implementation Status
+# Implementation Status
 
 ## Authentication
 - [x] Login API
@@ -355,3 +355,39 @@
   - `[x]` Backend PHPUnit test suite: **262 tests / 1,151 assertions passing cleanly (100%)**.
   - `[x]` Frontend Next.js production build: **Compiled and static pages generated cleanly (100%)**.
   - `[x]` Git whitespace and format verification: **`git diff --check` clean (0 errors)**.
+
+## Step 23 — Admin Audit Trail & Security Event Monitoring
+
+**Phase:** Comprehensive Security Audit Trail, Sensitive Data Redaction, Server-Side Filtering & UI Observability
+**Verdict:** **`IMPLEMENTED — VERIFIED`**
+
+- `[x]` Unified Security & Mutation Event Ledger:
+  - `[x]` Authentication events: `auth.login`, `auth.logout`, `auth.failed` (recording `attempted_email` and guard, strictly excluding submitted passwords/credentials).
+  - `[x]` Perimeter authorization events: `security.authorization_denied` persisted to `audit_logs` via `AuditService::record()` with fail-safe error handling (authorization denials remain strictly fail-closed even if database logging fails).
+  - `[x]` Tenant and mail operations: `tenant.register`, `domain.create`, `domain.delete`, `mailbox.create`, `mailbox.change_password`, `mailbox.toggle`, `mailbox.delete`, `admin.users.suspend`, `admin.users.activate`.
+  - `[x]` Subscription plans: `plan.create`, `plan.update`, `plan.delete`.
+  - `[x]` Super Admin governance: `admin.roles.assign`, `admin.roles.demote`, `admin.emergency_recovery`.
+  - `[x]` Backup and DR operations: `backup.database.create`, `backup.vmail.create`, `backup.verify`, `backup.prune`.
+  - `[x]` Abuse incident tracking: `admin.abuse_incident.resolve`, `admin.abuse_incident.dismiss` with `incident_uuid` correlation in after-state.
+- `[x]` Centralized Sensitive Data Protection:
+  - `[x]` Expanded `AuditService::SENSITIVE_KEYS` to 38+ keys including `db_password`, `encryption_key`, `backup_encryption_key`, `passphrase`, `authorization`, `bearer`, `cookie`, `session`, `x_csrf_token`, `card_number`.
+  - `[x]` Content-based detection for cryptographic password hashes (`$6$`, `$2y$`, `$2a$`, `$argon2`) and JWT/Bearer tokens (`eyJ...`).
+  - `[x]` Recursive state sanitization masking all sensitive values with `[REDACTED]`.
+- `[x]` Server-Side Querying, Sorting & Bounded Pagination:
+  - `[x]` Controller authorization enforced via Sanctum `web` guard and `admin.permission:admin.audit_logs.read`.
+  - `[x]` Bounded pagination: `per_page` clamped between 1 and 50.
+  - `[x]` Validated sorting: `sort_by` (`id`, `created_at`, `action`, `entity_type`) and `direction` (`asc`, `desc`).
+  - `[x]` Validated filtering: `action`, `entity_type`, `entity_id`, `actor_user_id`, `search`, `date_from`, `date_to`, and `outcome` (`success`, `failure`, `denial`).
+  - `[x]` Resource enhancement: `AdminAuditLogResource` computes and resolves `outcome` (`success`, `failure`, `denial`).
+- `[x]` Frontend Admin UI & Observability (`AuditLogsTable.tsx`):
+  - `[x]` Dedicated HTTP 403 Forbidden permission-denied UI alert card.
+  - `[x]` Expanded Action Filter with categorized optgroups across Authentication, Mailboxes, Domains, Plans, Governance, Backups, and Abuse.
+  - `[x]` Expanded Entity Filter (`mailbox`, `domain`, `user`, `plan`, `backup`, `AbuseIncident`).
+  - `[x]` New Outcome Filter (`success`, `failure`, `denial`).
+  - `[x]` Enhanced Action Badges and dedicated visual Outcome Badges (`CheckCircle2` for success, `XCircle` for failure, `ShieldAlert` for denial).
+  - `[x]` Comprehensive Detail Inspection Modal showing resolved outcome, formatted actor details, IP, request ID, and before/after diffs.
+- `[x]` Automated Testing & Verification:
+  - `[x]` Authoring `tests/Feature/AdminAuditTrailCoverageTest.php` with 7 comprehensive feature tests (66 assertions).
+  - `[x]` Existing `tests/Feature/AdminAuditLogTest.php`: 10 tests / 51 assertions passing (100%).
+  - `[x]` Full regression test suite: **269 tests / 1,217 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 100%)**.

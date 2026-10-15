@@ -43,6 +43,21 @@ class DomainApiController extends Controller
             return $dom;
         });
 
+        app(\App\Services\AuditService::class)->record(
+            action: 'domain.create',
+            entityType: 'Domain',
+            entityId: $domain->id,
+            before: null,
+            after: [
+                'domain_name' => $domain->domain_name,
+                'status'      => $domain->status,
+                'outcome'     => 'success',
+            ],
+            actor: $user,
+            reason: 'Domain added by tenant',
+            request: $request
+        );
+
         return new DomainResource($domain);
     }
 
@@ -73,8 +88,28 @@ class DomainApiController extends Controller
     {
         $this->authorize('delete', $domain);
 
+        $beforeState = [
+            'domain_name' => $domain->domain_name,
+            'status'      => $domain->status,
+        ];
+        $domainId = $domain->id;
+
         $postfixService->removeDomain($domain);
         $domain->delete();
+
+        app(\App\Services\AuditService::class)->record(
+            action: 'domain.delete',
+            entityType: 'Domain',
+            entityId: $domainId,
+            before: $beforeState,
+            after: [
+                'deleted' => true,
+                'outcome' => 'success',
+            ],
+            actor: request()->user(),
+            reason: 'Domain deleted by tenant',
+            request: request()
+        );
 
         return response()->json(null, 204);
     }

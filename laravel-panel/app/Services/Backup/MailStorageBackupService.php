@@ -201,6 +201,27 @@ class MailStorageBackupService
                 'duration_seconds' => $durationSeconds,
             ]);
 
+            try {
+                app(\App\Services\AuditService::class)->record(
+                    action: 'backup.vmail.create',
+                    entityType: 'backup',
+                    entityId: $backupId,
+                    before: null,
+                    after: [
+                        'backup_id'   => $backupId,
+                        'filename'    => $filename,
+                        'size_bytes'  => $sizeBytes,
+                        'encrypted'   => $isEncrypted,
+                        'file_count'  => $fileCount,
+                        'status'      => 'SUCCESS',
+                        'outcome'     => 'success',
+                    ],
+                    reason: 'Mail storage backup generated successfully'
+                );
+            } catch (Throwable) {
+                // Non-blocking
+            }
+
             return $manifest;
 
         } catch (Throwable $e) {
@@ -218,6 +239,22 @@ class MailStorageBackupService
                 'backup_id' => $backupId,
                 'exception' => get_class($e),
             ]);
+
+            try {
+                app(\App\Services\AuditService::class)->record(
+                    action: 'backup.vmail.create',
+                    entityType: 'backup',
+                    entityId: $backupId ?? 'unknown',
+                    before: null,
+                    after: [
+                        'error'   => $e->getMessage(),
+                        'outcome' => 'failure',
+                    ],
+                    reason: 'Mail storage backup failed'
+                );
+            } catch (Throwable) {
+                // Non-blocking
+            }
 
             throw $e;
         }

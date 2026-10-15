@@ -188,6 +188,27 @@ class DatabaseBackupService
                 'duration_seconds' => $durationSeconds,
             ]);
 
+            try {
+                app(\App\Services\AuditService::class)->record(
+                    action: 'backup.database.create',
+                    entityType: 'backup',
+                    entityId: $backupId,
+                    before: null,
+                    after: [
+                        'backup_id'    => $backupId,
+                        'filename'     => $filename,
+                        'size_bytes'   => $sizeBytes,
+                        'encrypted'    => $isEncrypted,
+                        'tables_count' => $tablesCount,
+                        'status'       => 'SUCCESS',
+                        'outcome'      => 'success',
+                    ],
+                    reason: 'Database backup generated successfully'
+                );
+            } catch (Throwable) {
+                // Non-blocking
+            }
+
             return $manifest;
 
         } catch (Throwable $e) {
@@ -205,6 +226,22 @@ class DatabaseBackupService
                 'backup_id' => $backupId,
                 'exception' => get_class($e),
             ]);
+
+            try {
+                app(\App\Services\AuditService::class)->record(
+                    action: 'backup.database.create',
+                    entityType: 'backup',
+                    entityId: $backupId ?? 'unknown',
+                    before: null,
+                    after: [
+                        'error'   => $e->getMessage(),
+                        'outcome' => 'failure',
+                    ],
+                    reason: 'Database backup failed'
+                );
+            } catch (Throwable) {
+                // Non-blocking
+            }
 
             throw $e;
         }

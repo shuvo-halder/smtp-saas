@@ -31,6 +31,22 @@ class AuthController extends Controller
             'status' => 'pending',
         ]);
 
+        app(\App\Services\AuditService::class)->record(
+            action: 'tenant.register',
+            entityType: 'User',
+            entityId: $user->id,
+            before: null,
+            after: [
+                'name'    => $user->name,
+                'email'   => $user->email,
+                'status'  => $user->status,
+                'outcome' => 'success',
+            ],
+            actor: $user,
+            reason: 'Tenant account self-registration',
+            request: $request
+        );
+
         return response()->json(new UserResource($user), 201);
     }
 
