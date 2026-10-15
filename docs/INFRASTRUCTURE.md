@@ -1,4 +1,4 @@
-﻿# Infrastructure
+# Infrastructure
 
 EmailSaaS is deployed as a consolidated stack on an Ubuntu Linux VPS.
 
@@ -170,3 +170,25 @@ The unified Linux server installation script (`scripts/install.sh`) has been har
   3. Run migrations: `php artisan migrate`.
   4. Seed baseline data: `php artisan db:seed`.
   5. Verify health: `php artisan migrate:status`, `php artisan test`.
+
+---
+
+## Final Local Integration & Audit Verification (Step 25)
+
+### 1. Verified Local Runtime Configuration
+- **Host / OS:** Windows with Laragon PHP 8.3.33 (`C:\laragon\bin\php\php-8.3.33-Win32-vs16-x64\php.exe`).
+- **Database:** Local MySQL 8.4.3 on `127.0.0.1:3306`, Database: `emailsaas_local`.
+- **Remote Isolation:** Production IP `103.131.144.61` is completely disconnected and explicitly blocked by environment validation guards.
+- **Node.js / Frontend:** Node.js v20+, Next.js 14.1.0 App Router. Production build (`npm run build`) verifies 24 static pages compiled with zero errors.
+- **Test Suite Status:** 299 tests, 1,300 assertions passing cleanly (100% OK, 0 failures, 0 regressions).
+
+### 2. Local Dummy Data & Audit Seeder Tooling
+- **Command:** `php artisan emailsaas:seed-audit-demo [--dry-run] [--cleanup]`
+- **Safety Assurances:** Gated by `app()->environment('local')` and approved local host (`127.0.0.1:3306/emailsaas_local`). Halts immediately on non-local environments or remote database configurations.
+- **Cleanup Strategy:** Explicit ownership registry (`audit-demo-` prefix, `@example.test` domain) ensures clean removal of synthetic fixtures without touching canonical records (`test@example.com`, `admin@example.com`, standard plans).
+
+### 3. External Infrastructure Status Matrix
+- **Live MariaDB Engine Restore Drill:** `PENDING INFRASTRUCTURE` (Requires dedicated staging Linux VPS).
+- **Live Dovecot MDA / Maildir Verification:** `PENDING INFRASTRUCTURE` (Requires active Dovecot daemon).
+- **Live Postfix Delivery & SASL Relay:** `PENDING INFRASTRUCTURE` (Requires active Postfix daemon with port 10031 policy daemon).
+- **Local Application Stack Integration:** `VERIFIED` (Sanctum auth, Spatie RBAC, GCM backup encryption, audit logging, abuse management, usage tracking, read-only reconciliation).

@@ -1,5 +1,45 @@
 # Changelog
 
+### Final Local Integration Audit, Dummy Data Seeding & Security Verification (Step 25)
+- **Implemented:** Dedicated Local Dummy Data Seeder Tooling (`SeedAuditDemoCommand`):
+  - Created `App\Console\Commands\SeedAuditDemoCommand` (`php artisan emailsaas:seed-audit-demo`) supporting `--dry-run` and `--cleanup`.
+  - Enforced strict local-only execution guard: refuses execution when `app()->environment()` is not `local`.
+  - Enforced strict local database host guard: verifies host is `127.0.0.1` or `localhost`, port is `3306`, and database is `emailsaas_local`. Strictly halts on remote production IP `103.131.144.61`.
+  - Guaranteed idempotency: re-running reuses existing records with 0 duplicate insertions.
+  - Seeded controlled discrepancy scenarios:
+    - Active tenant with valid subscription (`audit-demo-active@example.test`)
+    - Active tenant with expired subscription (`audit-demo-expired@example.test`)
+    - Suspended tenant (`audit-demo-suspended@example.test`)
+    - Pending tenant without assigned plan (`audit-demo-noplan@example.test`)
+    - Over-quota tenant with 550 recipient usage on 500-recipient starter plan (`audit-demo-overquota@example.test`)
+    - Active, pending, and suspended domains (`audit-demo-*.example.test`)
+    - Active, inactive, restricted-quota, and bulk mailboxes
+    - Paid, pending, failed, and cancelled invoice records
+    - Open and resolved abuse incidents with evidence snapshots
+    - Authentic audit log entries with recursive secret scrubbing
+  - Implemented safe cleanup (`--cleanup`) strictly purging records in the explicit synthetic registry (`audit-demo-` prefix, `@example.test` domain) in safe foreign key sequence. Preserves baseline canonical records (`test@example.com`, `admin@example.com`, standard plans).
+- **Verified:** 13-Point Security & Authorization Matrix:
+  - Unauthenticated access returns HTTP 401.
+  - Ordinary tenants accessing admin endpoints return HTTP 403.
+  - Cross-tenant resource access returns HTTP 403.
+  - Suspended tenants are blocked across protected endpoints.
+  - Tenants without plans fail closed on quota evaluation (`REJECTED_QUOTA`).
+  - Cancelled invoices reject payment callbacks without activating subscriptions.
+  - Duplicate payment callbacks are handled idempotently.
+  - Expired tenants cannot be activated via admin API (HTTP 422).
+  - Unauthorized administrators cannot manage plans (HTTP 403).
+  - Audit log mutation endpoints return HTTP 405 Method Not Allowed.
+  - Backup decryption with invalid key fails closed and cleans temporary output.
+  - Tampered backup manifest metadata fails HMAC-SHA256 verification.
+  - Passwords and credentials in failed logins and state snapshots are redacted to `[REDACTED]`.
+- **Added:** Automated Test Suite (`tests/Feature/LocalIntegrationAndSecurityAuditTest.php`):
+  - 14 comprehensive feature tests (26 assertions) validating all security matrix points, fail-closed gates, and backup encryption.
+- **Verified:** Complete application health:
+  - Backend PHPUnit test suite: **299 tests / 1,300 assertions passed cleanly (0 failures, 0 errors, 100%)**.
+  - Frontend production build: **Next.js 14 compiles and builds all 24 pages cleanly with zero errors**.
+  - Reconciliation command verified: correctly detects synthetic expired subscriptions and over-quota breaches.
+  - Git state: Zero staged changes, zero commits, zero pushes.
+
 ### Tenant Usage, SMTP Quota & Billing Reconciliation (Step 24)
 - **Hardened:** Outbound Quota Accounting (`OutboundQuotaService`):
   - Fixed recipient tracking omission: `$tenantKey` is now always supplied to Redis Lua evaluation whenever Redis is evaluated, guaranteeing tenant daily recipient consumption is captured and synced to `tenant_outbound_usage` even when tenant-level limit is unlimited (`-1`) with finite mailbox limits.

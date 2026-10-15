@@ -263,3 +263,22 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - `TenantUsageReconciliationService` and `php artisan tenant:reconcile-usage` are strictly read-only: zero database rows are inserted, updated, or deleted, and zero Redis keys are mutated.
   - Scheduled daily reconciliation (`05:00 UTC`) runs under `withoutOverlapping(15)` mutex.
   - API endpoints `/api/admin/reconciliation/*` are protected by `EnsureAdmin` and `admin.permission:admin.stats.read`.
+
+## 22. Local Integration, Dummy Data Seeding & Security Verification (Step 25)
+- **Local Dummy Data & Environment Safety Guards:**
+  - `SeedAuditDemoCommand` (`php artisan emailsaas:seed-audit-demo`) strictly enforces that `app()->environment()` equals `'local'`. It immediately halts with exit code 1 in all other environments.
+  - Validates active database connection parameters: host must be `127.0.0.1` or `localhost`, port must be `3306`, and database must be `emailsaas_local`.
+  - Explicitly detects and halts on remote production IP `103.131.144.61`.
+  - Uses explicit ownership markers (`audit-demo-` prefix, `@example.test` reserved RFC 2606 domain namespace) for all synthetic records.
+  - Safe cleanup (`--cleanup`) strictly targets only records in the explicit ownership registry; canonical users (`test@example.com`, `admin@example.com`) and plans are completely preserved.
+- **Full Security Matrix Enforcement Verified:**
+  - **Unauthenticated Requests:** Protected admin endpoints return HTTP 401 Unauthenticated.
+  - **Tenant Boundary:** Authenticated non-admin tenants attempting admin access receive HTTP 403 Forbidden.
+  - **Cross-Tenant Isolation:** Tenants attempting to view or modify other tenants' domains or mailboxes receive HTTP 403 Forbidden.
+  - **Suspended Tenant Guard:** Suspended accounts are immediately blocked from protected tenant API routes.
+  - **Fail-Closed Quota Gate:** Tenants without an assigned plan fail closed (`REJECTED_QUOTA`) and cannot send email.
+  - **Billing Gateway Hardening:** Cancelled invoices reject IPN callbacks, and duplicate payment callbacks process idempotently.
+  - **Subscription Activation Gate:** Admin API rejects activating tenants with expired subscription timestamps (HTTP 422).
+  - **Read-Only Audit Trail:** Audit log endpoints reject `POST`, `PUT`, `DELETE` mutations with HTTP 405 Method Not Allowed.
+  - **Cryptographic Integrity:** Backup decryption with an invalid key fails closed and purges partial plaintexts; tampered manifest metadata fails HMAC-SHA256 verification.
+  - **Credential Redaction:** Passwords and credentials in failed logins and state payloads are recursively scrubbed to `[REDACTED]`.

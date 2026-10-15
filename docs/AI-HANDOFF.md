@@ -254,8 +254,38 @@ This document is the operational starting point for any AI coding agent working 
     - Full backend regression test suite: **285 passed (1,274 assertions)** cleanly with zero failures and zero regressions.
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 24/24 static pages)**.
 
+- **Step 25 — Final Local Integration Audit, Dummy Data Seeding & Security Verification (IMPLEMENTED & VERIFIED):**
+  - **Local Runtime & Database Verification:**
+    - Confirmed local runtime on Windows + Laragon PHP 8.3.33, MySQL 8.4.3 (`127.0.0.1:3306`), database `emailsaas_local`.
+    - Confirmed zero exposure to remote production IP `103.131.144.61` via active runtime configuration check.
+    - Confirmed all 16 migrations applied in strict order (`[1] Ran`).
+  - **Dedicated Dummy Data Seeder Tooling (`SeedAuditDemoCommand.php`):**
+    - Created Artisan command `emailsaas:seed-audit-demo` with `--dry-run` and `--cleanup` options.
+    - Enforced strict environment gating (`app()->environment('local')`) and database host/database guards (`127.0.0.1:3306/emailsaas_local`).
+    - Seeded controlled discrepancy scenarios (expired subscriptions, over-quota usage, suspended tenants with active domains, invoice anomalies) to test the reconciliation subsystem.
+    - Verified seeder idempotency: re-running reuses records with zero duplicates.
+    - Verified safe cleanup: `--cleanup` purges only records in the explicit synthetic registry (`audit-demo-` prefix, `@example.test` domain) in safe foreign key sequence, preserving baseline canonical records (`test@example.com`, `admin@example.com`, standard plans).
+  - **13-Point Security & Authorization Matrix Verification:**
+    - Unauthenticated access returns HTTP 401.
+    - Ordinary tenants accessing admin endpoints return HTTP 403.
+    - Cross-tenant resource access returns HTTP 403.
+    - Suspended tenants are blocked from protected endpoints.
+    - Tenants without assigned plans fail closed on quota evaluation (`REJECTED_QUOTA`).
+    - Cancelled invoices reject payment callbacks without activating subscriptions.
+    - Duplicate payment callbacks are handled idempotently.
+    - Expired tenants cannot be activated via admin API (HTTP 422).
+    - Unauthorized administrators cannot manage plans (HTTP 403).
+    - Audit log mutation endpoints return HTTP 405 Method Not Allowed.
+    - Backup decryption with invalid key fails closed and cleans temporary output.
+    - Tampered backup manifest metadata fails HMAC-SHA256 verification.
+    - Passwords and credentials in failed logins and state snapshots are redacted to `[REDACTED]`.
+  - **Automated Verification & Regression Testing:**
+    - Authored `tests/Feature/LocalIntegrationAndSecurityAuditTest.php` with 14 comprehensive feature tests (26 assertions).
+    - Full backend regression test suite: **299 passed (1,300 assertions)** cleanly with zero failures and zero regressions.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 24/24 static pages)**.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 25 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
+- **Step 26 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.

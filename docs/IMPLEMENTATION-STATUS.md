@@ -434,3 +434,46 @@
   - `[x]` Implemented `tests/Feature/TenantUsageAndBillingReconciliationTest.php` with 16 comprehensive feature tests (57 assertions).
   - `[x]` Full backend test suite: **285 tests / 1,274 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend Next.js 14 production build: **Compiled all 24 static pages cleanly with zero errors (100%)**.
+
+---
+
+## Step 25 — Final Local Integration Audit, Dummy Data Seeding & Security Verification (`IMPLEMENTED — VERIFIED`)
+- `[x]` Local Database & Environment Verification:
+  - `[x]` Verified local runtime: PHP 8.3.33 (Laragon), MySQL 8.4.3 on `127.0.0.1:3306`, database `emailsaas_local`.
+  - `[x]` Confirmed zero exposure to remote production IP `103.131.144.61`.
+  - `[x]` Confirmed all 16 migrations applied (`[1] Ran`).
+- `[x]` Dedicated Local Dummy Data Seeder Tooling (`SeedAuditDemoCommand`):
+  - `[x]` Command `php artisan emailsaas:seed-audit-demo` with `--dry-run` and `--cleanup` options.
+  - `[x]` Strict environment guard: refuses execution when `app()->environment()` is not `local`.
+  - `[x]` Strict database guard: verifies host is `127.0.0.1` or `localhost`, port is `3306`, and database is `emailsaas_local`.
+  - `[x]` Idempotency verified: re-running reuses existing records with 0 duplicate insertions.
+  - `[x]` Controlled discrepancy scenarios seeded:
+    - Active tenant with valid subscription (`audit-demo-active@example.test`)
+    - Active tenant with expired subscription (`audit-demo-expired@example.test`)
+    - Suspended tenant (`audit-demo-suspended@example.test`)
+    - Pending tenant without assigned plan (`audit-demo-noplan@example.test`)
+    - Over-quota tenant with 550 recipient usage on 500-recipient plan (`audit-demo-overquota@example.test`)
+    - Active, pending, and suspended domains (`audit-demo-*.example.test`)
+    - Active, inactive, restricted-quota, and bulk mailboxes
+    - Paid, pending, failed, and cancelled invoice fixtures
+    - Open and resolved abuse incidents with evidence snapshots
+    - Authentic audit log entries with recursive secret scrubbing
+  - `[x]` Safe cleanup verified: `php artisan emailsaas:seed-audit-demo --cleanup` cleanly removes all test-owned records while preserving baseline canonical records (`test@example.com`, `admin@example.com`, standard plans).
+- `[x]` 13-Point Security & Authorization Matrix Verification:
+  - `[x]` Unauthenticated access to admin endpoints returns HTTP 401.
+  - `[x]` Ordinary tenants accessing admin endpoints return HTTP 403.
+  - `[x]` Cross-tenant resource access returns HTTP 403.
+  - `[x]` Suspended tenants are denied access across protected endpoints.
+  - `[x]` Tenants without assigned plans fail closed on quota evaluation (`REJECTED_QUOTA`).
+  - `[x]` Cancelled invoices reject payment callbacks without activating subscriptions.
+  - `[x]` Duplicate payment callbacks are handled idempotently.
+  - `[x]` Expired tenants cannot be activated via admin API (HTTP 422).
+  - `[x]` Unauthorized administrators cannot manage plans (HTTP 403).
+  - `[x]` Audit log mutation endpoints return HTTP 405 Method Not Allowed.
+  - `[x]` Backup decryption with invalid key fails closed and cleans temporary output.
+  - `[x]` Tampered backup manifest metadata fails HMAC-SHA256 verification.
+  - `[x]` Passwords and credentials in failed logins and state snapshots are redacted to `[REDACTED]`.
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Implemented `tests/Feature/LocalIntegrationAndSecurityAuditTest.php` with 14 comprehensive tests (26 assertions).
+  - `[x]` Full backend test suite: **299 passed (1,300 assertions)** cleanly with zero failures and zero regressions.
+  - `[x]` Frontend Next.js 14 production build: **Compiled all 24 static pages cleanly with zero errors (100%)**.

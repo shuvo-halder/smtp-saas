@@ -240,3 +240,14 @@ All 16 core migrations are applied in strict dependency order:
   - Detects `SUSPENDED_TENANT_ACTIVE_DOMAINS`.
   - Detects `PAID_INVOICE_MISSING_PAID_AT` and `PAID_INVOICE_CURRENCY_MISMATCH`.
   - Strictly read-only: performs zero database mutations and zero Redis modifications.
+
+---
+
+## 18. Local Synthetic Data Fixtures & Verification Invariants (Step 25)
+- **Local Environment Gating:** `SeedAuditDemoCommand` (`php artisan emailsaas:seed-audit-demo`) strictly executes only in `local` environment against `127.0.0.1:3306/emailsaas_local`. Halts on production IP `103.131.144.61` or unapproved database host.
+- **Idempotency Guarantee:** Synthetic records utilize explicit query checks (`where('email', ...)`, `where('domain_name', ...)`, `where('invoice_number', ...)`, `where('idempotency_key', ...)`). Re-running the command reuses existing records and inserts 0 duplicates.
+- **Controlled Discrepancy Fixtures:**
+  - `audit-demo-expired@example.test`: Seeded with `plan_expires_at` in the past to verify reconciliation engine detection (`ACTIVE_EXPIRED_SUBSCRIPTION`).
+  - `audit-demo-overquota@example.test`: Seeded with 550 recipient usage on a 500-recipient starter plan to verify `TENANT_OVER_QUOTA` alerting.
+  - `audit-demo-suspended@example.test`: Seeded with suspended state to verify domain suspension invariants.
+- **Safe Cleanup Guarantee:** Running `php artisan emailsaas:seed-audit-demo --cleanup` targets only records in the explicit synthetic ownership registry (`audit-demo-` prefix, `@example.test` domain), deleting them in safe relational order (mailboxes -> domains -> invoices -> usage -> incidents -> audit logs -> users). Canonical baseline users (`test@example.com`, `admin@example.com`) and subscription plans are permanently preserved.

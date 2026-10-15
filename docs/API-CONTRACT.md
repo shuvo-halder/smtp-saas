@@ -302,3 +302,23 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 - Rejects amount mismatches outside 0.01 tolerance (returns `false`).
 - Idempotent under duplicate concurrent invocations via pessimistic `lockForUpdate()`.
 - Domain recovery under suspended tenant reactivates strictly suspended domains (`where('status', 'suspended')`), preserving pending and unverified domains.
+
+---
+
+## Step 25 — Integration Verification & CLI Contracts
+
+### 1. Local Audit Seeder Command (`php artisan emailsaas:seed-audit-demo`)
+```bash
+php artisan emailsaas:seed-audit-demo [--dry-run] [--cleanup]
+```
+- **Environment Gating:** Strictly executes when `app()->environment() === 'local'` and DB is `127.0.0.1:3306/emailsaas_local`. Halts on unapproved host or remote production IP `103.131.144.61`.
+- **Idempotent Mode (default):** Safely seeds synthetic tenants, domains, mailboxes, invoices, usage records, abuse incidents, and audit logs. Re-running reuses existing records without duplicates.
+- **Dry-Run Mode (`--dry-run`):** Inspects database state and reports counts of records that would be created or removed without writing database mutations.
+- **Cleanup Mode (`--cleanup`):** Safely purges strictly records registered under the explicit synthetic registry (`audit-demo-` prefix, `@example.test` domain). Preserves canonical users and plans.
+
+### 2. Standardized Security Matrix Error Responses
+- **Unauthenticated Endpoint Access:** `HTTP 401 Unauthorized` (`{"message": "Unauthenticated."}`).
+- **Unauthorized Tenant Admin Access:** `HTTP 403 Forbidden` (`{"message": "Admin access required."}`).
+- **Missing Administrative Permission:** `HTTP 403 Forbidden` (`{"message": "Forbidden: missing required permission [admin.permission.name]."}`).
+- **Cross-Tenant Resource Access:** `HTTP 403 Forbidden` (`{"message": "This action is unauthorized."}`).
+- **Audit Log Ledger Mutation:** `HTTP 405 Method Not Allowed` across `POST`, `PUT`, `PATCH`, `DELETE`.
