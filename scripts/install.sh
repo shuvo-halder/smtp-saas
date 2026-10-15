@@ -2,7 +2,7 @@
 # =============================================================================
 # Email SaaS Platform — Full Server Installation Script
 # Compatible: Ubuntu 22.04 LTS
-# Usage: sudo bash install.sh
+# Usage: sudo bash install.sh [OPTIONS]
 # =============================================================================
 
 set -euo pipefail
@@ -14,20 +14,140 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# ─── Configuration ─────────────────────────────────────────────────────────────
+# ─── Default Configuration ─────────────────────────────────────────────────────
 MAIL_DOMAIN="mail.yourdomain.com"       # Primary mail server hostname
 DB_NAME="emailsaas"
 DB_USER="emailsaas"
-DB_PASS="$(openssl rand -base64 24)"    # Auto-generated secure password
+DB_PASS="$(openssl rand -base64 24 2>/dev/null || openssl rand -hex 16)"
 MAIL_VHOSTS_DIR="/var/mail/vhosts"
 MAIL_USER="vmail"
 MAIL_GROUP="vmail"
 MAIL_UID=5000
 
+SKIP_UFW=false
+RESET_UFW=false
+SKIP_SSL=false
+STAGING=false
+SKIP_HOSTNAME=false
+DRY_RUN=false
+ALLOW_PLACEHOLDER_DOMAIN=false
+
+usage() {
+    cat << 'EOF'
+Usage: sudo bash install.sh [OPTIONS]
+
+Options:
+  --domain <domain>         Primary mail server FQDN (e.g. mail.example.com)
+  --db-name <name>          Database name (default: emailsaas)
+  --db-user <user>          Database username (default: emailsaas)
+  --db-pass <password>      Database password (default: auto-generated 24-char)
+  --staging                 Use Let's Encrypt staging environment for SSL
+  --skip-ssl                Skip Certbot SSL certificate acquisition
+  --skip-ufw                Skip UFW firewall reconfiguration
+  --reset-ufw               Reset UFW firewall rules before applying (default: false)
+  --skip-hostname           Skip setting hostnamectl and /etc/hosts
+  --allow-placeholder       Allow using placeholder domain 'mail.yourdomain.com'
+  --dry-run                 Print configuration without executing system changes
+  -h, --help                Show this help message
+EOF
+    exit 0
+}
+
+# ─── Argument Parsing ─────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --domain)
+            MAIL_DOMAIN="$2"
+            shift 2
+            ;;
+        --domain=*)
+            MAIL_DOMAIN="${1#*=}"
+            shift
+            ;;
+        --db-name)
+            DB_NAME="$2"
+            shift 2
+            ;;
+        --db-name=*)
+            DB_NAME="${1#*=}"
+            shift
+            ;;
+        --db-user)
+            DB_USER="$2"
+            shift 2
+            ;;
+        --db-user=*)
+            DB_USER="${1#*=}"
+            shift
+            ;;
+        --db-pass)
+            DB_PASS="$2"
+            shift 2
+            ;;
+        --db-pass=*)
+            DB_PASS="${1#*=}"
+            shift
+            ;;
+        --staging)
+            STAGING=true
+            shift
+            ;;
+        --skip-ssl)
+            SKIP_SSL=true
+            shift
+            ;;
+        --skip-ufw)
+            SKIP_UFW=true
+            shift
+            ;;
+        --reset-ufw)
+            RESET_UFW=true
+            shift
+            ;;
+        --skip-hostname)
+            SKIP_HOSTNAME=true
+            shift
+            ;;
+        --allow-placeholder)
+            ALLOW_PLACEHOLDER_DOMAIN=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
+# ─── Dry Run Mode ─────────────────────────────────────────────────────────────
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo "=== [DRY RUN] Email SaaS Installation Plan ==="
+    echo "Mail Domain:    $MAIL_DOMAIN"
+    echo "Database:       $DB_NAME"
+    echo "DB User:        $DB_USER"
+    echo "Skip UFW:       $SKIP_UFW (Reset UFW: $RESET_UFW)"
+    echo "Skip SSL:       $SKIP_SSL (Staging SSL: $STAGING)"
+    echo "Skip Hostname:  $SKIP_HOSTNAME"
+    echo "Dry run completed. No system changes executed."
+    exit 0
+fi
+
+# ─── Domain Safety Guard ──────────────────────────────────────────────────────
+if [[ "$MAIL_DOMAIN" == "mail.yourdomain.com" && "$ALLOW_PLACEHOLDER_DOMAIN" != "true" ]]; then
+    error "Default placeholder domain detected ('$MAIL_DOMAIN'). Please provide a valid domain using --domain <domain> or pass --allow-placeholder."
+fi
+
 # ─── Root check ────────────────────────────────────────────────────────────────
 [[ $EUID -ne 0 ]] && error "This script must be run as root (sudo)."
 
-info "Starting Email SaaS Installation on Ubuntu 22.04..."
+info "Starting Email SaaS Installation on Ubuntu 22.04 for domain [${MAIL_DOMAIN}]..."
 
 # ─── 1. System Update ──────────────────────────────────────────────────────────
 info "Updating system packages..."
@@ -41,11 +161,17 @@ apt-get install -y -qq \
 success "System updated."
 
 # ─── 2. Hostname & /etc/hosts ──────────────────────────────────────────────────
-info "Configuring hostname..."
-hostnamectl set-hostname "$MAIL_DOMAIN"
-SERVER_IP=$(curl -s ifconfig.me)
-echo "$SERVER_IP $MAIL_DOMAIN" >> /etc/hosts
-success "Hostname set to $MAIL_DOMAIN"
+if [[ "$SKIP_HOSTNAME" == "true" ]]; then
+    warn "Skipping hostname configuration (--skip-hostname passed)."
+else
+    info "Configuring hostname..."
+    hostnamectl set-hostname "$MAIL_DOMAIN"
+    SERVER_IP=$(curl -s ifconfig.me || echo "127.0.0.1")
+    if ! grep -q "$MAIL_DOMAIN" /etc/hosts; then
+        echo "$SERVER_IP $MAIL_DOMAIN" >> /etc/hosts
+    fi
+    success "Hostname set to $MAIL_DOMAIN"
+fi
 
 # ─── 3. MySQL Installation ─────────────────────────────────────────────────────
 info "Installing MySQL 8.0..."
@@ -182,6 +308,9 @@ cp "${PARENT_DIR}/postfix-config/mysql-virtual-domains.cf"     /etc/postfix/mysq
 cp "${PARENT_DIR}/postfix-config/mysql-virtual-mailboxes.cf"   /etc/postfix/mysql-virtual-mailboxes.cf
 cp "${PARENT_DIR}/postfix-config/mysql-virtual-aliases.cf"     /etc/postfix/mysql-virtual-aliases.cf
 
+# Replace domain parameter in main.cf
+sed -i "s/mail\.yourdomain\.com/${MAIL_DOMAIN}/g" /etc/postfix/main.cf
+
 # Inject DB credentials
 for f in /etc/postfix/mysql-virtual-*.cf; do
     sed -i "s/__DB_USER__/${DB_USER}/g; s/__DB_PASS__/${DB_PASS}/g; s/__DB_NAME__/${DB_NAME}/g" "$f"
@@ -197,28 +326,39 @@ cp "${PARENT_DIR}/dovecot-config/conf.d/10-mail.conf"     /etc/dovecot/conf.d/10
 cp "${PARENT_DIR}/dovecot-config/conf.d/10-master.conf"   /etc/dovecot/conf.d/10-master.conf
 cp "${PARENT_DIR}/dovecot-config/conf.d/10-ssl.conf"      /etc/dovecot/conf.d/10-ssl.conf
 
+# Replace domain parameter in Dovecot SSL configuration
+sed -i "s/mail\.yourdomain\.com/${MAIL_DOMAIN}/g" /etc/dovecot/conf.d/10-ssl.conf
+
+# Inject DB credentials
 sed -i "s/__DB_USER__/${DB_USER}/g; s/__DB_PASS__/${DB_PASS}/g; s/__DB_NAME__/${DB_NAME}/g" /etc/dovecot/dovecot-sql.conf.ext
 chmod 640 /etc/dovecot/dovecot-sql.conf.ext
 
-success "Config files copied."
+success "Config files copied and parameterized."
 
 # ─── 16. UFW Firewall ──────────────────────────────────────────────────────────
-info "Configuring firewall..."
-ufw --force reset
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 25/tcp    # SMTP
-ufw allow 587/tcp   # SMTP Submission
-ufw allow 465/tcp   # SMTP SSL
-ufw allow 143/tcp   # IMAP
-ufw allow 993/tcp   # IMAP SSL
-ufw allow 110/tcp   # POP3
-ufw allow 995/tcp   # POP3 SSL
-ufw allow 80/tcp    # HTTP
-ufw allow 443/tcp   # HTTPS
-ufw --force enable
-success "Firewall configured."
+if [[ "$SKIP_UFW" == "true" ]]; then
+    warn "Skipping firewall configuration (--skip-ufw passed)."
+else
+    info "Configuring firewall..."
+    if [[ "$RESET_UFW" == "true" ]]; then
+        warn "Resetting UFW firewall rules (--reset-ufw passed)..."
+        ufw --force reset
+    fi
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow ssh
+    ufw allow 25/tcp    # SMTP
+    ufw allow 587/tcp   # SMTP Submission
+    ufw allow 465/tcp   # SMTP SSL
+    ufw allow 143/tcp   # IMAP
+    ufw allow 993/tcp   # IMAP SSL
+    ufw allow 110/tcp   # POP3
+    ufw allow 995/tcp   # POP3 SSL
+    ufw allow 80/tcp    # HTTP
+    ufw allow 443/tcp   # HTTPS
+    ufw --force enable
+    success "Firewall configured."
+fi
 
 # ─── 17. Start Services ────────────────────────────────────────────────────────
 info "Starting all services..."
@@ -227,13 +367,23 @@ systemctl enable postfix dovecot nginx php8.3-fpm mysql redis-server
 success "All services started."
 
 # ─── 18. Obtain SSL Certificate ────────────────────────────────────────────────
-info "Obtaining SSL certificate for ${MAIL_DOMAIN}..."
-certbot certonly --standalone --non-interactive --agree-tos \
-    --email admin@${MAIL_DOMAIN} \
-    -d ${MAIL_DOMAIN} \
-    --pre-hook "systemctl stop nginx" \
-    --post-hook "systemctl start nginx"
-success "SSL certificate obtained."
+if [[ "$SKIP_SSL" == "true" ]]; then
+    warn "Skipping SSL certificate generation (--skip-ssl passed)."
+else
+    info "Obtaining SSL certificate for ${MAIL_DOMAIN}..."
+    CERTBOT_ARGS=(certonly --standalone --non-interactive --agree-tos --email "admin@${MAIL_DOMAIN}" -d "${MAIL_DOMAIN}" --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx")
+    if [[ "$STAGING" == "true" ]]; then
+        CERTBOT_ARGS+=(--staging)
+        info "Using Let's Encrypt staging environment (--staging passed)."
+    fi
+
+    if certbot "${CERTBOT_ARGS[@]}"; then
+        success "SSL certificate obtained."
+    else
+        warn "Certbot was unable to obtain a certificate for ${MAIL_DOMAIN}."
+        warn "Verify DNS records point to this host, then run: certbot certonly --standalone -d ${MAIL_DOMAIN}"
+    fi
+fi
 
 # ─── 19. Configure Laravel Scheduler Cron Job ───────────────────────────────────
 info "Configuring Laravel scheduler cron job..."
@@ -252,16 +402,18 @@ echo -e "${GREEN}║        Email SaaS Server Installation Complete!          �
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "  ${BLUE}Server Hostname:${NC} ${MAIL_DOMAIN}"
-echo -e "  ${BLUE}Server IP:${NC}       ${SERVER_IP}"
+echo -e "  ${BLUE}Server IP:${NC}       ${SERVER_IP:-127.0.0.1}"
 echo -e "  ${BLUE}DB Name:${NC}         ${DB_NAME}"
 echo -e "  ${BLUE}DB User:${NC}         ${DB_USER}"
 echo -e "  ${BLUE}DB Password:${NC}     ${DB_PASS}  ${RED}(SAVE THIS NOW!)${NC}"
 echo ""
 echo -e "  ${YELLOW}Next Steps:${NC}"
 echo -e "    1. Save the DB password above"
-echo -e "    2. Deploy Laravel panel: cd laravel-panel && composer install"
-echo -e "    3. Configure .env with the DB credentials"
-echo -e "    4. Run: php artisan migrate"
-echo -e "    5. Run: bash scripts/setup_dkim.sh"
-echo -e "    6. Run: bash scripts/setup_fail2ban.sh"
+echo -e "    2. Deploy Laravel panel: cd /var/www/email-saas/laravel-panel && composer install --no-dev --optimize-autoloader"
+echo -e "    3. Configure .env with DB credentials (DB_DATABASE=${DB_NAME}, DB_USERNAME=${DB_USER}, DB_PASSWORD=${DB_PASS})"
+echo -e "    4. Run database migrations: php artisan migrate --force"
+echo -e "    5. Seed standard subscription plans: php artisan db:seed --force"
+echo -e "    6. Bootstrap initial Super Admin: php artisan rbac:emergency-recovery <your-admin-email>"
+echo -e "    7. Run: bash scripts/setup_dkim.sh <your-domain>"
+echo -e "    8. Run: bash scripts/setup_fail2ban.sh"
 echo ""

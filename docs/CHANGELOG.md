@@ -1,5 +1,64 @@
 # Changelog
 
+### Local Database Bootstrap, Seeder Audit & Safe Environment Configuration (Step 22)
+- **Verified:** Local Laragon MySQL 8.4.3 connectivity (`127.0.0.1:3306`) with dedicated database `emailsaas_local`.
+- **Audited:** All 16 database migrations:
+  - Verified dependency ordering, foreign keys, and indexes.
+  - Confirmed all migrations recorded as `[1] Ran` under `php artisan migrate:status`.
+- **Implemented:** Idempotent `PlanSeeder` (`database/seeders/PlanSeeder.php`):
+  - Seeds 3 standard plans: `starter`, `business`, `enterprise`.
+  - Configures full quotas including `daily_outbound_recipients` and `mailbox_daily_outbound_recipients`.
+  - Implements `Plan::firstOrCreate(['slug' => ...], [...])` guaranteeing zero duplicate key errors on re-execution.
+- **Hardened:** `DatabaseSeeder` (`database/seeders/DatabaseSeeder.php`):
+  - Calls `PlanSeeder`.
+  - Gated under `app()->environment('local', 'testing')` to strictly prevent creating default accounts in `production`.
+  - Idempotently provisions local tenant (`test@example.com`, starter plan, 0 roles) and local Super Admin (`admin@example.com`, `super_admin` role).
+- **Implemented:** Automated seeder test suite (`tests/Feature/DatabaseSeederTest.php`):
+  - Validates `PlanSeeder` idempotency.
+  - Validates `DatabaseSeeder` idempotency in local environment.
+  - Validates `DatabaseSeeder` environment safety guard (zero default users seeded in production).
+- **Refactored & Hardened:** Linux server installation script (`scripts/install.sh`):
+  - Added CLI flags: `--domain`, `--db-name`, `--db-user`, `--db-pass`, `--staging`, `--skip-ssl`, `--skip-ufw`, `--reset-ufw`, `--skip-hostname`, `--allow-placeholder`, `--dry-run`, `-h`/`--help`.
+  - Implemented fail-closed guard preventing installation with placeholder domain `mail.yourdomain.com`.
+  - Made `/etc/hosts` modifications idempotent.
+  - Protected UFW firewall from unconditional resets (`--reset-ufw` now required to reset; default preserves rules).
+  - Parameterized Postfix `main.cf` (`myhostname`, TLS certs) and Dovecot `10-ssl.conf` (`ssl_cert`, `ssl_key`) with `${MAIL_DOMAIN}`.
+  - Handled Certbot failures gracefully with actionable warnings.
+  - Modernized post-installation instructions.
+- **Verified:** Complete application health:
+  - Backend PHPUnit test suite: **262 tests / 1,151 assertions passed cleanly (0 failures, 0 errors, 0 regressions)**.
+  - Frontend production build: **Next.js 14 compiles and builds all 24 pages cleanly**.
+  - Local database seeding executed and re-executed cleanly on live local Laragon MySQL.
+  - Git state: Zero staged changes, zero commits, zero pushes.
+
+### Authenticated Backup Encryption & Cryptographic Integrity (Step 21)
+- **Implemented:** Authenticated Encryption with Associated Data (AEAD) across the backup subsystem using **AES-256-GCM** (`aes-256-gcm`).
+- **Designed & Implemented:** Versioned, constant-memory chunked streaming envelope (`EMAILSAAS_GCM_V1`):
+  - 40-byte binary header: 16-byte magic (`EMAILSAAS_GCM_V1`) + 16-byte random salt + 8-byte nonce prefix.
+  - Chunk framing: 4-byte length + 1-byte terminal flag (`isLast`) + 16-byte GCM authentication tag + ciphertext chunk.
+  - Per-chunk unique nonce: 8-byte prefix + 4-byte big-endian chunk counter (12 bytes total).
+  - AAD binding: `EMAILSAAS_GCM_V1 || chunkCounter (4B BE) || isLast (1B)`.
+  - Constant memory footprint ($O(1)$, ~64 KB buffers) enabling reliable streaming of multi-gigabyte archives.
+- **Implemented:** Cryptographic tamper resistance and fail-closed security:
+  - Immediate tag verification before releasing decrypted plaintext.
+  - Bit-flip, tag corruption, chunk reordering, dropped terminal chunk, and truncation detection.
+  - Automatic purging of `.tmp` partial files on any failure.
+- **Implemented:** Companion Manifest HMAC-SHA256 metadata signing (`computeManifestHmac`, `verifyManifestHmac`):
+  - Manifests cryptographically signed using the backup encryption key (`manifest_hmac`).
+  - Tampering with recorded digests, sizes, or metadata is detected and rejected during verification.
+  - Automated HMAC re-signing during legitimate lifecycle state updates (e.g. `verified: true`).
+- **Implemented:** Isolated backward compatibility for legacy OpenSSL AES-256-CBC (`Salted__`) archives:
+  - Dedicated legacy fallback path with explicit security warning: `LEGACY — AUTHENTICITY NOT GUARANTEED` (`authenticated: false`).
+- **Implemented:** CLI Decryption Tool and shell script modernization:
+  - New Artisan command `backup:decrypt {archive} {target?} {--key=} {--stdout}` supporting direct binary pipe streaming.
+  - Updated `scripts/restore_db.sh` to stream-decrypt `EMAILSAAS_GCM_V1` on-the-fly to MySQL engine.
+  - Updated `scripts/restore_vmail.sh` to stream-decrypt `EMAILSAAS_GCM_V1` directly to `tar -x`.
+  - Updated `scripts/verify_backup.sh` to test authenticated AEAD stream integrity.
+  - Enhanced `backup:verify` and `backup:status` commands with encryption envelope and manifest HMAC status reporting.
+- **Created:** Comprehensive test suite in `tests/Feature/AuthenticatedBackupEncryptionTest.php` with 16 security, tampering, streaming, and backward compatibility tests.
+- **Verified:** Complete test suite execution: **259 passed / 1,132 assertions (0 failures, 0 errors, 0 regressions)**.
+- **Git State Maintained:** Zero staging, zero commits, zero pushes.
+
 ### Staging Deployment Review, Live Infrastructure Acceptance & Disaster Recovery Drill (Step 20)
 - **Audited:** `scripts/install.sh` installation routine:
   - Identified hardcoded domain `MAIL_DOMAIN="mail.yourdomain.com"`, unconditional `ufw --force reset`, and automated standalone Let's Encrypt challenges.

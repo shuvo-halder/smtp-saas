@@ -59,7 +59,7 @@ return [
     */
     'encryption' => [
         'enabled'   => (bool) env('BACKUP_ENCRYPTION_ENABLED', false),
-        'cipher'    => env('BACKUP_ENCRYPTION_CIPHER', 'aes-256-cbc'),
+        'cipher'    => env('BACKUP_ENCRYPTION_CIPHER', 'aes-256-gcm'),
         'key'       => env('BACKUP_ENCRYPTION_KEY', null),
         'key_path'  => env('BACKUP_ENCRYPTION_KEY_PATH', null),
     ],

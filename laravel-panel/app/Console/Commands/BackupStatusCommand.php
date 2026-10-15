@@ -99,7 +99,21 @@ class BackupStatusCommand extends Command
             $mtime = filemtime($file);
             $manifestPath = "{$file}.manifest.json";
             $hasManifest = 'No';
-            $isEncrypted = str_ends_with($file, '.enc') ? 'Yes' : 'No';
+            $encryptionLabel = 'No';
+            if (str_ends_with($file, '.enc')) {
+                $fh = @fopen($file, 'rb');
+                $magic = $fh ? fread($fh, 16) : '';
+                if ($fh) {
+                    fclose($fh);
+                }
+                if ($magic === 'EMAILSAAS_GCM_V1') {
+                    $encryptionLabel = 'AEAD (GCM)';
+                } elseif (str_starts_with($magic, 'Salted__')) {
+                    $encryptionLabel = 'Legacy (CBC)';
+                } else {
+                    $encryptionLabel = 'Encrypted';
+                }
+            }
             $verified = 'No';
             $offsite = 'Pending';
 
@@ -116,7 +130,7 @@ class BackupStatusCommand extends Command
                 $tableRows[] = [
                     basename($file),
                     $this->formatBytes($size),
-                    $isEncrypted,
+                    $encryptionLabel,
                     date('Y-m-d H:i:s', $mtime),
                     Carbon::createFromTimestamp($mtime)->diffForHumans(),
                     $verified,

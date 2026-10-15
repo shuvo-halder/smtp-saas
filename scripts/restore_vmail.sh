@@ -63,12 +63,26 @@ if [[ "$ARCHIVE" == *.enc ]]; then
         echo "[ERROR] Archive is encrypted, but no decryption key (BACKUP_ENCRYPTION_KEY / BACKUP_ENCRYPTION_KEY_PATH) found." >&2
         exit 1
     fi
-    echo "  [DECRYPTION] Decrypting AES-256-CBC stream on-the-fly directly to tar extraction..."
-    openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:"$ENC_KEY" -in "$ARCHIVE" \
-        | tar --extract \
-            --gzip \
-            --preserve-permissions \
-            -C "$TARGET_DIR"
+
+    MAGIC="$(head -c 16 "$ARCHIVE" 2>/dev/null || echo '')"
+    if [[ "$MAGIC" == "EMAILSAAS_GCM_V1" ]]; then
+        echo "  [DECRYPTION] Decrypting Authenticated AEAD (EMAILSAAS_GCM_V1) stream on-the-fly via Artisan..."
+        php "${SCRIPT_DIR}/../laravel-panel/artisan" backup:decrypt "$ARCHIVE" --stdout --key="$ENC_KEY" \
+            | tar --extract \
+                --gzip \
+                --preserve-permissions \
+                -C "$TARGET_DIR"
+    elif [[ "$MAGIC" == Salted__* ]]; then
+        echo "  [DECRYPTION] Decrypting LEGACY AES-256-CBC stream (Salted__) via OpenSSL (AUTHENTICITY NOT GUARANTEED)..."
+        openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:"$ENC_KEY" -in "$ARCHIVE" \
+            | tar --extract \
+                --gzip \
+                --preserve-permissions \
+                -C "$TARGET_DIR"
+    else
+        echo "[ERROR] Encrypted archive does not contain recognized magic header (EMAILSAAS_GCM_V1 or Salted__)." >&2
+        exit 1
+    fi
 else
     tar --extract \
         --gzip \

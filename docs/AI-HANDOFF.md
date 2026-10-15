@@ -176,9 +176,27 @@ This document is the operational starting point for any AI coding agent working 
     - Point-in-Time Recovery (PITR): `NOT IMPLEMENTED` (Option B accepted).
     - Standalone Backup HTTP API: `REQUIRES ARCHITECTURE APPROVAL` (Maintained 404).
 
+- **Step 21 — Authenticated Backup Encryption & Cryptographic Integrity (IMPLEMENTED & VERIFIED):**
+  - **Authenticated AEAD Encryption (AES-256-GCM):** Replaced unauthenticated OpenSSL AES-256-CBC with Authenticated Encryption with Associated Data (**AES-256-GCM**).
+  - **Chunked Streaming Envelope (`EMAILSAAS_GCM_V1`):** Implemented in `BackupEncryptionService.php` with 40-byte binary header (16B magic `EMAILSAAS_GCM_V1` + 16B salt + 8B nonce prefix), 21B chunk frame overhead (4B len + 1B isLast + 16B GCM tag), per-chunk 12B unique nonce (`prefix . chunkCounter`), and AAD binding (`magic . chunkCounter . isLast`). Guarantees constant memory footprint ($O(1)$, ~64 KB buffers) across arbitrarily large files.
+  - **Fail-Closed Security & Tamper Resistance:** Tag verification occurs prior to releasing plaintext. Detects bit-flips, tag tampering, chunk reordering, dropped chunks, and file truncation. All `.tmp` files are immediately purged on failure.
+  - **Companion Manifest HMAC-SHA256 Signing:** Implemented `computeManifestHmac()` and `verifyManifestHmac()`. Manifest metadata is cryptographically signed using the backup encryption key (`manifest_hmac`), preventing undetected modification of recorded digests or sizes.
+  - **Isolated Backward Compatibility:** Retained isolated fallback for legacy OpenSSL AES-256-CBC (`Salted__`) backups, strictly classifying them as `LEGACY — AUTHENTICITY NOT GUARANTEED` (`authenticated: false`) with operational warnings.
+  - **CLI Decryption Tooling & Bash Integration:** Added Artisan command `backup:decrypt {archive} {target?} {--key=} {--stdout}` supporting binary streaming to Unix pipes (`backup:decrypt ... --stdout | gunzip -c | mysql`). Modernized `scripts/restore_db.sh`, `scripts/restore_vmail.sh`, and `scripts/verify_backup.sh` to stream-decrypt AEAD archives on-the-fly.
+  - **Verification:** Created `tests/Feature/AuthenticatedBackupEncryptionTest.php` with 16 comprehensive tests; updated `BackupAndDisasterRecoveryTest.php`. Full regression test suite passing cleanly (**259 tests / 1,132 assertions**, 0 failures, 0 regressions).
+
+- **Step 22 — Local Database Bootstrap, Seeder Audit & Safe Environment Configuration (IMPLEMENTED & VERIFIED):**
+  - **Local Laragon MySQL Environment:** Verified local MySQL 8.4.3 runtime on `127.0.0.1:3306` with database `emailsaas_local`. Configured `laravel-panel/.env` with safe local connection parameters.
+  - **Migration Audit & Status:** Confirmed all 16 migrations are applied in strict dependency order (`php artisan migrate:status` returns exit code 0 with 16/16 `[1] Ran`).
+  - **Idempotent Plan Seeder:** Created `database/seeders/PlanSeeder.php` provisioning standard tiers (`starter`, `business`, `enterprise`) with complete domain, mailbox, storage, and outbound rate limits using `Plan::firstOrCreate()`.
+  - **Hardened Database Seeder & RBAC Boundaries:** Hardened `database/seeders/DatabaseSeeder.php`. Gated under `app()->environment('local', 'testing')` to prevent creating default users with static passwords in production. Local development idempotently seeds tenant (`test@example.com`, starter plan, 0 roles) and Super Admin (`admin@example.com`, `super_admin` role). Rerunning `db:seed` produces zero duplicates.
+  - **Automated Seeder Test Suite:** Created `tests/Feature/DatabaseSeederTest.php` (3 tests / 19 assertions) verifying idempotency and production safety guards.
+  - **Hardened Server Installer (`scripts/install.sh`):** Parameterized installer with CLI flags (`--domain`, `--db-name`, `--db-user`, `--db-pass`, `--staging`, `--skip-ssl`, `--skip-ufw`, `--reset-ufw`, `--skip-hostname`, `--allow-placeholder`, `--dry-run`). Added fail-closed check on placeholder domain `mail.yourdomain.com`, idempotent `/etc/hosts` editing, UFW rule preservation by default, config template substitutions in Postfix `main.cf` and Dovecot `10-ssl.conf`, and non-destructive Certbot error handling.
+  - **Verification:** Full backend regression suite: **262 tests / 1,151 assertions passing cleanly (0 failures, 0 errors, 0 regressions)**. Frontend Next.js 14 build compiles all 24 static pages cleanly with zero errors. Git tree clean of whitespace errors.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 20.1 / Step 21 — Dedicated Staging Host Provisioning & Installer Parameterization:**
-  - Refactor `scripts/install.sh` to accept `--domain=<hostname>`, `--staging`, `--skip-ssl`, and `--skip-ufw` flags.
-  - Provision a dedicated Ubuntu 22.04 / 24.04 LTS VPS with dedicated DNS record.
-  - Execute parameterized installation, run live MariaDB 10.11+ restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PARTIALLY VERIFIED` to `STAGING ACCEPTANCE — VERIFIED`.
-  - Submit RFC to architecture committee for AEAD encryption upgrade (`aes-256-gcm`) and standalone backup status API.
+- **Step 23 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
+  - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
+  - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
+  - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
+  - Submit RFC to architecture committee for standalone `/api/admin/system/backup-status` HTTP API.

@@ -167,6 +167,7 @@ class MailStorageBackupService
                 'sha256'             => $sha256,
                 'encrypted'          => $isEncrypted,
                 'cipher'             => $cipher,
+                'encryption_format'  => $isEncrypted ? 'AEAD_GCM_V1' : null,
                 'unencrypted_sha256' => $unencryptedSha256,
                 'uncompressed_bytes' => $uncompressedBytes,
                 'file_count'         => $fileCount,
@@ -179,6 +180,16 @@ class MailStorageBackupService
                 'offsite_status'     => 'PENDING',
                 'status'             => 'SUCCESS',
             ];
+
+            if ($isEncrypted) {
+                try {
+                    $manifest['manifest_hmac'] = $this->encryptionService->computeManifestHmac($manifest);
+                } catch (Throwable $e) {
+                    $this->log('warning', "Could not compute manifest HMAC: " . $e->getMessage(), [
+                        'backup_id' => $backupId,
+                    ]);
+                }
+            }
 
             file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 

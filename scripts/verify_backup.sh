@@ -41,22 +41,32 @@ fi
 
 # 2. Decompression / Decryption stream test
 if [[ "$ARCHIVE" == *.enc ]]; then
-    # Verify OpenSSL magic header "Salted__"
-    MAGIC="$(head -c 8 "$ARCHIVE" || echo '')"
-    if [[ "$MAGIC" != "Salted__" ]]; then
-        echo "[FAILED] Encrypted archive does not contain valid OpenSSL magic header (Salted__)." >&2
-        exit 1
-    fi
-    echo "  [PASS] Valid OpenSSL encrypted envelope header detected (Salted__)."
-
-    if [[ -n "$ENC_KEY" ]]; then
-        if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:"$ENC_KEY" -in "$ARCHIVE" | gzip -t 2>/dev/null; then
-            echo "[FAILED] Decryption and gzip verification test failed. Archive corrupted or key incorrect." >&2
-            exit 1
+    MAGIC="$(head -c 16 "$ARCHIVE" 2>/dev/null || echo '')"
+    if [[ "$MAGIC" == "EMAILSAAS_GCM_V1" ]]; then
+        echo "  [PASS] Authenticated AEAD encrypted envelope detected (EMAILSAAS_GCM_V1)."
+        if [[ -n "$ENC_KEY" ]]; then
+            if ! php "${SCRIPT_DIR}/../laravel-panel/artisan" backup:decrypt "$ARCHIVE" --stdout --key="$ENC_KEY" 2>/dev/null | gzip -t 2>/dev/null; then
+                echo "[FAILED] AEAD decryption and gzip verification test failed. Archive corrupted, tampered, or key incorrect." >&2
+                exit 1
+            fi
+            echo "  [PASS] Authenticated decryption and inner gzip stream integrity verified."
+        else
+            echo "  [WARN] No decryption key configured. Ciphertext envelope verified; payload decompression skipped."
         fi
-        echo "  [PASS] Decryption and inner gzip stream integrity verified (openssl enc -d | gzip -t)."
+    elif [[ "$MAGIC" == Salted__* ]]; then
+        echo "  [WARN] Legacy OpenSSL AES-256-CBC envelope detected (Salted__). Authenticity NOT guaranteed."
+        if [[ -n "$ENC_KEY" ]]; then
+            if ! openssl enc -d -aes-256-cbc -pbkdf2 -pass pass:"$ENC_KEY" -in "$ARCHIVE" 2>/dev/null | gzip -t 2>/dev/null; then
+                echo "[FAILED] Decryption and gzip verification test failed. Archive corrupted or key incorrect." >&2
+                exit 1
+            fi
+            echo "  [PASS] Legacy decryption and inner gzip stream integrity verified (openssl enc -d | gzip -t)."
+        else
+            echo "  [WARN] No decryption key configured. Ciphertext envelope verified; payload decompression skipped."
+        fi
     else
-        echo "  [WARN] No decryption key configured. Ciphertext envelope verified; payload decompression skipped."
+        echo "[FAILED] Encrypted archive does not contain valid magic header (expected EMAILSAAS_GCM_V1 or Salted__)." >&2
+        exit 1
     fi
 else
     if ! gzip -t "$ARCHIVE" 2>/dev/null; then

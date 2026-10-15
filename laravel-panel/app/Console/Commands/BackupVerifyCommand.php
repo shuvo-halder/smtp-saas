@@ -55,13 +55,31 @@ class BackupVerifyCommand extends Command
             ? $verificationService->verifyDatabaseBackup($filePath, $key)
             : $verificationService->verifyArchiveIntegrity($filePath, null, $key);
 
+        $encStatus = 'NO';
+        if ($isEncrypted) {
+            $authenticated = $result['authenticated'] ?? false;
+            $encStatus = $authenticated
+                ? 'YES (AEAD AES-256-GCM - Authenticated)'
+                : 'YES (LEGACY AES-256-CBC - Authenticity NOT Guaranteed)';
+        }
+
+        $manifestHmacDisplay = 'N/A';
+        if (($result['manifest_hmac_valid'] ?? null) === true) {
+            $manifestHmacDisplay = 'PASSED (HMAC-SHA256)';
+        } elseif (($result['manifest_hmac_valid'] ?? null) === false) {
+            $manifestHmacDisplay = 'FAILED (Signature Mismatch)';
+        } elseif ($isEncrypted) {
+            $manifestHmacDisplay = 'NOT SIGNED (Legacy)';
+        }
+
         $this->table(
             ['Check', 'Status'],
             [
                 ['File Exists', file_exists($filePath) ? 'YES' : 'NO'],
                 ['Size (Bytes)', number_format($result['size_bytes'] ?? 0)],
                 ['SHA-256', $result['sha256'] ?? 'N/A'],
-                ['Encrypted at Rest', $isEncrypted ? 'YES (AES-256)' : 'NO'],
+                ['Encryption Envelope', $encStatus],
+                ['Manifest HMAC', $manifestHmacDisplay],
                 ['Decompressed Bytes', number_format($result['decompressed_bytes'] ?? 0)],
                 ['Integrity Valid', ($result['valid'] ?? false) ? 'PASSED' : 'FAILED'],
             ]

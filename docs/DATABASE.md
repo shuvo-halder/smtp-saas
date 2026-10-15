@@ -1,4 +1,4 @@
-# Database Architecture
+﻿# Database Architecture
 
 EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`). It acts as the ultimate source of truth for both the Laravel Application and the physical Mail Daemons (Postfix & Dovecot).
 
@@ -170,3 +170,47 @@ EmailSaaS enforces transaction-safe, consistent point-in-time snapshot backups o
   - Production and active databases are NEVER modified during restore verification.
 - In production disaster recovery (`scripts/disaster_recovery.sh`), migration state is displayed via `php artisan migrate:status`, and pending migrations are executed only with explicit `--run-migrations`, failing closed immediately on any error.
 
+## Local Database Bootstrap & Seeder Architecture (Step 22)
+
+EmailSaaS enforces a clean, deterministic, and idempotent local development database bootstrap workflow under Laragon MySQL / MariaDB.
+
+### 1. Local Connection & Runtime
+- **Database Engine:** MySQL 8.4.3 / MariaDB 10.x running on `127.0.0.1:3306`.
+- **Database Name:** `emailsaas_local`.
+- **User Credentials:** `root` with empty password locally; external IPs are strictly forbidden.
+- **PHP Runtime:** PHP 8.3 / 8.2 with `pdo_mysql`, `mysqli`, `openssl`, `sodium`, `pdo_sqlite`, `mbstring`, `intl`, `curl`.
+
+### 2. Migration Inventory & Ordering
+All 16 core migrations are applied in strict dependency order:
+1. `0001_01_01_000001_create_cache_table.php` (Cache lock and cache stores)
+2. `0001_01_01_000002_create_jobs_table.php` (Queue jobs, failed jobs, batches)
+3. `2024_01_01_000001_create_plans_table.php` (Subscription plan definitions)
+4. `2024_01_01_000002_create_users_table.php` (Tenant and admin accounts)
+5. `2024_01_01_000003_create_domains_table.php` (Virtual email domains)
+6. `2024_01_01_000004_create_mailboxes_table.php` (Virtual mail accounts)
+7. `2024_01_01_000005_create_invoices_table.php` (Billing ledger)
+8. `2024_01_01_000006_add_password_to_mailboxes.php` (Mailbox authentication hashes)
+9. `2026_09_07_211409_add_outbound_quotas_to_plans_table.php` (Plan daily outbound limits)
+10. `2026_09_07_211410_create_tenant_outbound_usage_table.php` (Outbound daily quota tracking ledger)
+11. `2026_09_23_000001_create_audit_logs_table.php` (Security and administrative audit trail)
+12. `2026_10_03_000001_create_permission_tables.php` (Spatie RBAC schema)
+13. `2026_10_03_000002_create_governance_locks_table.php` (Super Admin last-admin concurrency mutex)
+14. `2026_10_03_000003_seed_rbac_and_backfill_legacy_admins.php` (Initial role/permission definitions & legacy backfill)
+15. `2026_10_06_000001_create_abuse_incidents_table.php` (Abuse detection and resolution ledger)
+16. `2026_10_15_000001_create_scheduled_task_runs_table.php` (Scheduler run metrics and execution ledger)
+
+### 3. Seeder Inventory & Idempotency Rules
+- **`PlanSeeder` (`Database\Seeders\PlanSeeder`):**
+  - Seeds the 3 baseline subscription plans (`starter`, `business`, `enterprise`) with explicit domain, mailbox, storage, and outbound rate limits.
+  - Implements `Plan::firstOrCreate(['slug' => ...], [...])`.
+  - Guaranteed idempotent: re-executing `PlanSeeder` produces zero duplicate rows and zero constraint errors.
+- **`DatabaseSeeder` (`Database\Seeders\DatabaseSeeder`):**
+  - Coordinates child seeders (`PlanSeeder`).
+  - Implements environment gating: `if (app()->environment('local', 'testing'))`.
+  - Non-production environments seed:
+    - `test@example.com` (Tenant user associated with `starter` plan, `is_admin = false`, 0 roles).
+    - `admin@example.com` (Super Admin user, `is_admin = true`, assigned `super_admin` role via `assignRole()`).
+  - Production environments strictly execute `PlanSeeder` only. No default users or hardcoded passwords are ever created in production.
+- **Initial Super Admin Bootstrap:**
+  - In production and staging, administrators are never created via seeders with static credentials. Initial Super Admin access must be created intentionally via CLI:
+    `php artisan rbac:emergency-recovery <admin-email>`

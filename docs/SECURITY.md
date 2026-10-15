@@ -189,3 +189,35 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - `scripts/install.sh` contains hardcoded hostnames (`mail.yourdomain.com`), unconditional UFW resets, and Let's Encrypt standalone challenges. Blind execution in a shared or staging environment without explicit parameterization (`--staging`, `--domain`) is identified as an operational security risk and blocked until parameterized.
 - **Rollback Non-Destructive Invariants:**
   - Disaster recovery runbooks strictly forbid automated execution of `php artisan migrate --force`. Database schema changes must remain an explicit, reviewed administrative action.
+
+## 19. Authenticated Backup Encryption & Cryptographic Integrity (Step 21)
+- **AEAD Construction & Cipher Selection:**
+  - Standardized on authenticated encryption with associated data: **AES-256-GCM** (`aes-256-gcm`).
+  - Protects both confidentiality and cryptographic authenticity in a single unified primitive, eliminating bit-flipping attacks, padding oracle attacks, and unauthenticated ciphertext substitution.
+- **Chunked Streaming Envelope (`EMAILSAAS_GCM_V1`):**
+  - Uses a versioned, authenticated chunked streaming envelope with a constant memory footprint ($O(1)$, ~64 KB buffers), enabling encryption and decryption of arbitrarily large database dumps and mail storage tarballs without memory spikes or process exhaustion.
+  - **40-Byte Envelope Header:**
+    - Magic identifier (16 bytes): `EMAILSAAS_GCM_V1`
+    - Salt (16 bytes): Cryptographically secure random bytes (`random_bytes(16)`)
+    - Nonce Prefix (8 bytes): Cryptographically secure random bytes (`random_bytes(8)`)
+  - **Chunk Frame Structure:**
+    - Length (4 bytes, uint32 big-endian): Byte length of ciphertext chunk.
+    - Terminal flag (1 byte, uint8): `1` for the final chunk, `0` for intermediate chunks.
+    - Authentication Tag (16 bytes): AES-256-GCM authentication tag.
+    - Ciphertext ($N$ bytes): Raw ciphertext bytes.
+- **Nonce & AAD Cryptographic Bindings:**
+  - **Per-chunk Nonce (12 bytes):** `NoncePrefix (8B) || ChunkCounter (4B BE)`. Guarantees unique nonces across all chunks even for massive multi-gigabyte archives.
+  - **Associated Authenticated Data (AAD):** `EMAILSAAS_GCM_V1 || ChunkCounter (4B BE) || isLast (1B)`. Cryptographically binds the envelope version, chunk sequence order, and terminal chunk boundary into the authentication tag.
+  - **Tamper Proofing:** Reordering chunks, dropping chunks, truncating the stream, or bit-flipping ciphertext/tags immediately causes GCM tag verification failure before any plaintext is released.
+- **Fail-Closed Security & Partial Data Cleanup:**
+  - Decryption fails closed upon any cryptographic mismatch, wrong key, truncated chunk, or corrupted tag.
+  - All temporary files (`.tmp`) are immediately purged upon failure, preventing partial unauthenticated plaintext leakage to disk.
+- **Companion Manifest HMAC-SHA256 Signing:**
+  - Backup manifests (`.manifest.json`) are cryptographically signed using HMAC-SHA256 over canonicalized metadata using the backup encryption key (`manifest_hmac`).
+  - Tampering with recorded SHA-256 digests, unencrypted checksums, file sizes, or backup metadata is immediately detected and rejected by `BackupVerificationService` and `backup:verify`.
+- **Isolated Backward Compatibility:**
+  - Legacy OpenSSL AES-256-CBC (`Salted__`) backups are supported via an isolated, dedicated fallback path in `BackupEncryptionService` and shell scripts (`restore_db.sh`, `restore_vmail.sh`, `verify_backup.sh`).
+  - Legacy backups are strictly labeled: `LEGACY — AUTHENTICITY NOT GUARANTEED` (`authenticated: false`), issuing operational security warnings upon decryption and status display.
+- **CLI Decryption Tooling & Secret Scrubbing:**
+  - Added Artisan command `backup:decrypt {archive} {target?} {--key=} {--stdout}` supporting streaming pipe decryption directly into `mysql` or `tar`.
+  - Passphrases and derived keys are strictly scrubbed from CLI outputs, logs, and exception messages.

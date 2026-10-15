@@ -1,4 +1,4 @@
-# Infrastructure
+﻿# Infrastructure
 
 EmailSaaS is deployed as a consolidated stack on an Ubuntu Linux VPS.
 
@@ -114,7 +114,7 @@ EmailSaaS provides an enterprise backup and disaster recovery subsystem protecti
 | Component | Status | Verification Notes |
 |---|---|---|
 | Local Snapshots & Verification | `VERIFIED` | Automated SHA-256 digests and isolated restore tests pass. |
-| Encryption at Rest | `VERIFIED` | OpenSSL AES-256-CBC PBKDF2 cross-compatible between PHP and bash. |
+| Encryption at Rest | `VERIFIED` | Authenticated AEAD AES-256-GCM (`EMAILSAAS_GCM_V1`) chunk streaming + HMAC-SHA256 manifests + isolated legacy CBC fallback. |
 | Offsite Transport Abstraction | `VERIFIED` | `BackupOffsiteService` and `sync_offsite.sh` implemented with fail-safe semantics. |
 | Real MariaDB Engine Restore | `PARTIALLY VERIFIED` | SQL dump syntax, transactions, and schema verified; live daemon pending remote infrastructure (`PENDING INFRASTRUCTURE`). |
 | Real Dovecot MDA Restore | `PARTIALLY VERIFIED` | Maildir extraction and numeric permissions verified; live Dovecot indexing pending remote infrastructure (`PENDING INFRASTRUCTURE`). |
@@ -127,11 +127,7 @@ EmailSaaS provides an enterprise backup and disaster recovery subsystem protecti
 
 ### Staging Infrastructure Audit Findings
 1. **Installer Parameterization Gap (`scripts/install.sh`):**
-   - Hardcoded values: `MAIL_DOMAIN="mail.yourdomain.com"`, `DB_NAME="emailsaas"`, `DB_USER="emailsaas"`.
-   - Hostname modification: unconditionally runs `hostnamectl set-hostname $MAIL_DOMAIN`.
-   - Firewall reset: unconditionally executes `ufw --force reset` and enables default deny incoming, which terminates active SSH sessions if non-standard SSH ports are used.
-   - Let's Encrypt validation: attempts standalone certbot against `mail.yourdomain.com`, which requires public DNS resolution.
-   - **Remediation Requirement:** `scripts/install.sh` must be refactored to accept flags (e.g. `--domain=staging.example.com`, `--staging`, `--skip-ssl`, `--skip-ufw`) before running on shared or staging infrastructure.
+   - **RESOLVED (Step 22):** Refactored `scripts/install.sh` to implement full CLI parameterization, safety validation, idempotent hosts/firewall management, and config template substitutions.
 2. **Database Isolation & Network Boundary (`laravel-panel/.env`):**
    - The default `.env` configuration contains `DB_HOST=103.131.144.61`.
    - In staging or local development, attempting to run database-driven cache, queues, or migrations against this external IP causes TCP timeouts or risks accidental production data corruption.
@@ -139,3 +135,38 @@ EmailSaaS provides an enterprise backup and disaster recovery subsystem protecti
 3. **Scheduler Verification:**
    - Evaluated schedule list under isolated configuration (`php artisan schedule:list`).
    - Confirmed all 6 scheduled tasks (`tenant:suspend-expired`, `outbound:usage-sync`, `mail:process-log`, `backup:run`, `backup:prune`, `scheduled-tasks:prune`) are registered with exact frequencies and overlap mutexes.
+
+---
+
+## Local Development Bootstrap & Installer Hardening (Step 22)
+
+### 1. Hardened Installer Implementation (`scripts/install.sh`)
+The unified Linux server installation script (`scripts/install.sh`) has been hardened with the following enterprise features:
+- **CLI Parameterization:**
+  - `--domain <domain>`: Configures primary mail server FQDN.
+  - `--db-name <name>`, `--db-user <user>`, `--db-pass <pass>`: Parameterizes database credentials.
+  - `--staging`: Enables Let's Encrypt staging environment (`--staging`) to avoid rate limits during testing.
+  - `--skip-ssl`: Skips Certbot entirely for local or intranet installations.
+  - `--skip-ufw`: Preserves existing host firewall rules and skips UFW modifications.
+  - `--reset-ufw`: Requires explicit operator consent before resetting UFW (`ufw --force reset`). By default, existing rules are preserved.
+  - `--skip-hostname`: Skips `hostnamectl` and `/etc/hosts` changes.
+  - `--allow-placeholder`: Allows using `mail.yourdomain.com` without prompting.
+  - `--dry-run`: Prints the evaluated installation plan without applying changes.
+  - `-h`, `--help`: Displays full CLI help.
+- **Fail-Closed Placeholder Rejection:**
+  - Running without `--domain` automatically errors out if the placeholder `mail.yourdomain.com` is detected, preventing misconfigured production deployments.
+- **Config Template Substitutions:**
+  - Automatically replaces `mail.yourdomain.com` with `${MAIL_DOMAIN}` in `/etc/postfix/main.cf` (`myhostname`, TLS cert paths) and `/etc/dovecot/conf.d/10-ssl.conf` (`ssl_cert`, `ssl_key`).
+- **Post-Install Instructions:**
+  - Recommends explicit, safe artisan commands: `php artisan migrate --force`, `php artisan db:seed --force`, and `php artisan rbac:emergency-recovery <admin-email>`.
+
+### 2. Local Development Environment (Laragon MySQL)
+- **Local Host:** Windows 10/11 with Laragon MySQL 8.4.3 (`127.0.0.1:3306`).
+- **Database:** `emailsaas_local` (isolated from remote host `103.131.144.61`).
+- **PHP CLI:** `C:\laragon\bin\php\php-8.3.33-Win32-vs16-x64\php.exe`.
+- **Local Bootstrap Flow:**
+  1. Verify MySQL connection: `Test-NetConnection 127.0.0.1 -Port 3306`.
+  2. Configure `laravel-panel/.env` with `DB_HOST=127.0.0.1`, `DB_PORT=3306`, `DB_DATABASE=emailsaas_local`, `DB_USERNAME=root`, `DB_PASSWORD=`.
+  3. Run migrations: `php artisan migrate`.
+  4. Seed baseline data: `php artisan db:seed`.
+  5. Verify health: `php artisan migrate:status`, `php artisan test`.

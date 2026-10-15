@@ -274,14 +274,25 @@ The retention engine implements a true calendar-aware Grandfather-Father-Son (GF
 
 ## 6. Security Posture: Encryption at Rest & Offsite Replication
 
-### 6.1 Encryption at Rest Architecture & Cryptographic Authenticity Analysis
-* **Algorithm:** OpenSSL AES-256-CBC with PBKDF2 key derivation (10,000 iterations, SHA-256, 8-byte random salt).
-* **Format:** Envelope containing `Salted__` magic header + 8-byte salt + raw AES-256 ciphertext (`.sql.gz.enc`, `.tar.gz.enc`).
-* **Cryptographic Authenticity Limitation (Non-AEAD):**
-  * AES-256-CBC is **unauthenticated encryption**: it provides confidentiality, but does **not** provide cryptographic authenticity (MAC).
-  * System integrity verification relies on comparing the SHA-256 hash of the archive against the companion `.manifest.json` file.
-  * **Threat Model Caveat:** The companion `.manifest.json` file is stored as plaintext JSON alongside the archive. In threat models where an adversary possesses write access to backup volumes, an attacker could manipulate ciphertext and calculate a corresponding new SHA-256 hash in the manifest without detection.
-  * **Production Remediation Requirement:** Prior to full production deployment, upgrade backup encryption to an authenticated mode (AEAD such as `aes-256-gcm` storing authentication tags in the envelope, or HMAC-SHA256 signature verification over manifests).
+### 6.1 Encryption at Rest Architecture & Cryptographic Authenticity (Step 21 Upgrade)
+* **Algorithm:** Authenticated Encryption with Associated Data (AEAD) using **AES-256-GCM** (`aes-256-gcm`).
+* **Format:** Versioned chunked streaming envelope with constant memory footprint ($O(1)$, ~64 KB buffers):
+  * **Header (40 bytes):** Magic `EMAILSAAS_GCM_V1` (16B) + Random Salt (16B) + Nonce Prefix (8B).
+  * **Chunk Frame (21 bytes overhead + payload):** Length uint32 BE (4B) + Terminal flag uint8 (1B) + GCM Auth Tag (16B) + Ciphertext ($N$ bytes).
+  * **Per-chunk Nonce:** 8-byte Nonce Prefix + 4-byte Big-Endian chunk counter (12 bytes total).
+  * **AAD Binding:** `EMAILSAAS_GCM_V1` + 4-byte chunk counter + 1-byte terminal flag.
+* **Cryptographic Authenticity & Tamper Resistance:**
+  * AES-256-GCM verifies authenticity and data integrity before emitting decrypted plaintext.
+  * Reordering, bit-flipping, dropping terminal chunk, or ciphertext tampering triggers immediate authentication failure and fail-closed deletion of partial files.
+* **Companion Manifest Signing:**
+  * Manifests (`.manifest.json`) are cryptographically signed with HMAC-SHA256 (`manifest_hmac`) using the backup encryption key.
+  * Tampering with recorded digests, sizes, or metadata is detected and rejected during verification.
+* **Backward Compatibility & Legacy Isolation:**
+  * Legacy OpenSSL AES-256-CBC (`Salted__`) backups are supported via an isolated fallback path.
+  * Strictly classified as `LEGACY — AUTHENTICITY NOT GUARANTEED` with operational security warnings.
+* **CLI Decryption Tooling:**
+  * `php artisan backup:decrypt <archive> [target] {--key=} {--stdout}`
+  * Supports binary streaming directly to standard output for Unix pipes (`... --stdout | gunzip -c | mysql`).
 * **Key Management:**
   * Configured via `BACKUP_ENCRYPTION_KEY` or `BACKUP_ENCRYPTION_KEY_PATH` (e.g., `/etc/emailsaas/backup.key`).
   * Encryption keys must **NEVER** be stored in `storage/backups/`, backup manifests, or git repositories.
@@ -298,8 +309,8 @@ The retention engine implements a true calendar-aware Grandfather-Father-Son (GF
 
 | Subsystem Component | Verification Level | Verification Evidence | Status Notes |
 | :--- | :--- | :--- | :--- |
-| **Archive Integrity & SHA-256** | `VERIFIED` | Unit & Feature tests, `gzip -t`, `sha256sum` | Automated in test suite and shell scripts. |
-| **Encryption at Rest & Decryption** | `VERIFIED` | Full roundtrip test, OpenSSL CLI cross-compatibility | PHP OpenSSL and OpenSSL 3.x CLI interchangeable. |
+| **Archive Integrity & SHA-256** | `VERIFIED` | Unit & Feature tests, `gzip -t`, `sha256sum`, manifest HMAC | Automated in test suite and shell scripts. |
+| **Encryption at Rest & Decryption** | `VERIFIED` | AES-256-GCM AEAD roundtrip, chunk streaming, fail-closed tests | `EMAILSAAS_GCM_V1` format, 16 security tests passing. |
 | **Isolated Schema & Syntax Restore** | `VERIFIED` | Automated disposable SQLite restore engine | Critical tables validated: `users`, `domains`, `mailboxes`, `plans`, `invoices`, `audit_logs`, `abuse_incidents`. |
 | **Real MariaDB 10.11+ Live Restore** | `PARTIALLY VERIFIED` | DDL/DML grammar, syntax, and schema tested; MariaDB restore script verified | Live MariaDB engine daemon verification pending remote infrastructure (`PENDING INFRASTRUCTURE`). |
 | **Isolated Maildir Message Recovery** | `VERIFIED` | Synthetic Maildir roundtrip test | Messages, subdirectories (`cur`, `new`, `tmp`), and timestamps preserved. |

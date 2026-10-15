@@ -306,14 +306,16 @@ class BackupAndDisasterRecoveryTest extends TestCase
         $this->assertFileExists($manifest['path']);
         $this->assertStringEndsWith('.sql.gz.enc', $manifest['filename']);
         $this->assertTrue($manifest['encrypted']);
-        $this->assertSame('aes-256-cbc', $manifest['cipher']);
+        $this->assertSame('aes-256-gcm', $manifest['cipher']);
+        $this->assertSame('AEAD_GCM_V1', $manifest['encryption_format']);
         $this->assertNotNull($manifest['unencrypted_sha256']);
+        $this->assertNotEmpty($manifest['manifest_hmac']);
 
-        // Check OpenSSL header
+        // Check Authenticated AEAD header
         $fh = fopen($manifest['path'], 'rb');
-        $magic = fread($fh, 8);
+        $magic = fread($fh, 16);
         fclose($fh);
-        $this->assertSame('Salted__', $magic);
+        $this->assertSame('EMAILSAAS_GCM_V1', $magic);
 
         // Verification with valid key
         $verificationService = new BackupVerificationService();

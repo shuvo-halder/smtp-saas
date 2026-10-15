@@ -47,20 +47,15 @@ class BackupVerificationService
             $errors[] = "Backup file is empty (0 bytes).";
         }
 
-        $isEncrypted = str_ends_with($filePath, '.enc');
+        $archiveInfo = $this->encryptionService->inspectArchive($filePath);
+        $isEncrypted = $archiveInfo['encrypted'] || str_ends_with($filePath, '.enc');
         $decompressedBytes = 0;
         $tempDecryptedPath = null;
+        $manifestHmacValid = null;
 
         if ($isEncrypted) {
-            // Verify OpenSSL encrypted envelope header
-            $fh = @fopen($filePath, 'rb');
-            $magic = $fh ? fread($fh, 8) : '';
-            if ($fh) {
-                fclose($fh);
-            }
-
-            if ($magic !== BackupEncryptionService::MAGIC_HEADER) {
-                $errors[] = "Encrypted backup does not contain valid OpenSSL magic header (Salted__).";
+            if ($archiveInfo['format'] === 'UNKNOWN_ENCRYPTED') {
+                $errors[] = "Encrypted backup does not contain valid magic header (expected 'EMAILSAAS_GCM_V1' or legacy 'Salted__').";
             }
 
             // Attempt decryption and payload decompression if encryption key is available
@@ -104,6 +99,17 @@ class BackupVerificationService
                 if ($isEncrypted && empty($manifest['encrypted'])) {
                     $errors[] = "File is encrypted (.enc) but companion manifest indicates unencrypted.";
                 }
+
+                // Verify companion manifest HMAC signature if present or if encryption is enabled
+                if (isset($manifest['manifest_hmac'])) {
+                    $key = $customKey ?? $this->encryptionService->getKey();
+                    if (!empty($key)) {
+                        $manifestHmacValid = $this->encryptionService->verifyManifestHmac($manifest, $key);
+                        if (!$manifestHmacValid) {
+                            $errors[] = "Companion manifest HMAC-SHA256 signature verification failed. Manifest has been tampered with or corrupted.";
+                        }
+                    }
+                }
             }
         }
 
@@ -113,17 +119,22 @@ class BackupVerificationService
             $this->updateManifest($filePath, [
                 'verified'    => true,
                 'verified_at' => Carbon::now('UTC')->toIso8601String(),
-            ]);
+            ], $customKey);
         }
 
         return [
-            'valid'              => $isValid,
-            'file_path'          => $filePath,
-            'size_bytes'         => $sizeBytes,
-            'decompressed_bytes' => $decompressedBytes,
-            'sha256'             => $sha256,
-            'encrypted'          => $isEncrypted,
-            'errors'             => $errors,
+            'valid'               => $isValid,
+            'file_path'           => $filePath,
+            'size_bytes'          => $sizeBytes,
+            'decompressed_bytes'  => $decompressedBytes,
+            'sha256'              => $sha256,
+            'encrypted'           => $isEncrypted,
+            'encryption_format'   => $archiveInfo['format'] ?? ($isEncrypted ? 'UNKNOWN' : 'NONE'),
+            'cipher'              => $archiveInfo['cipher'] ?? null,
+            'authenticated'       => $archiveInfo['authenticated'] ?? false,
+            'classification'      => $archiveInfo['classification'] ?? ($isEncrypted ? 'UNKNOWN' : 'UNENCRYPTED'),
+            'manifest_hmac_valid' => $manifestHmacValid,
+            'errors'              => $errors,
         ];
     }
 
@@ -531,7 +542,7 @@ class BackupVerificationService
     /**
      * Update companion JSON manifest with verification or restore state.
      */
-    protected function updateManifest(string $filePath, array $attributes): void
+    protected function updateManifest(string $filePath, array $attributes, ?string $customKey = null): void
     {
         $manifestPath = "{$filePath}.manifest.json";
         if (!file_exists($manifestPath)) {
@@ -547,6 +558,14 @@ class BackupVerificationService
 
             foreach ($attributes as $key => $value) {
                 $manifest[$key] = $value;
+            }
+
+            if (isset($manifest['manifest_hmac']) || $this->encryptionService->isEncryptionEnabled()) {
+                try {
+                    $manifest['manifest_hmac'] = $this->encryptionService->computeManifestHmac($manifest, $customKey);
+                } catch (Throwable $e) {
+                    // Retain existing or proceed if key unavailable
+                }
             }
 
             file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
