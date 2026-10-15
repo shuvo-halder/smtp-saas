@@ -223,9 +223,40 @@ This document is the operational starting point for any AI coding agent working 
     - Full regression test suite: **269 tests / 1,217 assertions passing cleanly (0 failures, 0 errors, 100%)**.
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 100%)**.
 
+- **Step 24 — Tenant Usage, SMTP Quota & Billing Reconciliation (IMPLEMENTED & VERIFIED):**
+  - **Accounting Integrity & Fail-Closed Outbound Quota Enforcement (`OutboundQuotaService.php`):**
+    - Repaired missing tenant key propagation: `$tenantKey` is now always passed to Redis Lua check+increment scripts, guaranteeing that tenants with unlimited plan limits (`-1`) but restricted mailbox limits accurately capture their daily recipient usage in Redis (`outbound:tenant:{id}:recipients:daily:{date}`) for hourly ledger sync to MariaDB `tenant_outbound_usage`.
+    - Preserved architectural contract for completely unlimited tiers (`-1` for both tenant and mailbox limits) bypassing Redis evaluation.
+    - Added safe domain null handling (`$mailbox->domain?->user_id ?? 0`) for orphaned or decoupled mailboxes.
+    - Enforced fail-closed behavior on tenants with missing or null subscription plans (`REJECTED_QUOTA`).
+  - **Financial Gateway & Subscription Lifecycle Hardening (`BillingService.php`):**
+    - Repaired IPN webhook handling: strictly rejects IPNs targeting cancelled invoices (`status === 'cancelled'`), preventing unauthorized reactivation of obsolete checkout sessions.
+    - Implemented persistence of `failed` and `cancelled` payment states in the invoice transaction ledger.
+    - Enforced pessimistic concurrency row locking (`lockForUpdate()`) on both `Invoice` and `User` records within `markInvoicePaid()`, ensuring idempotency and eliminating race conditions with the background expiration scheduler.
+    - Scoped domain reactivation: renewals strictly reactivate suspended domains (`where('status', 'suspended')`), guaranteeing unverified/pending domains remain safely pending verification.
+  - **Subscription Validity Gate for Tenant Activation (`AdminApiController.php`):**
+    - `activateUser()` strictly rejects customer tenants whose subscription has expired (`plan_expires_at->isPast()`) with HTTP 422 Unprocessable Entity, preventing inconsistent active states.
+    - Preserves admin account segregation under `RBAC-DEC-04` (HTTP 403).
+  - **Read-Only Reconciliation Subsystem (`TenantUsageReconciliationService.php`):**
+    - Comprehensive audit engine comparing Redis vs MariaDB usage desync (`USAGE_LEDGER_DESYNC`), mailbox sums vs tenant totals (`MAILBOX_SUM_EXCEEDS_TENANT`), over-quota breaches (`TENANT_OVER_QUOTA`, `MAILBOX_OVER_QUOTA`), expired active subscriptions (`ACTIVE_EXPIRED_SUBSCRIPTION`), active tenants without plans (`ACTIVE_WITHOUT_PLAN`), suspended tenants with active domains (`SUSPENDED_TENANT_ACTIVE_DOMAINS`), and invoice metadata anomalies (`PAID_INVOICE_MISSING_PAID_AT`, `PAID_INVOICE_CURRENCY_MISMATCH`).
+  - **Operator Reconciliation CLI Command (`TenantReconcileUsageCommand.php`):**
+    - Artisan command `php artisan tenant:reconcile-usage` with `--tenant=`, `--date=`, `--detailed`, and `--json` options.
+    - Registered daily at 05:00 UTC with `withoutOverlapping(15)` in `routes/console.php`.
+  - **Administrative Reconciliation API (`AdminReconciliationApiController.php`):**
+    - Endpoints: `GET /api/admin/reconciliation/report` and `GET /api/admin/reconciliation/tenants/{user}`.
+    - Protected by Sanctum, `EnsureAdmin`, and granular permission `admin.permission:admin.stats.read`.
+  - **Admin Telemetry & Frontend Observability:**
+    - `AdminSmtpTenantResource`: returns `remaining_daily_quota`, `quota_usage_percent`, `is_over_quota`, and granular `subscription_state`.
+    - `AdminSmtpService::getOverview`: returns `tenants_over_quota_count` and `reconciliation_status`.
+    - Frontend UI (`SmtpTenantsTable.tsx`): displays remaining daily quota subtext, over-quota warning badges, and granular subscription state badges.
+  - **Automated Testing & Verification:**
+    - Authored `tests/Feature/TenantUsageAndBillingReconciliationTest.php` with 16 comprehensive feature tests (57 assertions).
+    - Full backend regression test suite: **285 passed (1,274 assertions)** cleanly with zero failures and zero regressions.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 24/24 static pages)**.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 24 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
+- **Step 25 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
-  - Submit RFC to architecture committee for standalone `/api/admin/system/backup-status` HTTP API.
+  - Validate end-to-end outbound SMTP policy enforcement and Redis $\to$ MariaDB usage reconciliation under live traffic.

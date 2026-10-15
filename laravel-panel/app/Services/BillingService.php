@@ -128,6 +128,12 @@ class BillingService
             return true;
         }
 
+        // Security Check 0: Reject IPN callbacks targeting cancelled invoices
+        if ($invoice->status === 'cancelled') {
+            Log::warning('SSLCommerz IPN rejected for cancelled invoice', ['tran_id' => $data['tran_id']]);
+            return false;
+        }
+
         if ($data['status'] === 'VALID' || $data['status'] === 'VALIDATED') {
             // Security Check 1: Verify the currency matches if supplied
             $currency = $data['currency'] ?? $data['currency_type'] ?? null;
@@ -162,6 +168,15 @@ class BillingService
                 'status'           => 'failed',
                 'payment_response' => $data,
             ]);
+            return false;
+        }
+
+        if ($data['status'] === 'CANCELLED') {
+            $invoice->update([
+                'status'           => 'cancelled',
+                'payment_response' => $data,
+            ]);
+            return false;
         }
 
         return false;
@@ -175,7 +190,7 @@ class BillingService
         \DB::transaction(function () use ($invoice, $gatewayData) {
             // Pessimistic lock on invoice to guarantee idempotency under concurrent webhooks
             $lockedInvoice = Invoice::where('id', $invoice->id)->lockForUpdate()->first();
-            if (! $lockedInvoice || $lockedInvoice->status === 'paid') {
+            if (! $lockedInvoice || $lockedInvoice->status === 'paid' || $lockedInvoice->status === 'cancelled') {
                 return;
             }
 
@@ -211,7 +226,7 @@ class BillingService
                 'period_end'              => $newExpires->toDateString(),
             ]);
 
-            // Reactivate suspended domains if the user was suspended
+            // Reactivate suspended domains if the user was suspended (pending domains remain pending)
             if ($user->status === 'suspended') {
                 $user->domains()->where('status', 'suspended')->update(['status' => 'active']);
             }

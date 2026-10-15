@@ -122,15 +122,24 @@ export default function SmtpTenantsTable() {
                         <td className="px-6 py-4">
                           <div className="font-medium text-gray-800">{tenant.plan_name}</div>
                           <span className={`text-[10px] font-semibold uppercase tracking-wider ${
-                            tenant.is_subscription_active ? 'text-green-600' : 'text-amber-600'
+                            tenant.subscription_state === 'valid' || tenant.subscription_state === 'admin_exempt'
+                              ? 'text-green-600'
+                              : tenant.subscription_state === 'expired'
+                              ? 'text-red-600'
+                              : 'text-amber-600'
                           }`}>
-                            {tenant.is_subscription_active ? 'Active' : 'Inactive'}
+                            {tenant.subscription_state ?? (tenant.is_subscription_active ? 'Active' : 'Inactive')}
                           </span>
                         </td>
 
                         {/* Daily Quota */}
                         <td className="px-6 py-4 font-mono text-gray-700">
-                          {tenant.daily_quota === -1 ? 'Unlimited' : tenant.daily_quota.toLocaleString()}
+                          <div>{tenant.daily_quota === -1 ? 'Unlimited' : tenant.daily_quota.toLocaleString()}</div>
+                          {tenant.daily_quota > 0 && tenant.remaining_daily_quota !== undefined && tenant.remaining_daily_quota !== null && (
+                            <div className="text-[11px] text-gray-400 font-sans">
+                              {tenant.remaining_daily_quota.toLocaleString()} remaining
+                            </div>
+                          )}
                         </td>
 
                         {/* Today's Usage */}
@@ -138,7 +147,9 @@ export default function SmtpTenantsTable() {
                           {tenant.telemetry_available ? (
                             <div className="w-36 space-y-1">
                               <div className="flex justify-between text-xs font-mono">
-                                <span>{tenant.today_recipients ?? 0}</span>
+                                <span className={tenant.is_over_quota ? 'text-red-600 font-bold' : ''}>
+                                  {tenant.today_recipients ?? 0}
+                                </span>
                                 <span className="text-gray-400">
                                   {tenant.daily_quota === -1 ? '∞' : tenant.daily_quota.toLocaleString()}
                                 </span>
@@ -147,15 +158,20 @@ export default function SmtpTenantsTable() {
                                 <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
                                   <div
                                     className={`h-1.5 rounded-full transition-all ${
-                                      usagePercent >= 90 
+                                      usagePercent >= 90 || tenant.is_over_quota
                                         ? 'bg-red-500' 
                                         : usagePercent >= 75 
                                         ? 'bg-yellow-500' 
                                         : 'bg-indigo-500'
                                     }`}
-                                    style={{ width: `${usagePercent}%` }}
+                                    style={{ width: `${Math.min(usagePercent, 100)}%` }}
                                   />
                                 </div>
+                              )}
+                              {tenant.is_over_quota && (
+                                <Badge variant="destructive" className="text-[10px] py-0 px-1 font-semibold">
+                                  Over Quota
+                                </Badge>
                               )}
                             </div>
                           ) : (

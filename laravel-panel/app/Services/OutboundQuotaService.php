@@ -27,11 +27,15 @@ class OutboundQuotaService
         }
 
         // Validate Mailbox ownership
-        if ((int)$mailbox->domain->user_id !== (int)$tenant->id) {
+        if ((int)($mailbox->domain?->user_id ?? 0) !== (int)$tenant->id) {
             return $this->buildResult('INVALID_REQUEST', 'Mailbox does not belong to the given tenant.');
         }
 
-        // 2. Resolve Limits
+        // 2. Resolve Limits (Fail-closed to 0 if tenant has no plan assigned)
+        if (!$tenant->plan) {
+            return $this->buildResult('REJECTED_QUOTA', 'Tenant has no assigned subscription plan.');
+        }
+
         $tenantLimit = $tenant->plan->daily_outbound_recipients ?? -1;
         $mailboxLimit = $tenant->plan->mailbox_daily_outbound_recipients ?? -1;
 
@@ -50,7 +54,8 @@ class OutboundQuotaService
 
         // 3. Resolve Keys
         $date = Carbon::now('UTC')->format('Y-m-d');
-        $tenantKey = $tenantLimit === -1 ? '' : "outbound:tenant:{$tenant->id}:recipients:daily:{$date}";
+        // Always set tenantKey when Redis is invoked so tenant daily usage is recorded for accounting/sync
+        $tenantKey = "outbound:tenant:{$tenant->id}:recipients:daily:{$date}";
         $mailboxKey = $mailboxLimit === -1 ? '' : "outbound:mailbox:{$mailbox->id}:recipients:daily:{$date}";
 
         // 48 hours in seconds
@@ -112,7 +117,7 @@ if mailboxKey ~= '' and mailboxLimit ~= -1 then
 end
 
 -- Both passed (or were unlimited). Apply increments and TTLs.
-if tenantKey ~= '' and tenantLimit ~= -1 then
+if tenantKey ~= '' then
     local newTenant = redis.call('INCRBY', tenantKey, requested)
     if newTenant == requested then
         -- It was newly created, set TTL
@@ -120,7 +125,7 @@ if tenantKey ~= '' and tenantLimit ~= -1 then
     end
 end
 
-if mailboxKey ~= '' and mailboxLimit ~= -1 then
+if mailboxKey ~= '' then
     local newMailbox = redis.call('INCRBY', mailboxKey, requested)
     if newMailbox == requested then
         -- It was newly created, set TTL

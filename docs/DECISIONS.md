@@ -401,3 +401,19 @@ The canonical decision history preceding this record must remain preserved. Earl
 > **ARCHITECTURE DECISIONS APPROVED FOR DOCUMENTATION — IMPLEMENTATION STILL BLOCKED**
 
 A separate explicit owner instruction is required before implementation may begin.
+
+---
+
+## Decision: Tenant Usage Accounting, SMTP Quota Invariants & Billing Reconciliation (Step 24)
+### Status
+ACCEPTED & IMPLEMENTED
+### Date
+2026-10-16 (Step 24)
+### Decision
+1. **Quota Accounting Integrity:** `OutboundQuotaService` always supplies `$tenantKey` to Redis Lua evaluation, guaranteeing tenant daily recipient usage is recorded and synced to `tenant_outbound_usage` even when tenant-level quota is unlimited (-1) with finite mailbox-level quotas. Missing plan configuration defaults to 0 (disabled).
+2. **Billing Invariant Hardening:** `BillingService::handleIpn` strictly rejects payment callbacks targeting cancelled invoices (`status = 'cancelled'`). `markInvoicePaid` locks both Invoice and User rows with `lockForUpdate()`, prohibits mutating cancelled or already-paid invoices, and restricts suspended tenant domain recovery to verified domains (`where('status', 'suspended')`), preserving pending/unverified domains.
+3. **Tenant Activation Subscription Gate:** `AdminApiController::activateUser` enforces subscription validity, rejecting activation of customer tenants with expired subscriptions (`plan_expires_at->isPast()`) with HTTP 422.
+4. **Read-Only Reconciliation Subsystem:** Implemented `TenantUsageReconciliationService` and console command `php artisan tenant:reconcile-usage` (`routes/console.php` daily at 05:00 UTC). Read-only auditing detects Redis vs MariaDB ledger desync, mailbox sum discrepancies, over-quota breaches, suspended tenants with active domains, and invoice metadata anomalies without state mutations.
+5. **Admin Control Plane Visibility:** Enhanced `AdminSmtpTenantResource` with `remaining_daily_quota`, `quota_usage_percent`, `is_over_quota`, and `subscription_state`. Exposed `GET /api/admin/reconciliation/report` and `GET /api/admin/reconciliation/tenants/{user}` protected by `admin.permission:admin.stats.read`.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes

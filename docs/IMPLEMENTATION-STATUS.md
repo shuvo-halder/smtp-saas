@@ -391,3 +391,46 @@
   - `[x]` Existing `tests/Feature/AdminAuditLogTest.php`: 10 tests / 51 assertions passing (100%).
   - `[x]` Full regression test suite: **269 tests / 1,217 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 100%)**.
+
+## Step 24 — Tenant Usage, SMTP Quota & Billing Reconciliation
+
+**Phase:** Accounting Invariant Hardening, Quota Enforcement, Subscription Activation Gate & Read-Only Reconciliation Subsystem
+**Verdict:** **`IMPLEMENTED — VERIFIED`**
+
+- `[x]` Outbound Quota Accounting Hardening (`OutboundQuotaService`):
+  - `[x]` Fixed key omission: `$tenantKey` is always passed to Redis Lua evaluation whenever Redis is called, guaranteeing that tenants on unlimited plans (`-1`) with finite mailbox limits have their total recipient count captured in Redis and synced to `tenant_outbound_usage`.
+  - `[x]` Preserved established `test_unlimited_quotas_bypasses_redis` contract when both tenant and mailbox limits are `-1`.
+  - `[x]` Safe domain null checking (`$mailbox->domain?->user_id ?? 0`).
+  - `[x]` Fail-closed plan check: tenants without an assigned plan fail closed (`REJECTED_QUOTA`).
+- `[x]` Billing Invariants & IPN Security Hardening (`BillingService`):
+  - `[x]` Strict rejection of IPN webhooks targeting `cancelled` invoices (returns `false`).
+  - `[x]` Recording of `failed` and `cancelled` payment statuses in invoice ledger.
+  - `[x]` Pessimistic concurrency locks (`lockForUpdate()`) on both `Invoice` and `User` records in `markInvoicePaid()`, ensuring idempotency under duplicate webhooks.
+  - `[x]` Scoped domain recovery: reactivates strictly suspended domains (`where('status', 'suspended')`), preserving pending and unverified domains.
+- `[x]` Subscription Validity Gate for Tenant Activation (`AdminApiController::activateUser`):
+  - `[x]` Prevents reactivating customer tenants with expired subscriptions (`plan_expires_at->isPast()`), returning HTTP 422 with actionable guidance.
+  - `[x]` Enforces administrator account segregation under `RBAC-DEC-04` (HTTP 403).
+- `[x]` Read-Only Reconciliation Service (`TenantUsageReconciliationService`):
+  - `[x]` Detects `USAGE_LEDGER_DESYNC` when Redis ephemeral counters lead MariaDB historical rows.
+  - `[x]` Detects `MAILBOX_SUM_EXCEEDS_TENANT` when mailbox Redis counters exceed tenant totals.
+  - `[x]` Detects `TENANT_OVER_QUOTA` and `MAILBOX_OVER_QUOTA`.
+  - `[x]` Detects `ACTIVE_EXPIRED_SUBSCRIPTION` and `ACTIVE_WITHOUT_PLAN`.
+  - `[x]` Detects `SUSPENDED_TENANT_ACTIVE_DOMAINS`.
+  - `[x]` Detects `PAID_INVOICE_MISSING_PAID_AT` and `PAID_INVOICE_CURRENCY_MISMATCH`.
+  - `[x]` Strictly read-only: performs zero database mutations and zero Redis modifications.
+- `[x]` Operator Reconciliation Command (`TenantReconcileUsageCommand`):
+  - `[x]` Artisan command `php artisan tenant:reconcile-usage` with `--tenant=`, `--date=`, `--detailed`, and `--json` options.
+  - `[x]` Clean tabular formatting with summary metrics and itemized discrepancy reporting.
+  - `[x]` Scheduled daily at 05:00 UTC with `withoutOverlapping(15)` mutex in `routes/console.php`.
+- `[x]` Administrative API Endpoints (`AdminReconciliationApiController`):
+  - `[x]` `GET /api/admin/reconciliation/report`: comprehensive platform reconciliation summary and discrepancies list.
+  - `[x]` `GET /api/admin/reconciliation/tenants/{user}`: drill-down single-tenant reconciliation view.
+  - `[x]` Protected by `EnsureAdmin` and `admin.permission:admin.stats.read`.
+- `[x]` Enhanced Control Plane Quota & Usage Visibility:
+  - `[x]` `AdminSmtpTenantResource`: returns `remaining_daily_quota`, `quota_usage_percent`, `is_over_quota`, and granular `subscription_state`.
+  - `[x]` `AdminSmtpService::getOverview`: returns `tenants_over_quota_count` and `reconciliation_status`.
+  - `[x]` Frontend Next.js UI (`SmtpTenantsTable.tsx`): displays remaining daily quota subtext, over-quota badges, and subscription state indicators.
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Implemented `tests/Feature/TenantUsageAndBillingReconciliationTest.php` with 16 comprehensive feature tests (57 assertions).
+  - `[x]` Full backend test suite: **285 tests / 1,274 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend Next.js 14 production build: **Compiled all 24 static pages cleanly with zero errors (100%)**.

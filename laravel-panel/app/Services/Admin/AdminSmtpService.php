@@ -58,29 +58,33 @@ class AdminSmtpService
                 'total_tenants'               => $totalTenants,
                 'total_mailboxes'             => $totalMailboxes,
                 'active_abuse_warnings_count' => null,
+                'tenants_over_quota_count'    => null,
+                'reconciliation_status'       => 'unknown',
                 'checked_at'                  => Carbon::now('UTC')->toIso8601String(),
             ];
         }
 
         try {
-            $tenantIds = User::pluck('id')->toArray();
+            $tenants = User::with('plan:id,daily_outbound_recipients')->get(['id', 'plan_id']);
             $totalRecipients = 0;
             $totalHard = 0;
             $totalSoft = 0;
+            $tenantsOverQuota = 0;
 
-            if (!empty($tenantIds)) {
+            if ($tenants->isNotEmpty()) {
                 // Chunk to prevent overly large single MGET payloads
-                $chunks = array_chunk($tenantIds, 100);
+                $chunks = $tenants->chunk(100);
                 foreach ($chunks as $chunk) {
                     $keys = [];
-                    foreach ($chunk as $id) {
-                        $keys[] = "outbound:tenant:{$id}:recipients:daily:{$today}";
-                        $keys[] = "outbound:abuse:tenant:{$id}:bounces:hard:daily:{$today}";
-                        $keys[] = "outbound:abuse:tenant:{$id}:bounces:soft:daily:{$today}";
+                    foreach ($chunk as $t) {
+                        $keys[] = "outbound:tenant:{$t->id}:recipients:daily:{$today}";
+                        $keys[] = "outbound:abuse:tenant:{$t->id}:bounces:hard:daily:{$today}";
+                        $keys[] = "outbound:abuse:tenant:{$t->id}:bounces:soft:daily:{$today}";
                     }
 
                     $values = Redis::mget($keys);
                     $valCount = count($values);
+                    $chunkArray = $chunk->values();
                     for ($i = 0; $i < $valCount; $i += 3) {
                         $recipients = isset($values[$i]) && is_numeric($values[$i]) ? (int) $values[$i] : 0;
                         $hard       = isset($values[$i + 1]) && is_numeric($values[$i + 1]) ? (int) $values[$i + 1] : 0;
@@ -89,6 +93,12 @@ class AdminSmtpService
                         $totalRecipients += $recipients;
                         $totalHard       += $hard;
                         $totalSoft       += $soft;
+
+                        $tenantModel = $chunkArray[(int) ($i / 3)] ?? null;
+                        $dailyQuota = $tenantModel?->plan?->daily_outbound_recipients ?? -1;
+                        if ($dailyQuota > 0 && $recipients > $dailyQuota) {
+                            $tenantsOverQuota++;
+                        }
                     }
                 }
             }
@@ -107,6 +117,8 @@ class AdminSmtpService
                 'total_tenants'               => $totalTenants,
                 'total_mailboxes'             => $totalMailboxes,
                 'active_abuse_warnings_count' => count($warnings['warnings'] ?? []),
+                'tenants_over_quota_count'    => $tenantsOverQuota,
+                'reconciliation_status'       => $tenantsOverQuota > 0 ? 'attention_required' : 'healthy',
                 'checked_at'                  => Carbon::now('UTC')->toIso8601String(),
             ];
         } catch (Throwable $e) {
@@ -121,6 +133,8 @@ class AdminSmtpService
                 'total_tenants'               => $totalTenants,
                 'total_mailboxes'             => $totalMailboxes,
                 'active_abuse_warnings_count' => null,
+                'tenants_over_quota_count'    => null,
+                'reconciliation_status'       => 'unknown',
                 'checked_at'                  => Carbon::now('UTC')->toIso8601String(),
             ];
         }

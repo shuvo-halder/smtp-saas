@@ -100,4 +100,12 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - `AdminAuditLogApiController`: Bounded (<= 50) paginated API protected by `admin.permission:admin.audit_logs.read` with validated filtering (`outcome`, `action`, `entity_type`, `search`, `dates`) and sorting (`id`, `created_at`, `action`, `entity_type`).
 - Next.js Admin UI (`/admin/audit-logs`): Full-featured audit table with categorized action optgroups, outcome filters, visual outcome badges (`success`, `failure`, `denial`), 403 Forbidden permission-denied UI alert card, and JSON before/after state diff modal.
 
+## 14. Tenant Usage, Quota & Billing Reconciliation (Step 24)
+- `TenantUsageReconciliationService`: Central read-only reconciliation engine comparing real-time Redis telemetry, MariaDB `tenant_outbound_usage`, plan quota boundaries, subscription states, domain statuses, and billing invoices.
+- `TenantReconcileUsageCommand` (`php artisan tenant:reconcile-usage`): Operator console command with tabular and `--json` outputs for auditing platform discrepancies.
+- `AdminReconciliationApiController`: REST API endpoints (`GET /api/admin/reconciliation/report`, `GET /api/admin/reconciliation/tenants/{user}`) protected by Sanctum, `EnsureAdmin`, and `admin.permission:admin.stats.read`.
+- Enhanced `OutboundQuotaService`: Preserves tenant recipient accounting in Redis Lua scripts even when tenant quota is unlimited (-1) with restricted mailbox limits.
+- Enhanced `AdminSmtpTenantResource`: Provides live remaining quota, usage percentages, over-quota flags, and granular subscription states.
+- Enhanced Next.js UI (`SmtpTenantsTable.tsx`): Displays remaining daily quota, over-quota alerts, and subscription states.
+
 

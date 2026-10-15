@@ -137,6 +137,14 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
                 ->middleware('admin.permission:admin.audit_logs.read');
             Route::get('/audit-logs/{id}', [AdminAuditLogApiController::class, 'show'])
                 ->middleware('admin.permission:admin.audit_logs.read');
+
+            // Tenant Usage, Quota & Billing Reconciliation (Step 24)
+            Route::prefix('reconciliation')->group(function () {
+                Route::get('/report', [\App\Http\Controllers\Api\AdminReconciliationApiController::class, 'report'])
+                    ->middleware('admin.permission:admin.stats.read');
+                Route::get('/tenants/{user}', [\App\Http\Controllers\Api\AdminReconciliationApiController::class, 'tenantReport'])
+                    ->middleware('admin.permission:admin.stats.read');
+            });
         });
     });
 });

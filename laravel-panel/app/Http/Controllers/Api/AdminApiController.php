@@ -175,6 +175,13 @@ class AdminApiController extends Controller
             ], 403);
         }
 
+        // Enforce subscription validity: cannot reactivate a tenant whose subscription is expired
+        if ($user->plan_expires_at !== null && $user->plan_expires_at->isPast()) {
+            return response()->json([
+                'message' => 'Cannot activate tenant with an expired subscription. Tenant must renew subscription or have plan expiration extended.'
+            ], 422);
+        }
+
         $beforeState = [
             'status' => $user->status,
         ];

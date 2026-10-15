@@ -1,5 +1,38 @@
 # Changelog
 
+### Tenant Usage, SMTP Quota & Billing Reconciliation (Step 24)
+- **Hardened:** Outbound Quota Accounting (`OutboundQuotaService`):
+  - Fixed recipient tracking omission: `$tenantKey` is now always supplied to Redis Lua evaluation whenever Redis is evaluated, guaranteeing tenant daily recipient consumption is captured and synced to `tenant_outbound_usage` even when tenant-level limit is unlimited (`-1`) with finite mailbox limits.
+  - Retained strict bypass of Redis when both tenant and mailbox limits are `-1`, preserving established architectural test contracts (`test_unlimited_quotas_bypasses_redis`).
+  - Added safe domain null handling (`$mailbox->domain?->user_id ?? 0`).
+  - Implemented fail-closed quota check: tenants without an assigned plan fail closed (`REJECTED_QUOTA`).
+- **Hardened:** Billing Gateway & Lifecycle Invariants (`BillingService`):
+  - Strictly reject IPN webhooks targeting `cancelled` invoices (`status = 'cancelled'`).
+  - Persist `failed` and `cancelled` payment statuses in the invoice ledger.
+  - Enforce pessimistic concurrency locking (`lockForUpdate()`) on both `Invoice` and `User` records in `markInvoicePaid()`, ensuring idempotency and preventing race conditions with expiration scheduler.
+  - Restrict suspended tenant domain recovery to strictly suspended domains (`where('status', 'suspended')`), guaranteeing unverified and pending domains remain pending.
+- **Implemented:** Subscription Validity Gate for Tenant Activation (`AdminApiController::activateUser`):
+  - Rejects activation of customer tenants with expired subscriptions (`plan_expires_at->isPast()`) with HTTP 422 Unprocessable Entity, preventing inconsistent active states.
+  - Enforces administrator account segregation under `RBAC-DEC-04` (HTTP 403).
+- **Implemented:** Unified Read-Only Reconciliation Subsystem:
+  - Created `App\Services\Reconciliation\TenantUsageReconciliationService` auditing Redis vs MariaDB usage desync, mailbox sums vs tenant totals, over-quota states, subscription state consistency, domain state invariants, and invoice payment metadata without state mutations.
+  - Created `App\Console\Commands\TenantReconcileUsageCommand` (`php artisan tenant:reconcile-usage`) with tabular formatting, `--tenant=`, `--date=`, `--detailed`, and `--json` outputs.
+  - Scheduled daily reconciliation check at 05:00 UTC with `withoutOverlapping(15)` mutex in `routes/console.php`.
+- **Implemented:** Administrative Reconciliation API Endpoints (`AdminReconciliationApiController`):
+  - `GET /api/admin/reconciliation/report`: comprehensive platform reconciliation summary and itemized discrepancies.
+  - `GET /api/admin/reconciliation/tenants/{user}`: drill-down single tenant usage, quota, and billing reconciliation view.
+  - Protected by `EnsureAdmin` and `admin.permission:admin.stats.read`.
+- **Enhanced:** Control Plane Observability:
+  - `AdminSmtpTenantResource`: returns `remaining_daily_quota`, `quota_usage_percent`, `is_over_quota`, and granular `subscription_state`.
+  - `AdminSmtpService::getOverview`: returns `tenants_over_quota_count` and `reconciliation_status`.
+  - Frontend Next.js UI (`SmtpTenantsTable.tsx`): displays remaining daily quota subtext, over-quota warning badges, and granular subscription state badges.
+- **Added:** Automated Test Suite (`tests/Feature/TenantUsageAndBillingReconciliationTest.php`):
+  - 16 comprehensive feature tests (57 assertions) covering boundary enforcement, multi-recipient accounting, unlimited tenant tracking, IPN validation and cancellation rejection, admin activation expiry gate, reconciliation desync detection, over-quota detection, CLI command, and API authorization.
+- **Verified:** Complete application health:
+  - Backend PHPUnit test suite: **285 tests / 1,274 assertions passed cleanly (0 failures, 0 errors, 100%)**.
+  - Frontend production build: **Next.js 14 compiles and builds all 24 pages cleanly with zero TypeScript errors**.
+  - Git state: Zero staged changes, zero commits, zero pushes.
+
 ### Admin Audit Trail & Security Event Monitoring (Step 23)
 - **Implemented:** Comprehensive Security Event & Mutation Taxonomy across the platform:
   - Authentication lifecycle: `auth.login`, `auth.logout`, `auth.failed` (recording `attempted_email` and guard; passwords/credentials strictly omitted from payload).

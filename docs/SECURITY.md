@@ -247,3 +247,19 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Application Ledger Tamper-Resistance Boundaries:**
   - **Implemented Protection:** Append-only relational ledger at application layer. Zero mutation endpoints (`POST`, `PUT`, `PATCH`, `DELETE` return HTTP 405 Method Not Allowed), Eloquent `$timestamps = false` with `const UPDATED_AT = null`, and audit log rows cannot be updated via the API.
   - **Infrastructure Limitations:** Application-layer append-only ledgers do not guarantee tamper-resistance against an attacker possessing direct MariaDB `root` access or physical storage access. True tamper-resistance requires database-level cryptographic hash chains, write-once-read-many (WORM) storage, or streaming to a remote SIEM / syslog server.
+
+## 21. Tenant Usage, SMTP Quota & Billing Reconciliation Security Invariants (Step 24)
+- **Quota Accounting Completeness & Leak Prevention:**
+  - `OutboundQuotaService` always supplies `$tenantKey` to the atomic Lua script in Redis whenever quota consumption is evaluated, ensuring that tenants with unlimited plan quotas (`-1`) who have restricted mailboxes still have their total recipient count captured in Redis and synchronized to `tenant_outbound_usage`.
+  - Missing plan configurations fail closed (`REJECTED_QUOTA`).
+- **Payment Gateway & IPN Hardening:**
+  - IPN callbacks targeting cancelled invoices (`status = 'cancelled'`) are rejected immediately, preventing payment revival of cancelled or superseded invoices.
+  - IPN callbacks enforce currency validation (`BDT`) and amount matching against invoice totals with 0.01 tolerance.
+  - `BillingService::markInvoicePaid()` enforces pessimistic concurrency locks (`lockForUpdate()`) on both `Invoice` and `User` records, guaranteeing financial idempotency under concurrent webhooks.
+- **Tenant Activation Subscription Gate:**
+  - Administrative activation (`POST /api/admin/users/{user}/activate`) strictly rejects customer tenants whose subscription has expired (`plan_expires_at->isPast()`) with HTTP 422, preventing inconsistent active states.
+  - Administrative accounts remain segregated under `RBAC-DEC-04` (HTTP 403).
+- **Read-Only Reconciliation Safety:**
+  - `TenantUsageReconciliationService` and `php artisan tenant:reconcile-usage` are strictly read-only: zero database rows are inserted, updated, or deleted, and zero Redis keys are mutated.
+  - Scheduled daily reconciliation (`05:00 UTC`) runs under `withoutOverlapping(15)` mutex.
+  - API endpoints `/api/admin/reconciliation/*` are protected by `EnsureAdmin` and `admin.permission:admin.stats.read`.

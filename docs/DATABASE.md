@@ -1,4 +1,4 @@
-﻿# Database Architecture
+# Database Architecture
 
 EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`). It acts as the ultimate source of truth for both the Laravel Application and the physical Mail Daemons (Postfix & Dovecot).
 
@@ -214,3 +214,29 @@ All 16 core migrations are applied in strict dependency order:
 - **Initial Super Admin Bootstrap:**
   - In production and staging, administrators are never created via seeders with static credentials. Initial Super Admin access must be created intentionally via CLI:
     `php artisan rbac:emergency-recovery <admin-email>`
+
+## Tenant Usage, SMTP Quota & Billing Reconciliation (Step 24)
+
+### 1. Quota & Usage Accounting Invariants
+- **Real-Time Redis Key Format:** `outbound:tenant:{id}:recipients:daily:{Y-m-d}` (TTL: 48h).
+- **Accounting Invariant:** `OutboundQuotaService` always supplies `$tenantKey` to the atomic Lua script whenever Redis is evaluated, guaranteeing that tenants with unlimited plan quotas (`-1`) who have restricted mailboxes still have their total recipient count captured in Redis and synchronized to `tenant_outbound_usage`.
+- **Durable MariaDB Ledger:** `tenant_outbound_usage` records are strictly monotonic (`recipient_count` only increases with Redis activity; never decrements).
+- **Missing Plan Posture:** If a tenant has no plan assigned, `OutboundQuotaService` fails closed with `REJECTED_QUOTA`.
+
+### 2. Billing & Domain Lifecycle Invariants
+- **Cancelled Invoices:** IPN webhooks targeting invoices with `status = 'cancelled'` are strictly rejected, preventing corrupt billing activations.
+- **Pessimistic Concurrency Locking:** `BillingService::markInvoicePaid()` locks both `invoices` and `users` rows using `lockForUpdate()`, guaranteeing idempotency and race condition prevention.
+- **Domain State Preservation:** Auto-suspension (`tenant:suspend-expired`) only marks `active` domains as `suspended`, leaving `pending` domains as `pending`. Billing reactivation restores only `suspended` domains, guaranteeing unverified/pending domains are never prematurely activated.
+
+### 3. Read-Only Reconciliation Audit Engine
+- **Engine:** `App\Services\Reconciliation\TenantUsageReconciliationService`
+- **CLI Tool:** `php artisan tenant:reconcile-usage {--tenant=} {--date=} {--detailed} {--json}`
+- **Automated Schedule:** Runs daily at 05:00 UTC with `withoutOverlapping(15)` mutex in `routes/console.php`.
+- **Audit Scope:**
+  - Detects `USAGE_LEDGER_DESYNC` when Redis ephemeral counts lead MariaDB historical rows.
+  - Detects `MAILBOX_SUM_EXCEEDS_TENANT` when mailbox Redis counters exceed tenant totals.
+  - Detects `TENANT_OVER_QUOTA` and `MAILBOX_OVER_QUOTA`.
+  - Detects `ACTIVE_EXPIRED_SUBSCRIPTION` and `ACTIVE_WITHOUT_PLAN`.
+  - Detects `SUSPENDED_TENANT_ACTIVE_DOMAINS`.
+  - Detects `PAID_INVOICE_MISSING_PAID_AT` and `PAID_INVOICE_CURRENCY_MISMATCH`.
+  - Strictly read-only: performs zero database mutations and zero Redis modifications.

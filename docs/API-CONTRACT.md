@@ -270,3 +270,35 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 - Confirmed minimal public liveness probe `GET /api/health` and `/up` returns HTTP 200 `{ "status": "HEALTHY", "timestamp": "..." }` with zero server topology or credential disclosure.
 - Confirmed authenticated administrative system health `GET /api/admin/system/health` enforces strict RBAC (unauthenticated 401, non-admin/zero-role 403, superAdmin/operator/support 200).
 - Confirmed `GET /api/admin/system/backup-status` remains **unimplemented** (`REQUIRES ARCHITECTURE APPROVAL`, HTTP 404). No ad-hoc HTTP endpoints were created.
+
+---
+
+## Tenant Usage, SMTP Quota & Billing Reconciliation API (Step 24)
+
+### 1. Administrative Reconciliation Endpoints
+| Method | Endpoint | Description | Middleware | Required Permission |
+|---|---|---|---|---|
+| GET | `/admin/reconciliation/report` | Comprehensive read-only audit report across tenant daily recipient usage, Redis vs MariaDB desync, over-quota states, subscription invariants, and billing integrity. Supports `?date=YYYY-MM-DD&tenant_id=INT`. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.stats.read` |
+| GET | `/admin/reconciliation/tenants/{user}` | Drill-down single tenant usage, quota, and billing reconciliation view with detailed discrepancies. Supports `?date=YYYY-MM-DD`. | `auth:sanctum`, `EnsureAdmin`, `admin.permission` | `admin.stats.read` |
+
+### 2. Enhanced Admin SMTP Tenant Resource Attributes (`GET /api/admin/smtp/tenants`)
+- `remaining_daily_quota`: Integer remaining daily recipient quota (`null` when unlimited or telemetry unavailable).
+- `quota_usage_percent`: Float percentage of daily recipient quota consumed (`null` when unlimited).
+- `is_over_quota`: Boolean flag indicating recipient consumption exceeded daily quota limit.
+- `subscription_state`: Categorized state: `'valid'`, `'expired'`, `'suspended'`, `'pending'`, `'no_plan'`, `'admin_exempt'`.
+
+### 3. Tenant Activation Gate (`POST /api/admin/users/{user}/activate`)
+- Returns `HTTP 422 Unprocessable Entity` when attempting to activate a customer tenant with an expired subscription (`plan_expires_at->isPast()`):
+  ```json
+  {
+    "message": "Cannot activate tenant with an expired subscription. Tenant must renew subscription or have plan expiration extended."
+  }
+  ```
+- Protects administrative accounts via `RBAC-DEC-04` (HTTP 403).
+
+### 4. Billing IPN Security Boundaries (`POST /api/billing/ipn`)
+- Rejects callbacks targeting `cancelled` invoices (returns `false`).
+- Rejects currency mismatches (expected `BDT`, returns `false`).
+- Rejects amount mismatches outside 0.01 tolerance (returns `false`).
+- Idempotent under duplicate concurrent invocations via pessimistic `lockForUpdate()`.
+- Domain recovery under suspended tenant reactivates strictly suspended domains (`where('status', 'suspended')`), preserving pending and unverified domains.

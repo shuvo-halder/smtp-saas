@@ -110,6 +110,8 @@ export interface SmtpOverview {
   total_tenants: number;
   total_mailboxes: number;
   active_abuse_warnings_count: number | null;
+  tenants_over_quota_count?: number | null;
+  reconciliation_status?: 'healthy' | 'attention_required' | 'unknown';
   checked_at: string;
 }
 
@@ -119,8 +121,12 @@ export interface SmtpTenant {
   email: string;
   status: 'active' | 'suspended' | 'pending';
   is_subscription_active: boolean;
+  subscription_state?: 'valid' | 'expired' | 'suspended' | 'pending' | 'no_plan' | 'admin_exempt';
   plan_name: string;
   daily_quota: number;
+  remaining_daily_quota?: number | null;
+  quota_usage_percent?: number | null;
+  is_over_quota?: boolean;
   mailbox_daily_quota: number;
   domains_count: number;
   mailboxes_count: number;
