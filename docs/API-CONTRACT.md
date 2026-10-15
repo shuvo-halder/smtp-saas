@@ -263,3 +263,10 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
   - Database or Application Core failure triggers overall `UNHEALTHY`.
   - Component failure/degradation (e.g. Redis disconnect or recent task failures) triggers overall `DEGRADED`.
   - Sensitive connection parameters, passwords, encryption keys, DSNs, and stack traces are strictly scrubbed prior to output.
+
+---
+
+### Step 20 API Acceptance & Boundary Audit
+- Confirmed minimal public liveness probe `GET /api/health` and `/up` returns HTTP 200 `{ "status": "HEALTHY", "timestamp": "..." }` with zero server topology or credential disclosure.
+- Confirmed authenticated administrative system health `GET /api/admin/system/health` enforces strict RBAC (unauthenticated 401, non-admin/zero-role 403, superAdmin/operator/support 200).
+- Confirmed `GET /api/admin/system/backup-status` remains **unimplemented** (`REQUIRES ARCHITECTURE APPROVAL`, HTTP 404). No ad-hoc HTTP endpoints were created.

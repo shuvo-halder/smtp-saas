@@ -164,8 +164,21 @@ This document is the operational starting point for any AI coding agent working 
     - Point-in-time Recovery (PITR): `NOT IMPLEMENTED` (Option B accepted)
     - Standalone `/api/admin/system/backup-status` HTTP API: `REQUIRES ARCHITECTURE APPROVAL`
 
+- **Step 20 — Staging Deployment Review, Live Infrastructure Acceptance & Disaster Recovery Drill (PARTIALLY VERIFIED / BLOCKED — REQUIRES INFRASTRUCTURE):**
+  - **Installer Audit & Parameterization Blocker:** Audited `scripts/install.sh`. Identified that the installer is unparameterized for staging (hardcodes `mail.yourdomain.com`, executes unconditional `ufw --force reset`, and standalone Let's Encrypt certbot challenges). Documented requirement for CLI flags (`--domain`, `--staging`, `--skip-ssl`, `--skip-ufw`) before running on remote or shared VPS hosts.
+  - **Database Host Security Isolation:** Identified that `.env.example` specifies external host `DB_HOST=103.131.144.61`. Enforced strict operational isolation safeguards prohibiting migration, drop, or restore command execution against unverified external IPs.
+  - **Cryptographic Authenticity Limitation of AES-CBC:** Formally documented that OpenSSL AES-256-CBC PBKDF2 is an unauthenticated cipher mode (confidentiality only, non-AEAD) with integrity reliant on unauthenticated `.manifest.json` files. Recommended AEAD upgrade (`aes-256-gcm` or HMAC-signed manifests) prior to production release.
+  - **Disaster Recovery Runbook Hardening:** Authored Section 8 (Staging Rollback Runbook) with baseline snapshots, restore sequences, stop conditions, and strict prohibition on automatic `migrate --force`. Added Section 9 (15-point Acceptance Evidence Matrix).
+  - **Baseline Verification:** Confirmed 243 backend tests / 1,064 assertions passing cleanly with zero failures; frontend TypeScript typecheck 0 errors, `npm run test:step19` 100% passed, and Next.js 14 production build succeeds with 24/24 static pages.
+  - **Infrastructure Status Recorded:**
+    - Live MariaDB Restore: `PENDING INFRASTRUCTURE` (Requires dedicated Linux VPS with active MariaDB daemon).
+    - Live Dovecot Restore: `PENDING INFRASTRUCTURE` (Requires dedicated Linux VPS with active Dovecot daemon).
+    - Point-in-Time Recovery (PITR): `NOT IMPLEMENTED` (Option B accepted).
+    - Standalone Backup HTTP API: `REQUIRES ARCHITECTURE APPROVAL` (Maintained 404).
+
 ## 5. Next Recommended Implementation Phase
-- **Step 19.1 / Step 20 — Production Staging & Linux Infrastructure Validation:**
-  - Deploy to target Linux VPS environment with Postfix, Dovecot, MariaDB 10.11+, and Redis.
-  - Execute live daemon restore tests against active MariaDB service and Dovecot MDA indexer (`doveadm index`) to elevate status from `PARTIALLY VERIFIED` to `VERIFIED`.
-  - Review and obtain architecture approval for the standalone Disaster Recovery Health HTTP API contract (`GET /api/admin/system/backup-status`).
+- **Step 20.1 / Step 21 — Dedicated Staging Host Provisioning & Installer Parameterization:**
+  - Refactor `scripts/install.sh` to accept `--domain=<hostname>`, `--staging`, `--skip-ssl`, and `--skip-ufw` flags.
+  - Provision a dedicated Ubuntu 22.04 / 24.04 LTS VPS with dedicated DNS record.
+  - Execute parameterized installation, run live MariaDB 10.11+ restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PARTIALLY VERIFIED` to `STAGING ACCEPTANCE — VERIFIED`.
+  - Submit RFC to architecture committee for AEAD encryption upgrade (`aes-256-gcm`) and standalone backup status API.

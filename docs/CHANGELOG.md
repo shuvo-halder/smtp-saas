@@ -1,5 +1,28 @@
 # Changelog
 
+### Staging Deployment Review, Live Infrastructure Acceptance & Disaster Recovery Drill (Step 20)
+- **Audited:** `scripts/install.sh` installation routine:
+  - Identified hardcoded domain `MAIL_DOMAIN="mail.yourdomain.com"`, unconditional `ufw --force reset`, and automated standalone Let's Encrypt challenges.
+  - Documented installer parameterization requirements (`--domain`, `--staging`, `--skip-ssl`, `--skip-ufw`) before running on shared or non-production staging environments.
+- **Audited & Secured:** Database isolation boundary:
+  - Identified remote database IP `DB_HOST=103.131.144.61` in `.env.example`.
+  - Enforced strict isolation safeguards prohibiting execution of migrations, drops, or `restore_db.sh` against unverified or remote database hosts.
+- **Analyzed:** Backup encryption security architecture:
+  - Documented that OpenSSL AES-256-CBC is an unauthenticated cipher (confidentiality only, non-AEAD) and integrity relies on unauthenticated companion `.manifest.json` SHA-256 hashes.
+  - Recorded formal security recommendation to upgrade to authenticated encryption (AEAD like AES-GCM or HMAC-signed manifests) prior to production release.
+- **Hardened:** `docs/DISASTER-RECOVERY-RUNBOOK.md`:
+  - Added Section 8: Staging Rollback Runbook detailing preconditions, target database/directory verification, service state, restore sequence, validation commands, stop conditions, and strict prohibition on automatic `migrate --force`.
+  - Added Section 9: 15-point Acceptance Evidence Matrix.
+- **Verified:** Complete baseline stability:
+  - Backend regression suite: **243 passed (1064 assertions)**, 0 failures, 0 errors, 0 skipped.
+  - Frontend: TypeScript typecheck 0 errors, `npm run test:step19` 100% passed, Next.js 14 production build (`npm run build`) generates all 24 static pages cleanly.
+  - Git tree: Zero staged changes, zero commits.
+- **Infrastructure Status Recorded:**
+  - Live MariaDB Restore: `PENDING INFRASTRUCTURE` (Requires dedicated Linux VPS with active MariaDB daemon).
+  - Live Dovecot Restore: `PENDING INFRASTRUCTURE` (Requires dedicated Linux VPS with active Dovecot daemon).
+  - Point-in-Time Recovery (PITR): `NOT IMPLEMENTED` (Option B accepted).
+  - Standalone Backup HTTP API: `REQUIRES ARCHITECTURE APPROVAL` (Maintained 404).
+
 ### Operational Reliability, Scheduled Jobs & System Health (Step 19)
 - **Implemented:** Scheduled task execution tracking ledger (`scheduled_task_runs` table, migration `2026_10_15_000001_create_scheduled_task_runs_table.php`, and `ScheduledTaskRun` Eloquent model):
   - Records canonical task identifier, cron expression, start time, completion time, duration in milliseconds, result state (`running`, `success`, `failed`, `skipped`), and sanitized failure summaries.

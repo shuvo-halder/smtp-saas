@@ -274,9 +274,14 @@ The retention engine implements a true calendar-aware Grandfather-Father-Son (GF
 
 ## 6. Security Posture: Encryption at Rest & Offsite Replication
 
-### 6.1 Encryption at Rest Architecture
+### 6.1 Encryption at Rest Architecture & Cryptographic Authenticity Analysis
 * **Algorithm:** OpenSSL AES-256-CBC with PBKDF2 key derivation (10,000 iterations, SHA-256, 8-byte random salt).
 * **Format:** Envelope containing `Salted__` magic header + 8-byte salt + raw AES-256 ciphertext (`.sql.gz.enc`, `.tar.gz.enc`).
+* **Cryptographic Authenticity Limitation (Non-AEAD):**
+  * AES-256-CBC is **unauthenticated encryption**: it provides confidentiality, but does **not** provide cryptographic authenticity (MAC).
+  * System integrity verification relies on comparing the SHA-256 hash of the archive against the companion `.manifest.json` file.
+  * **Threat Model Caveat:** The companion `.manifest.json` file is stored as plaintext JSON alongside the archive. In threat models where an adversary possesses write access to backup volumes, an attacker could manipulate ciphertext and calculate a corresponding new SHA-256 hash in the manifest without detection.
+  * **Production Remediation Requirement:** Prior to full production deployment, upgrade backup encryption to an authenticated mode (AEAD such as `aes-256-gcm` storing authentication tags in the envelope, or HMAC-SHA256 signature verification over manifests).
 * **Key Management:**
   * Configured via `BACKUP_ENCRYPTION_KEY` or `BACKUP_ENCRYPTION_KEY_PATH` (e.g., `/etc/emailsaas/backup.key`).
   * Encryption keys must **NEVER** be stored in `storage/backups/`, backup manifests, or git repositories.
@@ -296,9 +301,80 @@ The retention engine implements a true calendar-aware Grandfather-Father-Son (GF
 | **Archive Integrity & SHA-256** | `VERIFIED` | Unit & Feature tests, `gzip -t`, `sha256sum` | Automated in test suite and shell scripts. |
 | **Encryption at Rest & Decryption** | `VERIFIED` | Full roundtrip test, OpenSSL CLI cross-compatibility | PHP OpenSSL and OpenSSL 3.x CLI interchangeable. |
 | **Isolated Schema & Syntax Restore** | `VERIFIED` | Automated disposable SQLite restore engine | Critical tables validated: `users`, `domains`, `mailboxes`, `plans`, `invoices`, `audit_logs`, `abuse_incidents`. |
-| **Real MariaDB 10.11+ Live Restore** | `PARTIALLY VERIFIED` | DDL/DML grammar, syntax, and schema tested; MariaDB restore script verified | Live MariaDB engine daemon verification pending remote infrastructure. |
+| **Real MariaDB 10.11+ Live Restore** | `PARTIALLY VERIFIED` | DDL/DML grammar, syntax, and schema tested; MariaDB restore script verified | Live MariaDB engine daemon verification pending remote infrastructure (`PENDING INFRASTRUCTURE`). |
 | **Isolated Maildir Message Recovery** | `VERIFIED` | Synthetic Maildir roundtrip test | Messages, subdirectories (`cur`, `new`, `tmp`), and timestamps preserved. |
-| **Real Dovecot MDA Live Indexing** | `PARTIALLY VERIFIED` | Extraction and numeric permissions (`5000:5000`) tested; Dovecot reload tested | Live Dovecot MDA indexing daemon verification pending remote infrastructure. |
+| **Real Dovecot MDA Live Indexing** | `PARTIALLY VERIFIED` | Extraction and numeric permissions (`5000:5000`) tested; Dovecot reload tested | Live Dovecot MDA indexing daemon verification pending remote infrastructure (`PENDING INFRASTRUCTURE`). |
 | **Calendar-Aware Retention (GFS)** | `VERIFIED` | Multi-day / multi-month simulated test | Invariants enforced; older than 3 months pruned. |
 | **Fail-Safe Offsite Replication** | `VERIFIED` | Provider-neutral service and mock transport test | Remote failure leaves local backup intact. |
 | **Point-in-Time Recovery (PITR)** | `NOT IMPLEMENTED` | Explicit architectural choice (Option B) | Current system provides point-of-backup snapshots. |
+| **Standalone Backup Status HTTP API** | `REQUIRES ARCHITECTURE APPROVAL` | Step 18 governance enforced; tested 404 | Standalone HTTP endpoint withheld pending formal approval. |
+
+---
+
+## 8. Staging Rollback Runbook & Controlled Drill Procedure
+
+### 8.1 Rollback Preconditions & Invariants
+1. **Never Automatically Migrate:** `php artisan migrate --force` must **NEVER** be run as an automated recovery step. Schema changes must be an explicit, reviewed operational decision.
+2. **Explicit Target Identification:** Before executing any restore command, verify that `DB_DATABASE` points to the isolated staging/drill database and `TARGET_DIR` points to the isolated staging mail directory.
+3. **No Production Overwrite:** Never restore against production host `103.131.144.61` or production database `smtp`.
+
+### 8.2 Staging Drill Sequence
+1. **Pre-Drill Snapshot:**
+   ```bash
+   # Create baseline pre-drill snapshot of staging data
+   php artisan backup:run --verify
+   ```
+2. **Stop Mail Ingress:**
+   ```bash
+   sudo systemctl stop postfix
+   ```
+3. **Execute Isolated Database Restore:**
+   ```bash
+   # Restore into explicitly designated staging database
+   sudo bash scripts/restore_db.sh /var/backups/emailsaas/db/db_backup_STAGING.sql.gz.enc --confirm
+   ```
+4. **Execute Isolated Mail Storage Restore:**
+   ```bash
+   # Restore into isolated staging test directory
+   sudo bash scripts/restore_vmail.sh /var/backups/emailsaas/vmail/vmail_backup_STAGING.tar.gz.enc --confirm /var/vmail_staging_test
+   ```
+5. **Validation Commands:**
+   ```bash
+   # Inspect MariaDB table counts and schemas
+   mysql -u emailsaas -p emailsaas_staging -e "SHOW TABLES; SELECT COUNT(*) FROM users; SELECT COUNT(*) FROM mailboxes;"
+   # Validate Maildir permissions and ownership
+   ls -la /var/vmail_staging_test
+   # Test Dovecot indexer against isolated path
+   doveadm index -u test@staging.domain.com INBOX
+   ```
+6. **Rollback Trigger Conditions & Procedure:**
+   - **Stop Conditions:** Abort drill immediately if checksum mismatch occurs, decryption fails, tables fail to populate, or permissions do not match `5000:5000`.
+   - **Rollback Steps:**
+     ```bash
+     # Restore original pre-drill snapshot
+     sudo bash scripts/restore_db.sh /var/backups/emailsaas/db/db_backup_PRE_DRILL.sql.gz.enc --confirm
+     sudo rm -rf /var/vmail_staging_test
+     sudo systemctl start postfix
+     ```
+
+---
+
+## 9. Step 20 Acceptance Evidence Matrix
+
+| Check ID | Environment | Exact Operation Tested | Expected Result | Actual Result | Exit / HTTP Status | Evidence Location | Final Classification | Remaining Limitation |
+|---|---|---|---|---|---|---|---|---|
+| **CHK-20-01** | Local Dev | `git status --short` & `git branch` | Clean tree on `main` branch | Clean tree on `main`, zero uncommitted diffs | Exit `0` | Git CLI output | `VERIFIED` | None |
+| **CHK-20-02** | Local Dev | `php artisan test` | 243 tests pass, 1,064 assertions | 243 passed, 1,064 assertions, 0 failures, 0 errors, 0 skipped | Exit `0` | Test runner logs | `VERIFIED` | Remote daemon pending |
+| **CHK-20-03** | Local Dev | `npm run test:step19` | All dictionary and contract checks pass | 100% checks passed | Exit `0` | `verify-step19.mjs` | `VERIFIED` | None |
+| **CHK-20-04** | Local Dev | `npx tsc --noEmit` | Zero TypeScript compilation errors | 0 type errors | Exit `0` | TypeScript compiler | `VERIFIED` | None |
+| **CHK-20-05** | Local Dev | `npm run build` | Next.js 14 production build succeeds | 24/24 static pages generated cleanly | Exit `0` | Next.js build trace | `VERIFIED` | None |
+| **CHK-20-06** | Local Dev | `php artisan schedule:list` | All 6 scheduled tasks listed with correct frequency & mutexes | All 6 tasks verified (`tenant:suspend-expired`, `outbound:usage-sync`, `mail:process-log`, `backup:run`, `backup:prune`, `scheduled-tasks:prune`) | Exit `0` | Console output | `VERIFIED` | None |
+| **CHK-20-07** | Local Dev | `scripts/install.sh` audit | Safety inspection of installation script | Hardcoded `mail.yourdomain.com`, unparameterized UFW, missing staging vs production flag | Blocked from blind execution | `scripts/install.sh` | `AUDITED — PARAMETERIZATION REQUIRED` | Needs CLI args for domain/staging |
+| **CHK-20-08** | Local Dev | Public Health Probe `GET /api/health` | Minimal status payload without server info | Returns `{ "status": "HEALTHY", "timestamp": "..." }`, zero leak | HTTP `200` | `SystemHealthAndSchedulerTest` | `VERIFIED` | None |
+| **CHK-20-09** | Local Dev | Admin Health API RBAC `GET /api/admin/system/health` | Rejects unauth (401), tenant (403), suspended (403), zero-role (403); allows superAdmin (200) | Strict RBAC enforced | HTTP `401`/`403`/`200` | `SystemHealthAndSchedulerTest` | `VERIFIED` | None |
+| **CHK-20-10** | Local Dev | Step 18 Backup API Gap `GET /api/admin/system/backup-status` | Returns 404 Not Found (no unauthorized API invented) | Returns HTTP 404 | HTTP `404` | `SystemHealthAndSchedulerTest` | `VERIFIED` | Requires Architecture Approval |
+| **CHK-20-11** | Local Dev | Task Ledger Lifecycle & Sanitization | Non-blocking recording; passwords, DSNs, and tokens scrubbed | Exception traces scrubbed; DB failure fail-safe | Exit `0` | `SystemHealthAndSchedulerTest` | `VERIFIED` | None |
+| **CHK-20-12** | Local Dev | OpenSSL AES-256-CBC PBKDF2 Roundtrip | Encryption/decryption verified; fail-closed on missing key | Roundtrip passes; missing key throws `RuntimeException` | Exit `0` | `BackupAndDisasterRecoveryTest` | `VERIFIED` | AEAD upgrade recommended |
+| **CHK-20-13** | Local Dev | Isolated Schema & Maildir Restore | Restores into disposable SQLite DB and directory | Verifies all tables and Maildir structure | Exit `0` | `BackupAndDisasterRecoveryTest` | `VERIFIED` | SQLite/filesystem level only |
+| **CHK-20-14** | Remote Staging | Real MariaDB 10.11+ Live Restore | Live MariaDB daemon drop/create/import drill | Remote staging MariaDB daemon unavailable in local Windows dev environment | Deferred | Pending staging VPS | `PENDING INFRASTRUCTURE` | Requires dedicated Linux VPS |
+| **CHK-20-15** | Remote Staging | Real Dovecot MDA Live Indexing Drill | Live Dovecot `doveadm index` discovery drill | Remote staging Dovecot daemon unavailable in local Windows dev environment | Deferred | Pending staging VPS | `PENDING INFRASTRUCTURE` | Requires dedicated Linux VPS |

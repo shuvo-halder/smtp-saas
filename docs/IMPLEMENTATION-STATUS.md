@@ -250,3 +250,33 @@
   - `[x]` Next.js production build (`npm run build`): 24/24 static pages generated cleanly
   - `[x]` Feature test suite (`tests/Feature/SystemHealthAndSchedulerTest.php`): 15 tests, 84 assertions passing
   - `[x]` Full regression test suite (`php artisan test`): **243 passed / 1064 assertions / 0 failures / 0 regressions**
+
+---
+
+## Step 20 — Staging Deployment, Live Infrastructure Acceptance & Disaster Recovery Drill
+
+**Phase:** Staging Deployment Review, Live Infrastructure Acceptance Audit, and Disaster Recovery Runbook Hardening
+**Verdict:** **`PARTIALLY VERIFIED`** / **`BLOCKED — REQUIRES INFRASTRUCTURE`**
+
+- `[x]` Pre-Deployment Baseline & Health Verification:
+  - `[x]` Backend: 243 tests / 1,064 assertions passing cleanly (0 failures, 0 errors, 0 skipped).
+  - `[x]` Frontend: TypeScript typecheck 0 errors, Step 19 tests 100% passed, Next.js 14 production build succeeds with 24/24 static pages.
+  - `[x]` Git tree clean on `main` branch.
+- `[x]` Scheduler & Cron Audit:
+  - `[x]` All 6 tasks verified via `php artisan schedule:list` (`tenant:suspend-expired`, `outbound:usage-sync`, `mail:process-log`, `backup:run`, `backup:prune`, `scheduled-tasks:prune`).
+  - `[x]` Mutex configuration verified across all jobs.
+  - `[x]` System cron installation in `scripts/install.sh` verified as idempotent.
+- `[x]` Infrastructure & Security Audit:
+  - `[x]` Identified hardcoded domain (`mail.yourdomain.com`), unconditional UFW resets, and certbot challenge gaps in `scripts/install.sh`. Documented parameterization requirements prior to staging execution.
+  - `[x]` Identified remote database host `DB_HOST=103.131.144.61` in `.env.example`; documented strict isolation safeguards preventing accidental execution against production databases.
+  - `[x]` Cryptographic authenticity analysis: documented that OpenSSL AES-256-CBC is non-AEAD (unauthenticated) and relies on unauthenticated plaintext JSON manifests. Documented AEAD recommendation.
+- `[x]` Disaster Recovery Runbook Hardening:
+  - `[x]` Authored Section 8: Staging Rollback Runbook with preconditions, baseline snapshots, validation commands, stop conditions, and strict prohibition on automated `migrate --force`.
+  - `[x]` Authored Section 9: Complete 15-point Acceptance Evidence Matrix.
+- `[ ]` Live Infrastructure Verification Status:
+  - `[x]` Local Backup Snapshots & AES Encryption: `VERIFIED`
+  - `[x]` Isolated Schema & Dir Restore Verification: `VERIFIED`
+  - `[ ]` Real MariaDB 10.11+ Live Daemon Restore: `PENDING INFRASTRUCTURE` (Requires dedicated Linux VPS with running MariaDB daemon).
+  - `[ ]` Real Dovecot MDA Live Indexing (`doveadm index`): `PENDING INFRASTRUCTURE` (Requires dedicated Linux VPS with running Dovecot daemon).
+  - `[x]` Point-in-Time Recovery (PITR): `NOT IMPLEMENTED` (Option B accepted).
+  - `[x]` Standalone Backup HTTP API: `REQUIRES ARCHITECTURE APPROVAL` (Maintained 404).

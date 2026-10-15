@@ -116,7 +116,26 @@ EmailSaaS provides an enterprise backup and disaster recovery subsystem protecti
 | Local Snapshots & Verification | `VERIFIED` | Automated SHA-256 digests and isolated restore tests pass. |
 | Encryption at Rest | `VERIFIED` | OpenSSL AES-256-CBC PBKDF2 cross-compatible between PHP and bash. |
 | Offsite Transport Abstraction | `VERIFIED` | `BackupOffsiteService` and `sync_offsite.sh` implemented with fail-safe semantics. |
-| Real MariaDB Engine Restore | `PARTIALLY VERIFIED` | SQL dump syntax, transactions, and schema verified; live daemon pending remote infrastructure. |
-| Real Dovecot MDA Restore | `PARTIALLY VERIFIED` | Maildir extraction and numeric permissions verified; live Dovecot indexing pending remote infrastructure. |
-| Point-in-Time Recovery (PITR) | `NOT IMPLEMENTED` | Architecture relies on daily point-of-backup snapshots. |
+| Real MariaDB Engine Restore | `PARTIALLY VERIFIED` | SQL dump syntax, transactions, and schema verified; live daemon pending remote infrastructure (`PENDING INFRASTRUCTURE`). |
+| Real Dovecot MDA Restore | `PARTIALLY VERIFIED` | Maildir extraction and numeric permissions verified; live Dovecot indexing pending remote infrastructure (`PENDING INFRASTRUCTURE`). |
+| Point-in-Time Recovery (PITR) | `NOT IMPLEMENTED` | Architecture relies on daily point-of-backup snapshots (Option B). |
+| Standalone Backup Status HTTP API | `REQUIRES ARCHITECTURE APPROVAL` | Step 18 governance enforced; tested 404. |
 
+---
+
+## Staging Deployment & Live Infrastructure Acceptance Audit (Step 20)
+
+### Staging Infrastructure Audit Findings
+1. **Installer Parameterization Gap (`scripts/install.sh`):**
+   - Hardcoded values: `MAIL_DOMAIN="mail.yourdomain.com"`, `DB_NAME="emailsaas"`, `DB_USER="emailsaas"`.
+   - Hostname modification: unconditionally runs `hostnamectl set-hostname $MAIL_DOMAIN`.
+   - Firewall reset: unconditionally executes `ufw --force reset` and enables default deny incoming, which terminates active SSH sessions if non-standard SSH ports are used.
+   - Let's Encrypt validation: attempts standalone certbot against `mail.yourdomain.com`, which requires public DNS resolution.
+   - **Remediation Requirement:** `scripts/install.sh` must be refactored to accept flags (e.g. `--domain=staging.example.com`, `--staging`, `--skip-ssl`, `--skip-ufw`) before running on shared or staging infrastructure.
+2. **Database Isolation & Network Boundary (`laravel-panel/.env`):**
+   - The default `.env` configuration contains `DB_HOST=103.131.144.61`.
+   - In staging or local development, attempting to run database-driven cache, queues, or migrations against this external IP causes TCP timeouts or risks accidental production data corruption.
+   - All staging operations must strictly enforce `DB_HOST=127.0.0.1` or dedicated staging database containers.
+3. **Scheduler Verification:**
+   - Evaluated schedule list under isolated configuration (`php artisan schedule:list`).
+   - Confirmed all 6 scheduled tasks (`tenant:suspend-expired`, `outbound:usage-sync`, `mail:process-log`, `backup:run`, `backup:prune`, `scheduled-tasks:prune`) are registered with exact frequencies and overlap mutexes.

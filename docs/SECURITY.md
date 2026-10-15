@@ -175,3 +175,17 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Bearer authorization headers are masked.
 - **Read-Only Health Semantics & No Web Shell Execution:** The system health service is strictly read-only and diagnostic. Web clients cannot trigger backup dumps, restore operations, daemon restarts, or arbitrary CLI commands from the browser.
 - **DR Health API Governance Respect:** Step 18 governance mandating architectural approval for `GET /api/admin/system/backup-status` is strictly upheld. No unapproved backup HTTP API was silently created; backup status within system health is derived from local trusted companion manifests.
+
+## 18. Staging Deployment, Cryptographic Authenticity & Isolation Boundaries (Step 20)
+- **Cryptographic Authenticity Limitation of AES-256-CBC:**
+  - Backups are encrypted using OpenSSL AES-256-CBC with PBKDF2 (`Salted__` envelope).
+  - AES-256-CBC provides data confidentiality, but is an **unauthenticated encryption cipher** (it does not provide message authentication codes or cryptographic integrity verification).
+  - System integrity relies on external SHA-256 digests in unencrypted companion `.manifest.json` files. In threat models where the storage medium is writable by an attacker, tampering with both ciphertext and manifest cannot be cryptographically proven without an HMAC or digital signature.
+  - Production recommendation: Upgrade cipher to an authenticated mode (AEAD such as `aes-256-gcm`) or sign manifests with HMAC-SHA256 prior to production release.
+- **Strict Staging Isolation & Production DB Protection:**
+  - The repository's `.env.example` contains remote IP `DB_HOST=103.131.144.61`. In staging or development environments, execution of database migrations, cache operations, or database restores (`restore_db.sh`) against unverified hostnames is strictly blocked to prevent accidental damage to live production data.
+  - All staging restore drills must execute against explicitly designated, disposable databases and test paths.
+- **Installer Parameterization Safeguard:**
+  - `scripts/install.sh` contains hardcoded hostnames (`mail.yourdomain.com`), unconditional UFW resets, and Let's Encrypt standalone challenges. Blind execution in a shared or staging environment without explicit parameterization (`--staging`, `--domain`) is identified as an operational security risk and blocked until parameterized.
+- **Rollback Non-Destructive Invariants:**
+  - Disaster recovery runbooks strictly forbid automated execution of `php artisan migrate --force`. Database schema changes must remain an explicit, reviewed administrative action.
