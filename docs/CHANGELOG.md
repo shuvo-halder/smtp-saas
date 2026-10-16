@@ -1,5 +1,42 @@
 # Changelog
 
+### Tenant Email Aliases & Forwarding Management (Step 29)
+- **Implemented:** Standalone `EmailAlias` PSR-4 Model & Authorization Policy:
+  - Extracted `App\Models\EmailAlias` into its own model file (`app/Models/EmailAlias.php`) with domain relationship, tenant scoping (`scopeForTenant`), search scope (`scopeSearch`), and status scope (`scopeByStatus`).
+  - Created `App\Policies\EmailAliasPolicy` and registered in `AuthServiceProvider` to strictly enforce tenant boundary isolation across `view`, `create`, `update`, and `delete`.
+  - Added `aliases(): HasManyThrough` and `canAddAlias(Domain $domain): bool` methods to `User` model, enforcing plan `max_aliases_per_domain` constraint.
+  - Added `maxAliasesLabel(): string` helper to `Plan` model.
+- **Implemented:** RESTful Alias API (`App\Http\Controllers\Api\AliasApiController`):
+  - `GET /api/aliases`: Tenant-wide paginated alias list (bounded 1-50) with search and status/domain filters.
+  - `GET /api/domains/{domain}/aliases`: Domain-scoped alias list with policy authorization.
+  - `POST /api/aliases`: Create alias with local-part or full source email.
+    - Strictly enforces active verified domain (`status === 'active'`; 422 if pending).
+    - Strictly enforces active tenant subscription (422 if inactive/suspended).
+    - Strictly enforces plan limit `max_aliases_per_domain` (403 if exceeded).
+    - Prevents collision with existing physical mailboxes (`mailboxes.email`; 422).
+    - Prevents duplicate aliases on the same domain (422).
+    - Cycle detection: rejects direct self-forwarding (`source === destination`; 422) and circular forwarding chains (422).
+  - `PUT /api/aliases/{alias}`: Update forwarding destination with cycle detection and immutable source email.
+  - `POST /api/aliases/{alias}/toggle`: Toggle active/disabled status. Disabling always permitted; enabling strictly requires active domain and active subscription.
+  - `DELETE /api/aliases/{alias}`: Permanently delete alias; cascades cleanly on domain deletion.
+  - `App\Http\Resources\EmailAliasResource`: Serializes alias details with truthful `forwarding_status: "configured"` attribute.
+- **Implemented:** Audit Trail Integration:
+  - All alias lifecycle events (`alias.create`, `alias.update`, `alias.toggle`, `alias.delete`) are recorded in append-only `audit_logs` via `AuditService`.
+- **Implemented:** Next.js Tenant Email Aliases Experience (`frontend/`):
+  - **Sidebar**: Added `Email Aliases` navigation link (`/aliases`) with `ArrowRightLeft` icon.
+  - **Types**: Added `EmailAlias` interface in `types/index.ts`.
+  - **Hooks**: Created `useAliases.ts` with SWR-powered `useTenantAliases`, `useDomainAliases`, and async action helpers (`createAlias`, `updateAlias`, `toggleAlias`, `deleteAlias`).
+  - **UI Page (`/aliases`)**: Search bar, domain selector, status filter, zero-overhead explanation banner, empty state guidance, responsive table, and bounded pagination.
+  - **Modals**:
+    - `CreateAliasModal`: Active verified domain picker, source local-part input with live `@domain` suffix preview, destination email input, active toggle, loop warning, and Postfix status disclosure.
+    - `EditAliasModal`: Edit destination email with loop detection and immutable source address notice.
+    - `AliasRow`: Displays source email, destination target, status badge (`Active`/`Disabled`), forwarding pill (`Configured`), quick toggle button, edit modal trigger, and delete confirmation.
+- **Automated Verification & Test Coverage**:
+  - Created `tests/Feature/TenantAliasManagementTest.php` with 21 comprehensive tests (76 assertions) covering unauthenticated blocking, suspended tenant gating, tenant-wide & domain-scoped listing, local-part vs full email source parsing, domain mismatch rejections, unverified domain rejection, cross-tenant isolation, plan limits, mailbox address collisions, duplicate aliases, direct and circular forwarding loop detection, destination update, active toggle invariants, and domain cascade deletion.
+  - Full backend test suite passing: **363 tests, 1,724 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Full frontend production build passing: **Next.js 14 compiles and optimizes all 27 static pages with zero errors or warnings**.
+  - Git working tree verified: Zero git staging, zero commits, zero pushes.
+
 ### Tenant SMTP Access, Sending Activity & Delivery Logs (Step 28)
 - **Implemented:** Backend Service Layer & REST API Endpoints:
   - Created `App\Services\TenantSmtpService` managing connection parameters, live Redis/MariaDB quota telemetry, credentials lifecycle, password rotation, activity logs, and account diagnostics.

@@ -69,6 +69,18 @@ export interface Mailbox {
   created_at: string;
 }
 
+export interface EmailAlias {
+  id: number;
+  domain_id: number;
+  domain_name?: string;
+  source_email: string;
+  destination_email: string;
+  is_active: boolean;
+  forwarding_status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Invoice {
   id: number;
   invoice_number: string;

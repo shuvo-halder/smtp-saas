@@ -338,17 +338,38 @@ This document is the operational starting point for any AI coding agent working 
   - **Frontend Next.js Hub (`frontend/src/app/(dashboard)/smtp/page.tsx`):**
     - Added "SMTP Access" link with `Send` icon in `Sidebar.tsx`.
     - Implemented tabbed interface: Settings & Code snippets (Node.js, Python, PHP, .env), Quota & Usage metrics, Credentials with one-time reveal password rotation dialog, filterable Activity Logs table, and account Diagnostics with common RFC error guidance.
+- **Step 29 — Tenant Email Aliases & Forwarding Management (IMPLEMENTED & VERIFIED):**
+  - **Standalone Model & Authorization Policy:**
+    - Created `App\Models\EmailAlias` (`app/Models/EmailAlias.php`) with domain relationship, tenant scoping (`scopeForTenant`), search scope, and status scope.
+    - Created `App\Policies\EmailAliasPolicy` and registered in `AuthServiceProvider` for strict cross-tenant boundary isolation across `view`, `create`, `update`, and `delete`.
+    - Added `aliases(): HasManyThrough` and `canAddAlias(Domain $domain): bool` to `User` model, strictly checking plan `max_aliases_per_domain` limits.
+    - Added `maxAliasesLabel()` helper to `Plan` model.
+  - **RESTful API Layer (`AliasApiController`):**
+    - Implemented `GET /api/aliases` (tenant-wide, bounded pagination 1-50, search, domain & status filters).
+    - Implemented `GET /api/domains/{domain}/aliases` (domain-scoped with authorization).
+    - Implemented `POST /api/aliases` (creates alias with local-part or full source email; strictly checks domain active state, subscription active state, plan `max_aliases_per_domain` cap, mailbox collision, duplicate alias per domain, direct self-forwarding loop, and multi-hop circular forwarding chains).
+    - Implemented `PUT /api/aliases/{alias}` (updates forwarding destination with cycle detection while preserving immutable source email).
+    - Implemented `POST /api/aliases/{alias}/toggle` (toggle active/disabled; disabling always allowed, enabling strictly verifies domain and subscription).
+    - Implemented `DELETE /api/aliases/{alias}` (permanently deletes alias; cascades cleanly on domain deletion).
+    - Integrated with `AuditService`: records immutable events for `alias.create`, `alias.update`, `alias.toggle`, and `alias.delete`.
+    - Truthfully serialized responses with `forwarding_status: "configured"` attribute.
+  - **Next.js Customer Frontend (`frontend/src/app/(dashboard)/aliases/page.tsx`):**
+    - Added "Email Aliases" link with `ArrowRightLeft` icon to `Sidebar.tsx`.
+    - Created `CreateAliasModal` with verified domain picker, source local-part input, forwarding destination input, active toggle, loop warning, and Postfix status disclosure.
+    - Created `EditAliasModal` with destination email update, loop detection, and immutable source address notice.
+    - Created `AliasRow` with source email, destination target, status badge (`Active`/`Disabled`), forwarding pill (`Configured`), quick toggle button, edit modal trigger, and delete confirmation.
+    - Built responsive `/aliases` page with search, domain and status filters, zero-overhead explanation banner, empty state guidance, and bounded pagination.
   - **Automated Verification & Test Coverage:**
-    - Authored `tests/Feature/TenantSmtpManagementTest.php` with 10 comprehensive tests (216 assertions).
-    - Full backend regression test suite: **342 tests, 1,648 assertions passed (100% clean, 0 failures, 0 errors)**.
-    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 26/26 static pages)**.
+    - Authored `tests/Feature/TenantAliasManagementTest.php` with 21 comprehensive tests (76 assertions).
+    - Full backend regression test suite: **363 tests, 1,724 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
 ## 5. Next Recommended Implementation Phase
-- **Step 29 — Tenant Email Templates, Webhooks & API Keys:**
-  - Tenant-managed API keys with scoped permissions for programmatic sending.
-  - Outbound email webhooks for delivery, bounce, and complaint notifications.
-  - Transactional email template management and substitution variables.
+- **Step 30 — Tenant Email Routing, Catch-All & Custom Transport Rules:**
+  - Catch-all mailbox routing configuration per domain.
+  - Custom inbound routing filters and priority rules.
+  - Transactional outbound relay rules and tenant webhooks.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.

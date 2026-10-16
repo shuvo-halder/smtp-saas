@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\AdminAbuseIncidentApiController;
 use App\Http\Controllers\Api\AdminApiController;
 use App\Http\Controllers\Api\AdminAuditLogApiController;
 use App\Http\Controllers\Api\AdminSmtpApiController;
+use App\Http\Controllers\Api\AliasApiController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BillingApiController;
 use App\Http\Controllers\Api\DashboardApiController;
@@ -57,6 +58,15 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             Route::apiResource('domains.mailboxes', MailboxApiController::class)->shallow();
             Route::post('/mailboxes/{mailbox}/change-password', [MailboxApiController::class, 'changePassword']);
             Route::post('/mailboxes/{mailbox}/toggle', [MailboxApiController::class, 'toggle']);
+
+            // Email Aliases & Forwarding (Step 29)
+            Route::get('/aliases', [AliasApiController::class, 'index']);
+            Route::post('/aliases', [AliasApiController::class, 'store']);
+            Route::get('/aliases/{alias}', [AliasApiController::class, 'show']);
+            Route::put('/aliases/{alias}', [AliasApiController::class, 'update']);
+            Route::post('/aliases/{alias}/toggle', [AliasApiController::class, 'toggle']);
+            Route::delete('/aliases/{alias}', [AliasApiController::class, 'destroy']);
+            Route::get('/domains/{domain}/aliases', [AliasApiController::class, 'domainAliases']);
 
             // Tenant SMTP Management (Step 28)
             Route::prefix('smtp')->group(function () {

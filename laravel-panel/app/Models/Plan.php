@@ -57,6 +57,12 @@ class Plan extends Model
         return $this->max_mailboxes_per_domain === -1 ? 'Unlimited' : (string) $this->max_mailboxes_per_domain;
     }
 
+    public function maxAliasesLabel(): string
+    {
+        return $this->max_aliases_per_domain === -1 ? 'Unlimited' : (string) $this->max_aliases_per_domain;
+    }
+
+
     public function scopeActive($query)
     {
         return $query->where('is_active', true)->orderBy('sort_order');

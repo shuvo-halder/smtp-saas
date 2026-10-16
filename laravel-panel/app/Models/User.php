@@ -100,4 +100,17 @@ class User extends Authenticatable
         if ($this->plan->max_mailboxes_per_domain === -1) return true;
         return $domain->mailboxes()->count() < $this->plan->max_mailboxes_per_domain;
     }
+
+    public function aliases(): HasManyThrough
+    {
+        return $this->hasManyThrough(EmailAlias::class, Domain::class);
+    }
+
+    public function canAddAlias(Domain $domain): bool
+    {
+        if (! $this->plan) return false;
+        if ($this->plan->max_aliases_per_domain === -1) return true;
+        return $domain->aliases()->count() < $this->plan->max_aliases_per_domain;
+    }
 }
+

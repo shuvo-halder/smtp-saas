@@ -41,6 +41,16 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
     - Postfix (`mysql-virtual-mailbox-maps.cf`) queries this table to resolve the physical `/var/vmail/` delivery path.
 - **Tenant Security:** Mutated exclusively through Laravel controllers using `DB::transaction`. Bash scripts do NOT insert records here.
 
+### `email_aliases` (Virtual Aliases - Step 29)
+- **Primary Key:** `id` (bigint unsigned, auto-increment)
+- **Foreign Key:** `domain_id` (bigint unsigned -> `domains.id` with `cascadeOnDelete()`)
+- **Fields:** `source_email` (varchar), `destination_email` (varchar), `is_active` (boolean, default true), `created_at`, `updated_at`
+- **Unique Constraint:** `(domain_id, source_email)`
+- **Integration:**
+  - Postfix (`mysql-virtual-alias-maps.cf` and `mysql-virtual-sender-login-maps.cf`) queries this table where `is_active = 1` and `domains.status = 'active'` to rewrite inbound delivery destinations and map permitted sender logins.
+- **Model:** `App\Models\EmailAlias` (`domain()` relation, scopes for tenant filtering, search, and status).
+- **Invariants:** Cannot collide with existing physical `mailboxes.email`. Cycle detection prevents direct and multi-hop circular forwarding loops. Enforces plan quota `max_aliases_per_domain`. Cascades on domain deletion.
+
 ### `invoices`
 - **Primary Key:** `id`
 - **Foreign Key:** `user_id`, `plan_id`

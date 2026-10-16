@@ -137,3 +137,13 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - Integrated Pipeline Ingestion: `AbuseDetectionService::processEvent` logs terminal delivery events; `PolicyDecisionService::recordQuotaAbuseIncident` logs outbound submission rejections.
 - Next.js Frontend Hub (`/smtp`): Tabbed interface for Settings & Snippets (Node.js, Python, PHP, .env), Quota & Usage (progress bars, 14-day history, mailbox breakdown), Credentials (authorized mailboxes, password rotation dialog with one-time reveal), Activity Logs (search, status filters, bounded pagination), and Diagnostics & Troubleshooting (self-service health checks, common error resolutions).
 
+## 18. Tenant Email Aliases & Forwarding Management (Step 29)
+**Status:** IMPLEMENTED & VERIFIED (Step 29)
+**Purpose:** Self-service inbound email alias and forwarding management under active domains and subscription plans.
+**Components:**
+- `EmailAlias` Model & Policy: Extracted standalone PSR-4 model (`app/Models/EmailAlias.php`) with domain relations, tenant ownership scopes, search, and status filters. Protected by `EmailAliasPolicy` registered in `AuthServiceProvider`.
+- `AliasApiController`: Full RESTful lifecycle (`/api/aliases`, `/api/domains/{domain}/aliases`, show, store, update, toggle, destroy).
+- Safety Invariants: Enforces active domain DNS status, active subscription, plan limit (`max_aliases_per_domain`), collision check against physical mailboxes, duplicate check per domain, and cycle detection for direct (`source === destination`) and circular forwarding chains. Disabling always permitted; enabling strictly validates domain and subscription active state.
+- Audit Trail Integration: All lifecycle operations (`alias.create`, `alias.update`, `alias.toggle`, `alias.delete`) record immutable events via `AuditService`.
+- Next.js Dashboard UI (`/aliases`): Full-featured alias management hub with search, domain and status filters, bounded pagination, creation dialog with domain selector and loop warning, edit destination modal, toggle switch, and delete confirmation.
+

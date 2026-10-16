@@ -46,6 +46,26 @@
 - [x] Frontend customer mailbox management (`/mailboxes` hub with search, domain filter, and status filter)
 - [x] Frontend embedded domain mailbox table and modals (`CreateMailboxModal`, `EditMailboxModal`, `ChangePasswordModal`)
 
+## Email Aliases & Forwarding (Step 29 Completed)
+- [x] Dedicated `EmailAlias` PSR-4 model (`app/Models/EmailAlias.php`) with domain relationship, tenant scopes, search, and status filter
+- [x] `EmailAliasPolicy` registered in `AuthServiceProvider` with strict cross-tenant isolation
+- [x] Tenant-wide alias listing API (`GET /api/aliases`) with bounded pagination (1-50), domain filter, status filter, and keyword search
+- [x] Domain-scoped alias listing API (`GET /api/domains/{domain}/aliases`)
+- [x] Alias creation API (`POST /api/aliases`) with local-part or full source email resolution
+- [x] Plan quota enforcement: strictly checks `max_aliases_per_domain` per domain
+- [x] Domain and subscription active invariants: blocks alias creation/activation on pending domains or suspended tenants
+- [x] Address collision prevention: rejects aliases conflicting with physical mailboxes (`mailboxes.email`)
+- [x] Uniqueness per domain: prevents duplicate aliases on the same domain
+- [x] Cycle detection: prevents self-forwarding direct loops (`source === destination`) and circular forwarding chains
+- [x] Alias destination update API (`PUT /api/aliases/{alias}`) with loop detection and immutable source email
+- [x] Alias active toggle API (`POST /api/aliases/{alias}/toggle`) allowing disable anytime and validating domain/subscription on enable
+- [x] Alias deletion API (`DELETE /api/aliases/{alias}`) with cascade deletion on domain removal
+- [x] Persistent audit logging: all alias actions (`alias.create`, `alias.update`, `alias.toggle`, `alias.delete`) recorded via `AuditService`
+- [x] Truthful status reporting: API and UI label forwarding as `configured` (database/virtual map ready, live delivery pending live MTA)
+- [x] Next.js customer frontend (`/aliases`): search, filters, pagination, create modal with loop warning and domain picker, edit destination modal, toggle, delete
+- [x] Navigation sidebar integration: added Email Aliases link (`/aliases`)
+- [x] Comprehensive automated test coverage (`tests/Feature/TenantAliasManagementTest.php` with 21 tests, 76 assertions, 100% passing)
+
 ## Webmail
 - [x] Roundcube configuration
 - [x] Dovecot Master User logic

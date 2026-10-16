@@ -59,18 +59,3 @@ class Mailbox extends Model
             . '/?_user=' . urlencode($this->email);
     }
 }
-
-class EmailAlias extends Model
-{
-    protected $fillable = ['domain_id', 'source_email', 'destination_email', 'is_active'];
-
-    protected function casts(): array
-    {
-        return ['is_active' => 'boolean'];
-    }
-
-    public function domain(): BelongsTo
-    {
-        return $this->belongsTo(Domain::class);
-    }
-}

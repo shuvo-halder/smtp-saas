@@ -35,6 +35,17 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | POST | `/mailboxes/{id}/toggle` | Toggle active/disabled status. Disabling is always allowed for security/quarantine. Enabling strictly checks parent domain is active and tenant subscription is active (HTTP 422 if violated). Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 | DELETE| `/mailboxes/{id}` | Soft delete mailbox and remove virtual config. Governed by `MailboxPolicy::delete`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 
+## Tenant Email Aliases & Forwarding API (Step 29, Requires active subscription)
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/aliases` | Tenant-wide alias listing across all tenant domains. Supports `per_page` (clamped 1-50), `domain_id`, `status` (`active`/`disabled`), and `search` (source or destination address). | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/domains/{domain}/aliases` | Paginated aliases for a specific domain. Supports `per_page` (clamped 1-50), `status`, `search`. Governed by `DomainPolicy::view`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| POST | `/aliases` | Create email alias with forwarding destination under active verified domain. Strictly requires active domain (HTTP 422 if pending), active subscription, plan limit (`max_aliases_per_domain`), collision check with existing mailboxes (HTTP 422), duplicate check on domain (HTTP 422), and cycle detection for direct and circular forwarding loops (HTTP 422). | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/aliases/{alias}` | Single alias details with associated domain. Governed by `EmailAliasPolicy::view`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| PUT | `/aliases/{alias}` | Update alias forwarding destination and active status. Performs direct and circular forwarding loop detection (HTTP 422). Preserves source email. Governed by `EmailAliasPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| POST | `/aliases/{alias}/toggle` | Toggle active/disabled status. Disabling is always permitted. Enabling strictly requires active domain and active subscription (HTTP 422 if violated). Governed by `EmailAliasPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| DELETE| `/aliases/{alias}` | Permanently delete alias. Inbound forwarding stops immediately. Governed by `EmailAliasPolicy::delete`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+
 ## Billing & SSO API
 | Method | Endpoint | Description | Middleware |
 |---|---|---|---|
