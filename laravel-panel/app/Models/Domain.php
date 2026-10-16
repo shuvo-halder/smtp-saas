@@ -80,33 +80,83 @@ class Domain extends Model
      */
     public function requiredDnsRecords(): array
     {
-        $mailServer = config('app.mail_server_host', 'mail.yourdomain.com');
+        $mailServer = config('mail.mail_server_host')
+            ?: config('app.mail_server_host')
+            ?: env('MAIL_SERVER_HOST')
+            ?: env('SMTP_SERVER_HOST')
+            ?: 'mail.mailsaas.com';
+
         $dkimSelector = $this->dkim_selector ?? 'default';
+        $dkimValue = $this->dkim_public_key
+            ? (str_starts_with($this->dkim_public_key, 'v=DKIM1') ? $this->dkim_public_key : "v=DKIM1; k=rsa; p={$this->dkim_public_key}")
+            : 'v=DKIM1; k=rsa; p=<pending_generation>';
 
         return [
-            'mx'   => [
-                'type'     => 'MX',
-                'host'     => '@',
-                'value'    => "10 {$mailServer}",
-                'verified' => $this->mx_verified,
+            [
+                'id'          => 'mx',
+                'type'        => 'MX',
+                'host'        => '@',
+                'value'       => "10 {$mailServer}",
+                'priority'    => 10,
+                'purpose'     => 'Inbound Mail Routing',
+                'verified'    => (bool) $this->mx_verified,
+                'status'      => $this->mx_verified ? 'VERIFIED' : 'EXPECTED',
+                'is_required' => true,
             ],
-            'spf'  => [
-                'type'     => 'TXT',
-                'host'     => '@',
-                'value'    => "v=spf1 mx a:{$mailServer} ~all",
-                'verified' => $this->spf_verified,
+            [
+                'id'          => 'spf',
+                'type'        => 'TXT',
+                'host'        => '@',
+                'value'       => "v=spf1 mx a:{$mailServer} ~all",
+                'priority'    => null,
+                'purpose'     => 'SPF Sender Authorization',
+                'verified'    => (bool) $this->spf_verified,
+                'status'      => $this->spf_verified ? 'VERIFIED' : 'EXPECTED',
+                'is_required' => true,
             ],
-            'dkim' => [
-                'type'     => 'TXT',
-                'host'     => "{$dkimSelector}._domainkey",
-                'value'    => $this->dkim_public_key ?? 'Generating...',
-                'verified' => $this->dkim_verified,
+            [
+                'id'          => 'dkim',
+                'type'        => 'TXT',
+                'host'        => "{$dkimSelector}._domainkey",
+                'value'       => $dkimValue,
+                'priority'    => null,
+                'purpose'     => 'DKIM Cryptographic Signature',
+                'verified'    => (bool) $this->dkim_verified,
+                'status'      => $this->dkim_verified ? 'VERIFIED' : ($this->dkim_public_key ? 'EXPECTED' : 'NOT_CONFIGURED'),
+                'is_required' => true,
             ],
-            'dmarc' => [
-                'type'     => 'TXT',
-                'host'     => '_dmarc',
-                'value'    => "v=DMARC1; p=quarantine; rua=mailto:dmarc@{$this->domain_name}",
-                'verified' => $this->dmarc_verified,
+            [
+                'id'          => 'dmarc',
+                'type'        => 'TXT',
+                'host'        => '_dmarc',
+                'value'       => "v=DMARC1; p=quarantine; rua=mailto:dmarc@{$this->domain_name}",
+                'priority'    => null,
+                'purpose'     => 'DMARC Policy & Reporting',
+                'verified'    => (bool) $this->dmarc_verified,
+                'status'      => $this->dmarc_verified ? 'VERIFIED' : 'EXPECTED',
+                'is_required' => false,
+            ],
+            [
+                'id'          => 'autodiscover',
+                'type'        => 'CNAME',
+                'host'        => 'autodiscover',
+                'value'       => $mailServer,
+                'priority'    => null,
+                'purpose'     => 'Mail Client Auto-Configuration (Outlook)',
+                'verified'    => false,
+                'status'      => 'EXPECTED',
+                'is_required' => false,
+            ],
+            [
+                'id'          => 'autoconfig',
+                'type'        => 'CNAME',
+                'host'        => 'autoconfig',
+                'value'       => $mailServer,
+                'priority'    => null,
+                'purpose'     => 'Mail Client Auto-Configuration (Thunderbird)',
+                'verified'    => false,
+                'status'      => 'EXPECTED',
+                'is_required' => false,
             ],
         ];
     }

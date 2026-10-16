@@ -207,7 +207,7 @@ export default function DomainDetailPage() {
             <p className="text-sm text-muted-foreground">Required DNS records for email delivery and authentication</p>
           </div>
           <Link href={`/domains/${domain.id}/setup`} className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
-            {domain.status === 'active' ? 'Inspect DNS Setup' : 'Configure DNS'}
+            {domain.status === 'active' ? 'DNS Wizard & Diagnostics' : 'Configure DNS (Setup Wizard)'}
           </Link>
         </div>
         <DnsRecordTable records={domain.required_dns_records} />

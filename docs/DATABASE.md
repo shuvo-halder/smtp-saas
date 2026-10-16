@@ -29,8 +29,12 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 ### `domains` (Virtual Domains)
 - **Primary Key:** `id`
 - **Foreign Key:** `user_id` (Belongs to `User`)
-- **Fields:** `domain_name` (UNIQUE), `status` (`pending`, `active`, `suspended`), `mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dkim_public_key`, `catch_all_policy` (varchar(32), default `'disabled'`), `catch_all_mailbox_id` (nullable bigint unsigned, FK -> `mailboxes.id` on delete set null)
+- **Fields:** `domain_name` (UNIQUE), `status` (`pending`, `active`, `suspended`), `mx_verified` (boolean), `spf_verified` (boolean), `dkim_verified` (boolean), `dmarc_verified` (boolean), `dkim_public_key` (text, nullable), `catch_all_policy` (varchar(32), default `'disabled'`), `catch_all_mailbox_id` (nullable bigint unsigned, FK -> `mailboxes.id` on delete set null), `last_dns_check_at` (timestamp, nullable)
 - **Catch-All Policies:** `disabled`, `reject`, `mailbox`, `discard`. Default is `disabled` (rejects unknown recipients during SMTP validation).
+- **DNS Verification & Step 34 Integration:**
+  - `DnsVerificationService` updates `mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, and `last_dns_check_at` whenever verification runs (`POST /api/domains/{domain}/verify-dns` or `POST /api/domains/{domain}/verify`).
+  - Domain activation rule: When MX, SPF, and DKIM are all verified, `status` automatically transitions from `'pending'` to `'active'` (and records `activated_at`).
+  - Zero Schema Alterations: Step 34 required no new database migrations because all required verification tracking columns were already present in the canonical `domains` table schema.
 - **Integration:** 
   - Postfix (`mysql-virtual-mailbox-domains.cf`) queries this table directly to determine if it should accept mail for a domain. `status` must be `active`.
   - Postfix (`mysql-virtual-catchall.cf` / `mysql-virtual-catchall-maps.cf`) queries catch-all rules where `domains.status = 'active'`, `domains.deleted_at IS NULL`, `domains.catch_all_policy IN ('mailbox', 'discard')`, routing unknown recipients to the designated active destination mailbox or `discard` sink, strictly subordinate to physical mailboxes and explicit aliases.

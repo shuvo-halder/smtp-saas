@@ -44,6 +44,7 @@ export interface Domain {
   catch_all_policy?: CatchAllPolicy;
   catch_all_mailbox_id?: number | null;
   required_dns_records: DnsRecord[];
+  last_dns_check_at?: string | null;
   activated_at: string | null;
   created_at: string;
 }
@@ -89,12 +90,82 @@ export interface CatchAllUpdateRequest {
   mailbox_id?: number | null;
 }
 
+export type DnsRecordType = 'MX' | 'TXT' | 'CNAME' | 'A';
+export type DnsVerificationStatus = 'EXPECTED' | 'VERIFIED' | 'MISMATCH' | 'MISSING' | 'UNRESOLVED' | 'CHECK_FAILED' | 'NOT_CONFIGURED';
+
 export interface DnsRecord {
-  type: string;
+  id?: string;
+  type: DnsRecordType | string;
   host: string;
   value: string;
+  expected_value?: string;
+  priority?: number | null;
+  purpose?: string;
+  purpose_description?: string;
+  status?: DnsVerificationStatus | string;
   verified: boolean;
+  actual_value?: string | null;
+  is_required?: boolean;
+  last_checked_at?: string | null;
+  troubleshooting?: string | null;
 }
+
+export interface DeliverabilityScore {
+  score_percent: number;
+  status: 'ready' | 'needs_attention' | 'critical';
+  status_label: string;
+  summary: string;
+}
+
+export interface InboundRoutingDiagnostics {
+  status: 'operational' | 'unverified' | 'misconfigured';
+  mx_target: string;
+  mx_priority: number;
+  details: string;
+}
+
+export interface OutboundAuthDiagnostics {
+  spf_status: DnsVerificationStatus | string;
+  dkim_status: DnsVerificationStatus | string;
+  dmarc_status: DnsVerificationStatus | string;
+  spf_policy?: string | null;
+  dmarc_policy?: string | null;
+  details: string;
+}
+
+export interface InfrastructureDiagnostics {
+  dns_publication: 'published' | 'partial' | 'missing';
+  application_config: 'active' | 'pending' | 'suspended';
+  mail_server_mta: 'operational' | 'offline' | 'local_development';
+  mta_driver: string;
+  mta_note: string;
+}
+
+export interface DomainDnsWizardData {
+  domain: {
+    id: number;
+    domain_name: string;
+    status: string;
+    is_verified: boolean;
+    activated_at: string | null;
+    last_dns_check_at: string | null;
+  };
+  deliverability_score: DeliverabilityScore;
+  records: DnsRecord[];
+  inbound_routing: InboundRoutingDiagnostics;
+  outbound_authentication: OutboundAuthDiagnostics;
+  infrastructure_status: InfrastructureDiagnostics;
+  recommendations: string[];
+}
+
+export interface DnsVerifyResponse {
+  verified: boolean;
+  message: string;
+  results: Record<string, any>;
+  domain: Domain;
+  wizard?: DomainDnsWizardData;
+}
+
 
 export type MailboxStorageStatus = 'normal' | 'warning' | 'near_limit' | 'over_limit' | 'unknown';
 

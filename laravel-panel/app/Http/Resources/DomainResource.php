@@ -22,6 +22,7 @@ class DomainResource extends JsonResource
             'catch_all_policy' => $this->catch_all_policy ?? 'disabled',
             'catch_all_mailbox_id' => $this->catch_all_mailbox_id,
             'required_dns_records' => $this->requiredDnsRecords(),
+            'last_dns_check_at' => $this->last_dns_check_at,
             'activated_at' => $this->activated_at,
             'created_at' => $this->created_at,
         ];

@@ -53,3 +53,25 @@ export function useDomainCatchAll(domainId: string | number | null) {
   };
 }
 
+export function useDomainDnsWizard(domainId: string | number | null) {
+  const { data, error, isLoading, mutate } = useSWR<{ data: import('@/types').DomainDnsWizardData }>(
+    domainId ? `/domains/${domainId}/dns-wizard` : null,
+    fetcher
+  );
+
+  const verifyDns = async (): Promise<import('@/types').DnsVerifyResponse> => {
+    const res = await api.post<import('@/types').DnsVerifyResponse>(`/domains/${domainId}/verify-dns`);
+    await mutate();
+    return res.data;
+  };
+
+  return {
+    wizard: data?.data,
+    isLoading,
+    error,
+    mutate,
+    verifyDns,
+  };
+}
+
+

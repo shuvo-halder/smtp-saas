@@ -497,16 +497,53 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 34 — Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics (IMPLEMENTED & VERIFIED):**
+  - **Service & Verification Engine (`DnsVerificationService`):**
+    - Injectable mock resolver architecture (`setResolver(?callable $resolver)`) for 100% deterministic, offline automated testing.
+    - Verification methods: `verifyMx()`, `verifySpf()`, `verifyDkim()`, `verifyDmarc()`, `verifyA()`, `verifyCname()`, `verifyAll()`, and `getDnsWizardData()`.
+    - RFC 7208 section 3.2 PermError handling: Rejects multiple SPF TXT records on a single domain with `MISMATCH` status and advises single-record consolidation.
+    - 2048-bit DKIM DNS packet chunk concatenation via `extractTxtContent()` reading PHP `$record['entries']`.
+    - Resilient DKIM key extraction via `extractDkimKeyPayload()`, normalizing keys and isolating the `p=` base64 payload.
+    - Weighted Deliverability Score model (MX 40%, SPF 25%, DKIM 25%, DMARC 10%) producing actionable ratings (`EXCELLENT`, `GOOD`, `FAIR`, `POOR`).
+    - Multi-layer environment diagnostics reporting DNS publication, application database configuration, and live Postfix MTA readiness.
+    - Dynamic recommendation engine producing actionable remediation steps for missing or misconfigured records.
+  - **RESTful API & Policy Authorization:**
+    - `GET /api/domains/{domain}/dns-wizard`: Returns all required/recommended DNS records, verification statuses, deliverability score, diagnostic breakdown, and actionable recommendations.
+    - `POST /api/domains/{domain}/verify-dns`: Performs on-demand multi-record DNS query, updates verification flags on `domains`, updates `last_dns_check_at`, activates pending domains when core records pass, and emits `domain.dns_verify` audit log.
+    - `POST /api/domains/{domain}/verify`: Preserved as a backwards-compatible alias to `verifyDns()`.
+    - Enforced rate limiting: Protected by `throttle:30,1` against abuse and external resolver exhaustion.
+    - Gated by `auth:sanctum`, `DomainPolicy` (`view`/`update`), and `EnsureActiveSubscription`.
+  - **Domain Model & Resource:**
+    - `Domain::requiredDnsRecords()` generates structured record definitions (`id`, `type`, `host`, `value`, `priority`, `purpose`, `is_required`, `status`, `verified`).
+    - `DomainResource` exposes `last_dns_check_at`.
+  - **Next.js Frontend Experience:**
+    - Added TypeScript definitions in `types/index.ts` and hooks in `hooks/useDomains.ts`.
+    - Overhauled `/domains/[id]/setup` (`DomainSetupPage.tsx`) into a full-featured DNS Wizard & Deliverability Diagnostics dashboard: Deliverability Health Scorecard with progress bar, Multi-layer environment notice, Diagnostic cards for Inbound Routing & Outbound Authentication, and Actionable Recommendations banner.
+    - Overhauled `DnsRecordTable.tsx` with copy buttons, priority, purpose, status badges (`VERIFIED`, `MISMATCH`, `MISSING`, `CHECK_FAILED`, `NOT_CONFIGURED`, `EXPECTED`), and expandable troubleshooting drawer showing expected vs current values.
+    - Updated `/domains/[id]` page with "DNS Wizard & Diagnostics" button.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `TenantDomainDnsWizardTest.php` passes (24/24 tests, 211 assertions).
+    - Level B (Configuration & Resolver Logic): `VERIFIED`. Mockable resolver, RFC 7208 PermError duplicate SPF handling, 2048-bit chunking, and DKIM key payload extraction verified.
+    - Level C (End-to-End Live Mail Flow & Public DNS): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services and public DNS zone delegation; requires dedicated Linux VPS).
+  - **Automated Verification & Test Coverage:**
+    - Feature test suite (`tests/Feature/TenantDomainDnsWizardTest.php`): **24 tests, 211 assertions passing (100%)**.
+    - Domain regression suite (`tests/Feature/TenantDomainAndMailboxManagementTest.php`): **21 tests, 86 assertions passing (100%)**.
+    - Full backend regression test suite: **448 tests, 2,185 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 34 — Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics:**
-  - Automated DNS record generator & copyable snippets (MX, SPF, DKIM public key, DMARC policy, CNAME autodiscover).
-  - One-click DNS diagnostic probe querying public nameservers with propagation feedback and alignment badges.
-  - Inbound authentication telemetry and health scorecards per domain.
+- **Step 35 — Automated Domain DKIM Key Lifecycle & Rotation Management:**
+  - Automated DKIM keypair generation per domain (`2048-bit RSA` or `Ed25519`).
+  - Safe key rotation with dual-selector overlapping publication (`default` vs `selector2`) ensuring zero delivery disruption.
+  - Key status telemetry and OpenDKIM keytable/signingtable synchronization.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

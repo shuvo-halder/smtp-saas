@@ -97,15 +97,96 @@ class DomainApiController extends Controller
     {
         $this->authorize('update', $domain);
         
+        $beforeState = [
+            'status'        => $domain->status,
+            'mx_verified'   => $domain->mx_verified,
+            'spf_verified'  => $domain->spf_verified,
+            'dkim_verified' => $domain->dkim_verified,
+        ];
+
         $results = $verificationService->verifyAll($domain);
         $freshDomain = $domain->fresh();
         $isVerified = ($freshDomain->status === 'active');
+
+        app(\App\Services\AuditService::class)->record(
+            action: 'domain.dns_verify',
+            entityType: 'Domain',
+            entityId: $domain->id,
+            before: $beforeState,
+            after: [
+                'status'        => $freshDomain->status,
+                'mx_verified'   => $freshDomain->mx_verified,
+                'spf_verified'  => $freshDomain->spf_verified,
+                'dkim_verified' => $freshDomain->dkim_verified,
+            ],
+            actor: request()->user(),
+            reason: 'Tenant triggered DNS verification check',
+            request: request()
+        );
 
         return response()->json([
             'verified' => $isVerified,
             'message' => $isVerified ? __('messages.domain_verified') : 'Domain DNS verification incomplete. Please ensure MX, SPF, and DKIM records are published.',
             'results' => $results,
             'domain' => new DomainResource($freshDomain),
+        ]);
+    }
+
+    /**
+     * Retrieve complete DNS setup wizard data and deliverability diagnostics.
+     */
+    public function dnsWizard(Domain $domain, DnsVerificationService $dnsService)
+    {
+        $this->authorize('view', $domain);
+
+        $wizardData = $dnsService->getDnsWizardData($domain);
+
+        return response()->json([
+            'data' => $wizardData,
+        ]);
+    }
+
+    /**
+     * Trigger fresh DNS verification and return updated wizard diagnostics.
+     */
+    public function verifyDns(Domain $domain, DnsVerificationService $dnsService, Request $request)
+    {
+        $this->authorize('update', $domain);
+
+        $beforeState = [
+            'status'        => $domain->status,
+            'mx_verified'   => $domain->mx_verified,
+            'spf_verified'  => $domain->spf_verified,
+            'dkim_verified' => $domain->dkim_verified,
+        ];
+
+        $results = $dnsService->verifyAll($domain);
+        $freshDomain = $domain->fresh();
+        $isVerified = ($freshDomain->status === 'active');
+        $wizardData = $dnsService->getDnsWizardData($freshDomain, refresh: true);
+
+        app(\App\Services\AuditService::class)->record(
+            action: 'domain.dns_verify',
+            entityType: 'Domain',
+            entityId: $domain->id,
+            before: $beforeState,
+            after: [
+                'status'        => $freshDomain->status,
+                'mx_verified'   => $freshDomain->mx_verified,
+                'spf_verified'  => $freshDomain->spf_verified,
+                'dkim_verified' => $freshDomain->dkim_verified,
+            ],
+            actor: $request->user(),
+            reason: 'Tenant triggered DNS setup wizard verification check',
+            request: $request
+        );
+
+        return response()->json([
+            'verified' => $isVerified,
+            'message'  => $isVerified ? __('messages.domain_verified') : 'Domain DNS verification incomplete. Please ensure required records have propagated.',
+            'results'  => $results,
+            'domain'   => new DomainResource($freshDomain),
+            'wizard'   => $wizardData,
         ]);
     }
 

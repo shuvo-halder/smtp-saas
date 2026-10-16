@@ -353,5 +353,40 @@ For mailboxes with auto-reply enabled, `MailboxRuleService` compiles a standard 
 | **Level B: Configuration & SQL Query Layer** | `mysql-virtual-forwardings.cf`, `virtual_alias_maps`, `.dovecot.sieve` generation, CLI tool | `VERIFIED` | Exact SQL map query tested directly against MySQL with single, multiple, and keep-copy permutations. Sieve script compilation and syntax verified. CLI tool `php artisan mail:verify-mailbox-rules` verified. |
 | **Level C: Live End-to-End Mail Flow & Sieve Execution** | Live Linux Postfix MTA, Dovecot LMTP delivery agent, Sieve Pigeonhole daemon | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks Linux Postfix MTA, Dovecot Pigeonhole LMTP daemon, and mounted `/var/vmail` storage. Live delivery testing requires a dedicated Linux VPS staging environment. |
 
+---
+
+## Domain DNS Wizard, Inbound Authentication & Deliverability Architecture (Step 34)
+
+### 1. Published DNS Records & Deliverability Stack
+To ensure high deliverability and secure mail reception, the platform provides tenants with a complete set of DNS records for their custom domains:
+1. **MX Record:** `mail.<domain>` (or platform default mail host) with priority 10. Required for inbound mail routing.
+2. **SPF Record:** TXT record with `v=spf1 mx ~all` (or configured custom SPF mechanism). Authorizes platform MTAs to transmit outbound mail for the domain.
+3. **DKIM Record:** TXT record published at `<selector>._domainkey.<domain>` with value `v=DKIM1; k=rsa; p=<public_key>`. Cryptographically validates email authenticity.
+4. **DMARC Record:** TXT record published at `_dmarc.<domain>` with value `v=DMARC1; p=quarantine; pct=100`. Defines policy for messages failing SPF/DKIM validation.
+5. **Host A Record:** Points `mail.<domain>` to the platform mail server IP.
+6. **Autodiscover / Autoconfig CNAMEs:** Enables automatic mail client setup (Outlook, Thunderbird, Apple Mail).
+
+### 2. DNS Verification Engine & Parsing Rules (`DnsVerificationService`)
+1. **Mockable Resolver Pattern:** `setResolver(?callable $resolver)` enables comprehensive offline testing by decoupling DNS queries from external nameservers.
+2. **RFC 7208 Multiple SPF Record Rule:** A domain MUST NOT have more than one `v=spf1` record (RFC 7208 section 3.2). Having multiple SPF records triggers a `PermError` during MTA evaluation. `DnsVerificationService` detects duplicates, flags them as `MISMATCH`, and generates actionable consolidation instructions.
+3. **2048-bit DKIM Key DNS Chunking:** In standard DNS responses, strings exceeding 255 characters are split into multiple chunks within the same TXT record. PHP's `dns_get_record()` exposes these in the `'entries'` array. `extractTxtContent()` safely joins these chunks to ensure accurate 2048-bit DKIM key comparison.
+4. **Resilient DKIM Key Comparison:** Public keys can be published as raw base64 or prefixed with `v=DKIM1; k=rsa; p=`. `extractDkimKeyPayload()` extracts the key characters following `p=` up to the trailing semicolon, stripping whitespace and newlines, ensuring resilient comparisons.
+5. **Weighted Deliverability Scoring:**
+   - **MX (40%):** Essential for inbound mail flow.
+   - **SPF (25%):** Outbound sender authentication.
+   - **DKIM (25%):** Cryptographic signature verification.
+   - **DMARC (10%):** Policy enforcement & phishing protection.
+   - Categorized into ratings: `EXCELLENT` ($\ge 90$), `GOOD` ($\ge 70$), `FAIR` ($\ge 50$), `POOR` ($< 50$).
+6. **Multi-Layer Separation:** The service cleanly separates DNS Publication Status, Application Database Configuration, and Live Postfix MTA Readiness.
+
+### 3. Three-Level DNS Wizard & Inbound Authentication Verification Matrix
+
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `DnsVerificationService`, `DomainApiController`, `DomainPolicy` | `VERIFIED` | Full test coverage for DNS wizard data retrieval, record verification, deliverability scoring, RFC 7208 duplicate SPF detection, DKIM key extraction, rate limiting, and audit logging via `TenantDomainDnsWizardTest.php` (24/24 passing, 211 assertions). |
+| **Level B: Configuration & Resolver Logic Layer** | Mockable resolver, record comparisons, TXT chunking, DMARC syntax | `VERIFIED` | Deterministic resolution tests with mocked DNS responses; verified RFC 7208 PermError handling, 2048-bit key chunking, and MX priority conflict detection. |
+| **Level C: Live End-to-End DNS Propagation & MTA Reception** | Public authoritative nameservers, live Postfix MTA daemon, live SMTP reception | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks public authoritative DNS zone delegation, public IP addresses, and Linux Postfix/Dovecot daemons. Full live end-to-end DNS verification requires a dedicated Linux VPS staging environment with registered domains. |
+
+
 
 

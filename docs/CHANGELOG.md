@@ -1,5 +1,43 @@
 # Changelog
 
+### Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics (Step 34)
+- **Implemented:** DnsVerificationService Multi-Record Verification Engine (`app/Services/DnsVerificationService.php`):
+  - Injected mock resolver architecture (`setResolver(?callable $resolver)`) for 100% deterministic, offline automated testing.
+  - Multi-record verification routines: `verifyMx()`, `verifySpf()`, `verifyDkim()`, `verifyDmarc()`, `verifyA()`, `verifyCname()`, `verifyAll()`, and `getDnsWizardData()`.
+  - RFC 7208 section 3.2 PermError detection: Flags multiple `v=spf1` TXT records as `MISMATCH` and generates consolidation recommendations.
+  - 2048-bit DKIM DNS packet chunk concatenation via `extractTxtContent()`, merging string chunks from PHP `$record['entries']`.
+  - Resilient DKIM key payload isolation via `extractDkimKeyPayload()`, normalizing keys and stripping whitespace/semicolons.
+  - Weighted Deliverability Health Score algorithm (MX 40%, SPF 25%, DKIM 25%, DMARC 10%) producing actionable ratings (`EXCELLENT`, `GOOD`, `FAIR`, `POOR`).
+  - Three-layer diagnostics telemetry: Reports DNS publication, application database configuration, and live Postfix MTA readiness independently.
+  - Actionable recommendations generator: Computes human-friendly remediation guidance for missing or misconfigured records.
+- **Implemented:** RESTful Domain DNS Wizard & Verification API (`app/Http/Controllers/Api/DomainApiController.php`):
+  - `GET /api/domains/{domain}/dns-wizard`: Returns all required/recommended DNS records, verification statuses, deliverability score, diagnostic breakdown, and actionable recommendations.
+  - `POST /api/domains/{domain}/verify-dns`: Performs on-demand multi-record DNS query, updates verification flags on `domains`, updates `last_dns_check_at`, activates pending domains when core records pass, and emits `domain.dns_verify` audit log.
+  - `POST /api/domains/{domain}/verify`: Preserved as a backwards-compatible alias to `verifyDns()`.
+  - Enforced rate limiting: Protected by `throttle:30,1` against abuse and external resolver exhaustion.
+  - Gated by `auth:sanctum`, `DomainPolicy` (`view`/`update`), and `EnsureActiveSubscription`.
+- **Implemented:** Domain Model & Resource Enhancements:
+  - `Domain::requiredDnsRecords()` generates structured record definitions (`id`, `type`, `host`, `value`, `priority`, `purpose`, `is_required`, `status`, `verified`).
+  - `DomainResource` exposes `last_dns_check_at`.
+- **Implemented:** Next.js Tenant Dashboard UI (`frontend/`):
+  - Added TypeScript definitions in `types/index.ts` (`DnsRecordType`, `DnsVerificationStatus`, `DnsRecord`, `DeliverabilityScore`, `InboundRoutingDiagnostics`, `OutboundAuthDiagnostics`, `InfrastructureDiagnostics`, `DomainDnsWizardData`, `DnsVerifyResponse`).
+  - Added `useDomainDnsWizard` and `verifyDns` hooks in `hooks/useDomains.ts`.
+  - Transformed `/domains/[id]/setup` (`DomainSetupPage.tsx`) into a full-featured DNS Wizard & Deliverability Diagnostics dashboard:
+    - Deliverability Health Scorecard with visual progress bar, status badges, and sub-score metrics.
+    - Multi-layer environment notice separating DNS publication from live MTA state.
+    - Diagnostics cards for Inbound MX Routing and Outbound SPF/DKIM/DMARC Authentication.
+    - Actionable Recommendations alert with concrete troubleshooting steps.
+    - Upgraded `DnsRecordTable.tsx` with copy buttons, record purpose, priority columns, status badges (`VERIFIED`, `MISMATCH`, `MISSING`, `CHECK_FAILED`, `NOT_CONFIGURED`, `EXPECTED`), and expandable troubleshooting drawer showing expected vs current values.
+  - Updated `/domains/[id]` domain details page with "DNS Wizard & Diagnostics" button.
+- **Automated Verification & Three-Level Matrix:**
+  - Created `tests/Feature/TenantDomainDnsWizardTest.php` with 24 tests (211 assertions) covering authorization, verification logic, RFC 7208 PermError handling, DKIM chunking, deliverability scoring, rate limiting, and audit logging.
+  - Level A (Application & API Layer): `VERIFIED`.
+  - Level B (Configuration & Resolver Logic): `VERIFIED`.
+  - Level C (End-to-End Live Mail Flow & Public DNS): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services and public DNS zone delegation; requires dedicated Linux VPS).
+  - Full backend test suite passing: **448 tests, 2,185 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+  - Frontend production build: **Next.js 14 compiles and optimizes all 27 static pages cleanly with zero errors**.
+
 ### Tenant Email Forwarding Rules & Auto-Reply Management (Step 33)
 - **Implemented:** Database Schema & Mailbox Entity Integration:
   - Created migration `2026_10_17_000002_add_forwarding_and_auto_reply_to_mailboxes_table.php` adding 8 columns to `mailboxes`: `is_forwarding_enabled` (boolean), `forwarding_destinations` (text), `forwarding_keep_copy` (boolean), `auto_reply_enabled` (boolean), `auto_reply_subject` (varchar 255), `auto_reply_body` (text), `auto_reply_start_at` (timestamp), `auto_reply_end_at` (timestamp).

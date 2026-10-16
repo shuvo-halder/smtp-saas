@@ -709,6 +709,181 @@ All mailbox forwarding and auto-reply endpoints require an authenticated Sanctum
 }
 ```
 
+---
+
+## Step 34 — Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics Contracts
+
+All DNS wizard and verification endpoints require an authenticated Sanctum session and an active tenant subscription (`EnsureActiveSubscription`). Authorization is strictly gated per-tenant via `DomainPolicy`. Endpoints are protected by rate limiting (`throttle:30,1`) to prevent external DNS resolver exhaustion.
+
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/api/domains/{domain}/dns-wizard` | Retrieve required/recommended DNS records, verification statuses, deliverability health score, diagnostic layer breakdown, and actionable recommendations. | `auth:sanctum`, `EnsureActiveSubscription`, `throttle:30,1` |
+| POST | `/api/domains/{domain}/verify-dns` | Perform live multi-record DNS query for MX, SPF, DKIM, DMARC, A, and CNAME. Updates domain verification flags and emits audit event. | `auth:sanctum`, `EnsureActiveSubscription`, `throttle:30,1` |
+| POST | `/api/domains/{domain}/verify` | Backwards-compatible alias for `POST /api/domains/{domain}/verify-dns`. | `auth:sanctum`, `EnsureActiveSubscription`, `throttle:30,1` |
+
+### DNS Wizard Data Resource (`GET /api/domains/{domain}/dns-wizard`)
+```json
+{
+  "data": {
+    "domain": {
+      "id": 1,
+      "name": "company.com",
+      "status": "active",
+      "is_active": true,
+      "is_verified": true,
+      "last_dns_check_at": "2026-10-17T02:00:00.000000Z"
+    },
+    "score": {
+      "score": 100,
+      "rating": "EXCELLENT",
+      "status": "EXCELLENT",
+      "breakdown": {
+        "mx": { "weight": 40, "earned": 40, "verified": true, "label": "Inbound MX Routing" },
+        "spf": { "weight": 25, "earned": 25, "verified": true, "label": "Sender Policy Framework (SPF)" },
+        "dkim": { "weight": 25, "earned": 25, "verified": true, "label": "DKIM Signature Record" },
+        "dmarc": { "weight": 10, "earned": 10, "verified": true, "label": "DMARC Policy Record" }
+      }
+    },
+    "records": [
+      {
+        "id": "mx",
+        "type": "MX",
+        "host": "@",
+        "value": "mail.company.com",
+        "priority": 10,
+        "purpose": "Inbound mail routing",
+        "is_required": true,
+        "verified": true,
+        "status": "VERIFIED",
+        "current_values": ["mail.company.com"],
+        "error": null
+      },
+      {
+        "id": "spf",
+        "type": "TXT",
+        "host": "@",
+        "value": "v=spf1 mx ~all",
+        "priority": null,
+        "purpose": "SPF sender authentication",
+        "is_required": true,
+        "verified": true,
+        "status": "VERIFIED",
+        "current_values": ["v=spf1 mx ~all"],
+        "error": null
+      },
+      {
+        "id": "dkim",
+        "type": "TXT",
+        "host": "default._domainkey",
+        "value": "v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...",
+        "priority": null,
+        "purpose": "DKIM cryptographic signature",
+        "is_required": true,
+        "verified": true,
+        "status": "VERIFIED",
+        "current_values": ["v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA..."],
+        "error": null
+      },
+      {
+        "id": "dmarc",
+        "type": "TXT",
+        "host": "_dmarc",
+        "value": "v=DMARC1; p=quarantine; pct=100",
+        "priority": null,
+        "purpose": "DMARC deliverability protection policy",
+        "is_required": false,
+        "verified": true,
+        "status": "VERIFIED",
+        "current_values": ["v=DMARC1; p=quarantine; pct=100"],
+        "error": null
+      },
+      {
+        "id": "mail_host",
+        "type": "A",
+        "host": "mail",
+        "value": "127.0.0.1",
+        "priority": null,
+        "purpose": "Mail server IP address",
+        "is_required": true,
+        "verified": true,
+        "status": "VERIFIED",
+        "current_values": ["127.0.0.1"],
+        "error": null
+      },
+      {
+        "id": "autodiscover",
+        "type": "CNAME",
+        "host": "autodiscover",
+        "value": "mail.company.com",
+        "priority": null,
+        "purpose": "Automatic client email configuration",
+        "is_required": false,
+        "verified": true,
+        "status": "VERIFIED",
+        "current_values": ["mail.company.com"],
+        "error": null
+      }
+    ],
+    "diagnostics": {
+      "inbound_routing": {
+        "status": "VERIFIED",
+        "primary_mx": "mail.company.com",
+        "resolved_hosts": ["mail.company.com"],
+        "points_to_us": true
+      },
+      "outbound_authentication": {
+        "spf": { "status": "VERIFIED", "multiple_records": false, "raw_record": "v=spf1 mx ~all" },
+        "dkim": { "status": "VERIFIED", "selector": "default", "key_configured": true },
+        "dmarc": { "status": "VERIFIED", "policy": "quarantine", "syntax_valid": true }
+      },
+      "infrastructure": {
+        "dns_published": true,
+        "application_configured": true,
+        "mta_operational": false,
+        "mta_status": "local_development",
+        "summary": "DNS records are published. Mail server MTA operational check is not available in local development."
+      }
+    },
+    "recommendations": []
+  }
+}
+```
+
+### DNS Verification Response (`POST /api/domains/{domain}/verify-dns`)
+```json
+{
+  "message": "DNS records verified successfully",
+  "verified": true,
+  "status": "active",
+  "results": {
+    "mx": { "verified": true, "status": "VERIFIED", "expected": "mail.company.com", "found": ["mail.company.com"], "error": null },
+    "spf": { "verified": true, "status": "VERIFIED", "expected": "v=spf1 mx ~all", "found": ["v=spf1 mx ~all"], "error": null },
+    "dkim": { "verified": true, "status": "VERIFIED", "expected": "v=DKIM1; k=rsa; p=...", "found": ["v=DKIM1; k=rsa; p=..."], "error": null },
+    "dmarc": { "verified": true, "status": "VERIFIED", "expected": "v=DMARC1; p=quarantine; pct=100", "found": ["v=DMARC1; p=quarantine; pct=100"], "error": null }
+  },
+  "deliverability_score": {
+    "score": 100,
+    "rating": "EXCELLENT",
+    "status": "EXCELLENT",
+    "breakdown": {
+      "mx": { "weight": 40, "earned": 40, "verified": true, "label": "Inbound MX Routing" },
+      "spf": { "weight": 25, "earned": 25, "verified": true, "label": "Sender Policy Framework (SPF)" },
+      "dkim": { "weight": 25, "earned": 25, "verified": true, "label": "DKIM Signature Record" },
+      "dmarc": { "weight": 10, "earned": 10, "verified": true, "label": "DMARC Policy Record" }
+    }
+  }
+}
+```
+
+### DNS Status Semantics & Error Codes
+- **`VERIFIED`**: Record is resolved and matches expected configuration.
+- **`MISMATCH`**: Record is resolved but value differs from expected (e.g. multiple SPF records violating RFC 7208, non-matching DKIM public key, MX priority conflict).
+- **`MISSING`**: Query completed successfully with zero records found in DNS.
+- **`CHECK_FAILED`**: DNS lookup failed due to network timeout or lookup error.
+- **`NOT_CONFIGURED`**: DKIM key or server configuration is missing in the database.
+- **`EXPECTED`**: Baseline unverified state awaiting lookup.
+
+
 
 
 

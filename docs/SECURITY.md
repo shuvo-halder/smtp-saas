@@ -299,3 +299,21 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Zero SSRF Risk in Diagnostics:**
   - The diagnostics endpoint (`GET /api/smtp/diagnostics`) evaluates configuration health strictly against internal database state, subscription models, and Redis usage keys.
   - It accepts zero host, port, or URL parameters and initiates zero outbound network socket connections or HTTP probes, completely eliminating Server-Side Request Forgery (SSRF) vulnerabilities.
+
+## 24. Domain DNS Records Wizard, Inbound Authentication & Verification Security (Step 34)
+- **External Resolver Protection & Rate Limiting:**
+  - DNS lookup endpoints (`GET /api/domains/{domain}/dns-wizard` and `POST /api/domains/{domain}/verify-dns`) are bounded by Laravel's `throttle:30,1` middleware (maximum 30 verification calls per minute per authenticated session). This mitigates external DNS resolver amplification, cache thrashing, and DoS attacks.
+- **Tenant Authorization Boundaries & Ownership Isolation:**
+  - Access is guarded by `auth:sanctum` and `DomainPolicy` (`view` for wizard queries, `update` for verify requests). Tenants cannot trigger DNS checks, view public key data, or modify domains belonging to other tenants (HTTP 403 Forbidden).
+  - Suspended accounts and expired subscriptions are blocked via `EnsureActiveSubscription` middleware.
+- **SSRF Prevention & DNS Query Scoping:**
+  - `DnsVerificationService` strictly queries standard DNS record types (`DNS_MX`, `DNS_TXT`, `DNS_A`, `DNS_CNAME`) targeting only the verified tenant domain hostname and standard subdomains (`<selector>._domainkey`, `_dmarc`, `mail`, `autodiscover`, `autoconfig`).
+  - Zero arbitrary external URLs, IP addresses, or ports are queried, completely preventing Server-Side Request Forgery (SSRF) vulnerabilities.
+- **Cryptographic Key Security & Zero Private Key Leakage:**
+  - Only the public key (`dkim_public_key`) is stored in the database and exposed in DNS wizard configurations.
+  - DKIM private keys are generated on server filesystem storage (`/var/vmail/dkim/` or staging equivalent), set with restricted file permissions (`chmod 600`), and are NEVER stored in database columns or exposed in API responses.
+- **RFC 7208 PermError Detection:**
+  - Multiple SPF records are explicitly identified and flagged as `MISMATCH` with consolidation guidance, protecting tenants from spoofing and MTA mail rejection caused by RFC 7208 section 3.2 violations.
+- **Persistent Security Audit Trail:**
+  - Every DNS verification action (`verifyDns` and backwards-compatible `verify`) emits a `domain.dns_verify` event into `audit_logs` via `AuditService::record()`, recording actor ID, IP address, timestamp, and sanitized before/after verification states.
+

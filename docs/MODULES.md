@@ -250,6 +250,40 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
   - Created `MailboxRulesModal.tsx` providing a multi-tab interface for Forwarding, Out of Office Auto-Reply, and Sieve & MTA Diagnostics.
   - Updated `MailboxRow.tsx` with `Fwd` and `Auto-Reply` status badges and a dedicated settings button (`SlidersHorizontal`) to open the rules modal.
 
+## 23. Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics (Step 34)
+**Status:** IMPLEMENTED & VERIFIED (Step 34)
+**Purpose:** Provide tenant self-service DNS setup wizard, record generation, truthful multi-record DNS verification with mockable resolver, inbound email authentication diagnostics (MX, SPF, DKIM, DMARC), and a weighted deliverability health score.
+**Components:**
+- **DnsVerificationService Multi-Record Engine (`app/Services/DnsVerificationService.php`):**
+  - Injectable mock resolver architecture (`setResolver(?callable $resolver)`) for 100% deterministic, offline testing.
+  - Verification routines: `verifyMx()`, `verifySpf()`, `verifyDkim()`, `verifyDmarc()`, `verifyA()`, `verifyCname()`, `verifyAll()`, and `getDnsWizardData()`.
+  - RFC 7208 section 3.2 PermError detection: Flags multiple `v=spf1` TXT records as `MISMATCH` and advises consolidation into a single record.
+  - 2048-bit DKIM multi-chunk TXT concatenation: Merges DNS packet string chunks from PHP `entries` array via `extractTxtContent()`.
+  - DKIM public key payload isolation: Strips whitespace, tags, and extracts the `p=` base64 key payload for robust comparison.
+  - Deliverability Score Algorithm: 0-100 weighted calculation (MX 40%, SPF 25%, DKIM 25%, DMARC 10%) producing actionable ratings (`EXCELLENT`, `GOOD`, `FAIR`, `POOR`).
+  - Three-layer diagnostics telemetry: Reports DNS publication, application configuration, and live MTA readiness independently.
+  - Actionable recommendations generator: Computes human-friendly remediation guidance for missing or misconfigured records.
+- **RESTful API & Policy Authorization:**
+  - `GET /api/domains/{domain}/dns-wizard`: Returns all required/recommended DNS records, verification statuses, deliverability score, diagnostic breakdown, and actionable recommendations.
+  - `POST /api/domains/{domain}/verify-dns`: Triggers on-demand multi-record DNS verification, persists verification flags on `domains`, updates `last_dns_check_at`, activates pending domains when core records pass, and emits `domain.dns_verify` audit log.
+  - `POST /api/domains/{domain}/verify`: Preserved as a backwards-compatible alias to `verifyDns()`.
+  - Rate limiting: Protected with `throttle:30,1` against abuse and DoS.
+  - Gated by `auth:sanctum`, `DomainPolicy` (`view`/`update`), and `EnsureActiveSubscription`.
+- **Domain Model & Resource Enhancements:**
+  - `Domain::requiredDnsRecords()` generates structured record definitions (`id`, `type`, `host`, `value`, `priority`, `purpose`, `is_required`, `status`, `verified`).
+  - `DomainResource` exposes `last_dns_check_at`.
+- **Next.js Frontend Experience (`frontend/`):**
+  - Added TypeScript definitions in `types/index.ts` (`DnsRecordType`, `DnsVerificationStatus`, `DnsRecord`, `DeliverabilityScore`, `InboundRoutingDiagnostics`, `OutboundAuthDiagnostics`, `InfrastructureDiagnostics`, `DomainDnsWizardData`, `DnsVerifyResponse`).
+  - Added `useDomainDnsWizard` and `verifyDns` hooks in `hooks/useDomains.ts`.
+  - Transformed `/domains/[id]/setup` (`DomainSetupPage.tsx`) into a full-featured DNS Wizard & Deliverability Diagnostics dashboard:
+    - Deliverability Health Scorecard with visual progress bar, status badges, and sub-score metrics.
+    - Multi-layer environment notice separating DNS publication from live MTA state.
+    - Diagnostics cards for Inbound MX Routing and Outbound SPF/DKIM/DMARC Authentication.
+    - Actionable Recommendations alert with concrete troubleshooting steps.
+    - Upgraded `DnsRecordTable.tsx` with copy buttons, record purpose, priority columns, status badges (`VERIFIED`, `MISMATCH`, `MISSING`, `CHECK_FAILED`, `NOT_CONFIGURED`, `EXPECTED`), and expandable troubleshooting drawer showing expected vs current values.
+  - Updated `/domains/[id]` domain details page with "DNS Wizard & Diagnostics" button.
+
+
 
 
 

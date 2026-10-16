@@ -143,5 +143,29 @@ This document describes the current implementation state of the EmailSaaS projec
   - Activity Logs tab: Filterable delivery table (status, search, bounded pagination 1-50), formatted badges (`delivered`, `deferred`, `bounced`, `rejected`), sanitized response snippets, and timestamping.
   - Diagnostics & Troubleshooting tab: Zero-SSRF account diagnostics checking subscription, domains, mailboxes, quota headroom, and bounce health, plus common SMTP errors reference guide (535, 554, 451/452, 550).
 
+## 14. Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics (Step 34)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **API & Service Layer:**
+  - `DnsVerificationService`: Multi-record verification engine (`verifyMx`, `verifySpf`, `verifyDkim`, `verifyDmarc`, `verifyA`, `verifyCname`, `verifyAll`, `getDnsWizardData`).
+  - Injected mock resolver architecture (`setResolver`) enables 100% deterministic, offline automated testing.
+  - RFC 7208 PermError handling: Rejects multiple SPF records on a single domain with `MISMATCH` status.
+  - 2048-bit DKIM DNS packet chunk concatenation via `extractTxtContent()`.
+  - Resilient DKIM key payload isolation via `extractDkimKeyPayload()`.
+  - Weighted Deliverability Score algorithm (MX 40%, SPF 25%, DKIM 25%, DMARC 10%) producing actionable ratings (`EXCELLENT`, `GOOD`, `FAIR`, `POOR`).
+  - Multi-layer environment diagnostics reporting DNS publication, application configuration, and live Postfix MTA readiness.
+  - `DomainApiController`: Exposes `GET /api/domains/{domain}/dns-wizard` and `POST /api/domains/{domain}/verify-dns` (plus backwards-compatible alias `POST /api/domains/{domain}/verify`), protected by `auth:sanctum`, `DomainPolicy`, `EnsureActiveSubscription`, and `throttle:30,1`.
+  - Audit logging: Emits `domain.dns_verify` into `audit_logs` via `AuditService::record()`.
+- **Database & Model:**
+  - Zero schema migrations needed; leveraged canonical `domains` table columns (`mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `last_dns_check_at`, `dkim_public_key`).
+  - `Domain::requiredDnsRecords()` generates structured record definitions (`id`, `type`, `host`, `value`, `priority`, `purpose`, `is_required`, `status`, `verified`).
+  - `DomainResource` exposes `last_dns_check_at`.
+- **Frontend Hub:** Next.js dashboard view at `frontend/src/app/(dashboard)/domains/[id]/setup/page.tsx`:
+  - Deliverability Health Scorecard with progress bar and rating badge.
+  - Multi-layer environment notice separating DNS publication from live MTA status.
+  - Inbound Routing and Outbound Authentication diagnostic cards.
+  - Actionable Recommendations alert with concrete remediation instructions.
+  - Upgraded `DnsRecordTable.tsx` with copy buttons, priority, purpose, status badges (`VERIFIED`, `MISMATCH`, `MISSING`, `CHECK_FAILED`, `NOT_CONFIGURED`, `EXPECTED`), and expandable troubleshooting drawer showing expected vs current values.
+
+
 
 

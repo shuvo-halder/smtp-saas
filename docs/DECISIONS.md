@@ -450,3 +450,21 @@ ACCEPTED & IMPLEMENTED
 ### DO NOT CHANGE WITHOUT APPROVAL
 Yes
 
+---
+
+## Decision: Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics (Step 34)
+### Status
+ACCEPTED & IMPLEMENTED
+### Date
+2026-10-17 (Step 34)
+### Decision
+1. **Mockable Resolver Pattern for Deterministic Testing:** In `DnsVerificationService`, public method `setResolver(?callable $resolver)` allows injecting mock DNS responses in test environments. In production, it defaults to native PHP `dns_get_record()`. This enables 100% deterministic, offline automated testing of edge cases without relying on flaky live network calls.
+2. **RFC 7208 Multiple SPF Record Rule Enforcement:** RFC 7208 section 3.2 strictly prohibits multiple `v=spf1` TXT records on a single domain, treating it as a `PermError`. Rather than picking the first record or silently ignoring duplicates, `verifySpf()` explicitly detects multiple SPF records, marks the verification status as `MISMATCH`, and generates an actionable recommendation to consolidate all mechanisms into a single TXT record.
+3. **Resilient 2048-bit DKIM Key Extraction & Chunking:** DNS UDP responses split TXT strings exceeding 255 bytes into multiple chunks, stored by PHP in `$record['entries']`. `extractTxtContent()` safely concatenates chunks. `extractDkimKeyPayload()` extracts the key value following `p=` up to the semicolon, stripping whitespace and newlines, ensuring resilient comparisons whether the server stored a raw base64 key or a full `v=DKIM1; k=rsa; p=...` record.
+4. **Weighted Deliverability Scoring Model:** The platform adopts an objective 0-100 deliverability scorecard: MX (40%), SPF (25%), DKIM (25%), and DMARC (10%). Ratings are categorized into `EXCELLENT` ($\ge 90$), `GOOD` ($\ge 70$), `FAIR` ($\ge 50$), and `POOR` ($< 50$).
+5. **Truthful Multi-Layer Environment Separation:** The verification wizard explicitly isolates DNS Publication status from Application DB configuration and Live Postfix MTA Readiness (`PostfixService::isPostfixOperational()`). In local development environments, MTA status is truthfully reported as `local_development` rather than fabricating live operational readiness.
+6. **Rate Limiting & Audit Trail:** Endpoints `GET /api/domains/{domain}/dns-wizard` and `POST /api/domains/{domain}/verify-dns` are protected by `throttle:30,1` against external resolver exhaustion, and each verification emits a `domain.dns_verify` audit log event via `AuditService::record()`.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes
+
+

@@ -710,6 +710,48 @@
   - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
   - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.
 
+---
+
+## Step 34 — Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics (`IMPLEMENTED — VERIFIED`)
+- `[x]` Database & Model Architecture:
+  - `[x]` Zero schema modifications required; verified existing canonical columns (`mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `last_dns_check_at`, `dkim_public_key`).
+  - `[x]` Upgraded `Domain::requiredDnsRecords()` returning structured array with record identifiers, types, hosts, values, priority, purpose, and verification status.
+  - `[x]` Updated `DomainResource` exposing `last_dns_check_at`.
+- `[x]` DnsVerificationService Multi-Record Engine:
+  - `[x]` Implemented mockable resolver via `setResolver(?callable $resolver)` for offline, deterministic testing.
+  - `[x]` RFC 7208 PermError handling: Flags multiple `v=spf1` TXT records as `MISMATCH` with consolidation advice.
+  - `[x]` 2048-bit DKIM key chunking: Concatenates multi-chunk TXT records via `extractTxtContent()`.
+  - `[x]` Resilient DKIM key extraction: Normalizes and isolates public key payload following `p=` up to semicolon.
+  - `[x]` Truthful verification status taxonomy: `VERIFIED`, `MISMATCH`, `MISSING`, `CHECK_FAILED`, `NOT_CONFIGURED`, `EXPECTED`.
+  - `[x]` Deliverability score algorithm: Weighted 0-100 score (MX 40%, SPF 25%, DKIM 25%, DMARC 10%) with ratings (`EXCELLENT`, `GOOD`, `FAIR`, `POOR`).
+  - `[x]` Diagnostic separation: Decouples DNS publication, application configuration, and live MTA readiness.
+  - `[x]` Actionable recommendations engine: Generates specific instructions for missing or mismatched records.
+- `[x]` RESTful API & Security Boundaries:
+  - `[x]` Implemented `dnsWizard()` action on `DomainApiController` (`GET /api/domains/{domain}/dns-wizard`).
+  - `[x]` Implemented `verifyDns()` action on `DomainApiController` (`POST /api/domains/{domain}/verify-dns`).
+  - `[x]` Preserved backwards compatibility: `POST /api/domains/{domain}/verify` routes to `verifyDns()`.
+  - `[x]` Enforced rate limiting: `throttle:30,1` on both DNS endpoints.
+  - `[x]` Authorization gates: `auth:sanctum`, `DomainPolicy` (`view`/`update`), and `EnsureActiveSubscription`.
+  - `[x]` Persistent audit logging: Records `domain.dns_verify` in `audit_logs` via `AuditService::record()`.
+  - `[x]` Zero sensitive information leakage: Redacts private keys; only exposes public records.
+- `[x]` Next.js Tenant UI:
+  - `[x]` Added TypeScript interfaces in `types/index.ts` (`DnsRecordType`, `DnsVerificationStatus`, `DnsRecord`, `DeliverabilityScore`, `InboundRoutingDiagnostics`, `OutboundAuthDiagnostics`, `InfrastructureDiagnostics`, `DomainDnsWizardData`, `DnsVerifyResponse`).
+  - `[x]` Added `useDomainDnsWizard` and `verifyDns` hooks in `hooks/useDomains.ts`.
+  - `[x]` Transformed `/domains/[id]/setup` (`DomainSetupPage.tsx`) into a full-featured DNS Wizard & Diagnostics dashboard with Deliverability Scorecard, Diagnostic Cards, Multi-layer environment notice, and Actionable Recommendations banner.
+  - `[x]` Overhauled `DnsRecordTable.tsx` with copy buttons, priority, purpose, status badges, and expandable troubleshooting drawer showing expected vs current values.
+  - `[x]` Updated `/domains/[id]` page with "DNS Wizard & Diagnostics" button.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `TenantDomainDnsWizardTest.php` passes with 24 tests (211 assertions).
+  - `[x]` **Level B (Configuration & Resolver Logic):** `VERIFIED`. Mockable resolver, RFC 7208 duplicate SPF, 2048-bit chunking, and key payload extraction verified.
+  - `[x]` **Level C (End-to-End Live Mail Flow & Public DNS):** `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services and public DNS zone delegation; requires dedicated Linux VPS).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Feature test suite (`tests/Feature/TenantDomainDnsWizardTest.php`): **24 tests, 211 assertions passing (100%)**.
+  - `[x]` Domain regression suite (`tests/Feature/TenantDomainAndMailboxManagementTest.php`): **21 tests, 86 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **448 tests, 2,185 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.
+
+
 
 
 
