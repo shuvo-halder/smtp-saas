@@ -193,4 +193,32 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
   - Enhanced `MailboxRow.tsx` with storage progress bar, colored warning badges, or `Unmeasured` badge when Dovecot is offline.
   - `MailboxStorageModal.tsx` provides detailed breakdown of usage, quota ceiling, remaining capacity, provenance source, and measured timestamp.
 
+## 21. Tenant Catch-All Mailbox & Inbound Email Routing Rules (Step 32)
+**Status:** IMPLEMENTED & VERIFIED (Step 32)
+**Purpose:** Provide secure, tenant-managed catch-all and inbound recipient fallback policies (`disabled`, `reject`, `mailbox`, `discard`) with strict precedence preservation for physical mailboxes and explicit aliases.
+**Components:**
+- **Database Schema & Domain Lifecycle:**
+  - Added `catch_all_policy` (varchar(32), default `'disabled'`) and `catch_all_mailbox_id` (foreignId to `mailboxes`, nullable, `nullOnDelete()`) to `domains` table.
+  - Eloquent relations `catchAllMailbox(): BelongsTo` and helper `isCatchAllEnabled(): bool` on `Domain`.
+  - Helper `isCatchAll(): bool` on `Mailbox`.
+  - Automatic catch-all reset on destination mailbox deletion in `MailboxApiController::destroy()`.
+- **Postfix MySQL Configuration Alignment:**
+  - Created `postfix-config/mysql-virtual-catchall.cf` and `server-configs/mysql-virtual-catchall-maps.cf`.
+  - Postfix `main.cf` integrates `mysql-virtual-catchall.cf` inside `virtual_alias_maps` after `mysql-virtual-aliases.cf`.
+  - Invariant Precedence Enforcement: Catch-all query strictly verifies `NOT EXISTS (SELECT 1 FROM mailboxes ...)` and `NOT EXISTS (SELECT 1 FROM email_aliases ...)` so physical mailboxes and explicit aliases are NEVER hijacked.
+- **Postfix Routing Service & CLI Diagnostics:**
+  - `verifyCatchAllRouting(Domain $domain, ?string $probeLocalPart = null)`: Simulates Postfix catch-all resolution, verifies destination mailbox validity, and detects live MTA socket state.
+  - `syncCatchAll` and `disableCatchAll` lifecycle synchronization hooks.
+  - Operator CLI command `php artisan mail:verify-catchall {domain?} {--all}` with tabular output of policy, destination mailbox, routing status, and live MTA readiness.
+- **RESTful API & Policy Authorization:**
+  - `GET /api/domains/{domain}/catch-all`: Retrieve catch-all policy, destination mailbox, available mailboxes, and routing details.
+  - `PUT /api/domains/{domain}/catch-all`: Update catch-all policy and destination with strict validation (domain verified/active, active tenant subscription, destination mailbox must belong to the domain and be active).
+  - Mutex and transactions: Enforces atomic updates across domain policy and `mailboxes.is_catchall` flags.
+  - Audit logging: Records `domain.catch_all_update` in `audit_logs` via `AuditService`.
+- **Next.js Dashboard Integration (`frontend/`):**
+  - Added TypeScript interfaces in `types/index.ts` (`CatchAllPolicy`, `CatchAllMailbox`, `CatchAllRoutingDetails`, `DomainCatchAllDetails`, `CatchAllUpdateRequest`).
+  - Added `useDomainCatchAll` and `updateCatchAll` SWR hooks in `hooks/useDomains.ts`.
+  - Embedded `CatchAllSettingsCard.tsx` on the domain management page (`/domains/[id]`), providing policy radio selectors (`disabled`, `reject`, `mailbox`, `discard`), active mailbox dropdown picker, high-risk discard warning, spam flood advisory, and routing status badges (`operational`, `synchronized`, `configured`, `failed`).
+
+
 

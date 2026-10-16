@@ -300,8 +300,17 @@ class MailboxApiController extends Controller
         ];
         $mailboxId = $mailbox->id;
 
-        $postfixService->removeMailbox($mailbox);
-        $mailbox->delete();
+        \DB::transaction(function () use ($mailbox, $postfixService) {
+            if ($mailbox->domain && $mailbox->domain->catch_all_mailbox_id === $mailbox->id) {
+                $mailbox->domain->update([
+                    'catch_all_policy'     => 'disabled',
+                    'catch_all_mailbox_id' => null,
+                ]);
+            }
+
+            $postfixService->removeMailbox($mailbox);
+            $mailbox->delete();
+        });
 
         app(\App\Services\AuditService::class)->record(
             action: 'mailbox.delete',

@@ -9,6 +9,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { DnsRecordTable } from '@/components/domains/DnsRecordTable';
+import { CatchAllSettingsCard } from '@/components/domains/CatchAllSettingsCard';
 import MailboxRow from '@/components/mailboxes/MailboxRow';
 import CreateMailboxModal from '@/components/mailboxes/CreateMailboxModal';
 import { AlertCircle, ChevronRight, Settings, Trash2, Mail, Plus } from 'lucide-react';
@@ -186,6 +187,17 @@ export default function DomainDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Catch-All Inbound Recipient Policy Section */}
+      <CatchAllSettingsCard
+        domainId={domain.id}
+        domainName={domain.domain_name}
+        isDomainActive={domain.status === 'active'}
+        onRefresh={() => {
+          mutateDomain();
+          mutateMailboxes();
+        }}
+      />
 
       {/* DNS Records Section */}
       <div className="space-y-6 pt-4 border-t">

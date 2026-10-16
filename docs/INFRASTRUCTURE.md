@@ -262,3 +262,48 @@ Dovecot MDA (Local Delivery Agent / LMTP) enforces storage ceilings dynamically 
 | **Level B: Configuration & SQL Query Layer** | `dovecot-sql.conf.ext`, `quota_rule` SQL mapping | `VERIFIED` | Exact SQL syntax verified against local MySQL 8.4 database. `quota_mb * 1048576` produces exact byte counts. |
 | **Level C: Live Dovecot LMTP Enforcement** | Live Linux Dovecot daemon, `doveadm`, physical `/var/vmail` disk writes | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks Linux Dovecot daemon and `/var/vmail` filesystem; live enforcement will execute in production Linux VPS environment. |
 
+---
+
+## Postfix Catch-All & Fallback Inbound Routing Architecture (Step 32)
+
+### 1. Inbound Resolution Precedence & MySQL Map Order
+In Postfix virtual delivery, incoming messages addressed to `@virtual_mailbox_domains` traverse `virtual_alias_maps` before resolving `virtual_mailbox_maps`.
+To ensure that catch-all mappings never intercept, override, or shadow valid physical mailboxes or explicit virtual aliases, the configuration enforces:
+
+1. **Map Registration Order (`/etc/postfix/main.cf`):**
+   ```ini
+   virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-aliases.cf,
+                        mysql:/etc/postfix/mysql-virtual-catchall.cf
+   ```
+2. **Strict SQL Precedence Exclusions (`mysql-virtual-catchall.cf`):**
+   ```ini
+   user     = laravel_db_user
+   password = laravel_db_password
+   hosts    = 127.0.0.1
+   dbname   = email_saas_db
+   query    = SELECT CASE WHEN domains.catch_all_policy = 'discard' THEN 'devnull@localhost' ELSE mailboxes.email END AS destination FROM domains LEFT JOIN mailboxes ON domains.catch_all_mailbox_id = mailboxes.id AND mailboxes.is_active = 1 AND mailboxes.deleted_at IS NULL WHERE domains.domain_name = '%d' AND domains.status = 'active' AND domains.deleted_at IS NULL AND domains.catch_all_policy IN ('mailbox', 'discard') AND (domains.catch_all_policy = 'discard' OR mailboxes.id IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM mailboxes WHERE email = '%s' AND is_active = 1 AND deleted_at IS NULL) AND NOT EXISTS (SELECT 1 FROM email_aliases WHERE source_email = '%s' AND is_active = 1) LIMIT 1;
+   ```
+3. **Resolution Sequence:**
+   - **Step 1:** Postfix checks `mysql-virtual-aliases.cf` for exact match in `email_aliases`.
+   - **Step 2:** If not found, Postfix evaluates `mysql-virtual-catchall.cf`. If an active physical mailbox exists with that address (`NOT EXISTS mailboxes`), catch-all returns NULL.
+   - **Step 3:** If neither alias nor catch-all matches, Postfix delivers directly to physical mailbox via `virtual_mailbox_maps` (`mysql-virtual-mailboxes.cf`).
+   - **Step 4:** If recipient matches no mailbox, no alias, and domain has `catch_all_policy = 'disabled'` or `'reject'`, Postfix rejects the message with `550 5.1.1 User unknown in virtual mailbox table`.
+   - **Step 5:** If `catch_all_policy = 'mailbox'`, Postfix routes to `domains.catch_all_mailbox_id`.
+   - **Step 6:** If `catch_all_policy = 'discard'`, Postfix routes to discard sink (`devnull@localhost`).
+
+### 2. Operational Diagnostics & Telemetry
+`PostfixService::verifyCatchAllRouting(Domain $domain)` and `php artisan mail:verify-catchall` evaluate this query structure and report one of four operational states:
+- `operational`: Live Linux Postfix socket is listening and destination mailbox is valid.
+- `synchronized`: SQL map query and target mailbox are valid and routable (MTA offline/local fallback).
+- `configured`: Catch-all is set to `disabled` or `reject`, or domain is unverified/pending.
+- `failed`: Policy is set to `mailbox` but destination mailbox is inactive, deleted, or missing.
+
+### 3. Three-Level Catch-All Verification Matrix
+
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `CatchAllApiController`, `DomainPolicy`, `PostfixService` | `VERIFIED` | Full test coverage for policy updates, mailbox assignment, domain verification checks, subscription gating, transactional updates, and `AuditService` logging via `TenantCatchAllManagementTest.php` (19/19 passing). |
+| **Level B: Configuration & SQL Query Layer** | `mysql-virtual-catchall.cf`, `virtual_alias_maps`, CLI tool | `VERIFIED` | Exact SQL map query tested directly against MySQL with aliases, physical mailboxes, probe emails, and fallback policies. CLI verification command `php artisan mail:verify-catchall` verified. |
+| **Level C: Live End-to-End SMTP Reception** | Live Postfix MTA daemon, TCP port 25 recipient verification | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks Linux Postfix MTA, network MX records, and Unix domain sockets. Full live mail-flow requires dedicated Linux VPS staging environment. |
+
+

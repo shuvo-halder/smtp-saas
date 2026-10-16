@@ -1,0 +1,6 @@
+# /etc/postfix/mysql-virtual-catchall-maps.cf
+user     = laravel_db_user
+password = laravel_db_password
+hosts    = 127.0.0.1
+dbname   = email_saas_db
+query    = SELECT CASE WHEN d.catch_all_policy = 'mailbox' THEN m_dest.email WHEN d.catch_all_policy = 'discard' THEN 'devnull@localhost' ELSE NULL END AS destination FROM domains d LEFT JOIN mailboxes m_dest ON d.catch_all_mailbox_id = m_dest.id WHERE d.domain_name = '%d' AND d.status = 'active' AND d.deleted_at IS NULL AND ((d.catch_all_policy = 'mailbox' AND m_dest.id IS NOT NULL AND m_dest.is_active = 1 AND m_dest.deleted_at IS NULL) OR (d.catch_all_policy = 'discard')) AND NOT EXISTS (SELECT 1 FROM mailboxes m_existing WHERE m_existing.email = '%s' AND m_existing.is_active = 1 AND m_existing.deleted_at IS NULL) AND NOT EXISTS (SELECT 1 FROM email_aliases a_existing WHERE a_existing.source_email = '%s' AND a_existing.is_active = 1)

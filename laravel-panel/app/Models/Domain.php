@@ -16,6 +16,7 @@ class Domain extends Model
         'mx_verified', 'spf_verified', 'dkim_verified', 'dmarc_verified',
         'dkim_public_key', 'dkim_selector', 'server_domain_id',
         'last_dns_check_at', 'activated_at',
+        'catch_all_policy', 'catch_all_mailbox_id',
     ];
 
     protected function casts(): array
@@ -47,7 +48,17 @@ class Domain extends Model
         return $this->hasMany(EmailAlias::class);
     }
 
+    public function catchAllMailbox(): BelongsTo
+    {
+        return $this->belongsTo(Mailbox::class, 'catch_all_mailbox_id');
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────────────────
+
+    public function isCatchAllEnabled(): bool
+    {
+        return in_array($this->catch_all_policy, ['mailbox', 'discard'], true);
+    }
 
     public function isFullyVerified(): bool
     {

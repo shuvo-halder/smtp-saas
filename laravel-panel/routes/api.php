@@ -52,6 +52,8 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             // Domains CRUD
             Route::apiResource('domains', DomainApiController::class)->except(['update']);
             Route::post('/domains/{domain}/verify', [DomainApiController::class, 'verify']);
+            Route::get('/domains/{domain}/catch-all', [\App\Http\Controllers\Api\CatchAllApiController::class, 'show']);
+            Route::put('/domains/{domain}/catch-all', [\App\Http\Controllers\Api\CatchAllApiController::class, 'update']);
 
             // Mailboxes CRUD & Storage Quotas (Step 31)
             Route::get('/mailboxes/storage', [MailboxApiController::class, 'storageOverview']);

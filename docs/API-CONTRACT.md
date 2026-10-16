@@ -554,4 +554,76 @@ Every mailbox listed or retrieved automatically contains an embedded `storage` o
 - **`over_limit`**: Mailbox storage has reached or exceeded 100% quota ($\text{usage} \ge 100.0\%$). Dovecot rejects or defers inbound messages under `quota_rule`; UI displays destructive badge and disables remaining capacity.
 - **`unknown`**: Storage cannot be probed or Dovecot service is unavailable (e.g. local Windows development or unmounted mail storage). `is_measured` is explicitly `false`, `usage_bytes` is `null`, and UI displays an informational `Unmeasured` badge. **Unmeasured storage is NEVER reported as 0% or 0 bytes.**
 
+---
+
+## Step 32 — Tenant Catch-All Mailbox & Inbound Email Routing Rules Contracts
+
+All catch-all endpoints require an authenticated Sanctum session and an active tenant subscription (`EnsureActiveSubscription`). Authorization is strictly gated per-tenant via `DomainPolicy`.
+
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/api/domains/{domain}/catch-all` | Inspect domain catch-all policy, designated destination mailbox, Postfix routing diagnostics, and eligible mailboxes on the domain. | `auth:sanctum`, `EnsureActiveSubscription` |
+| PUT | `/api/domains/{domain}/catch-all` | Update domain catch-all policy (`disabled`, `reject`, `mailbox`, `discard`) and optional destination mailbox. Synchronizes Postfix routing maps and emits audit event. | `auth:sanctum`, `EnsureActiveSubscription` |
+
+### Catch-All Details Resource (`GET /api/domains/{domain}/catch-all`)
+```json
+{
+  "data": {
+    "domain_id": 1,
+    "domain_name": "company.com",
+    "domain_status": "active",
+    "is_verified": true,
+    "policy": "mailbox",
+    "is_enabled": true,
+    "mailbox": {
+      "id": 5,
+      "email": "inbox@company.com",
+      "local_part": "inbox",
+      "display_name": "General Inbox",
+      "is_active": true
+    },
+    "routing": {
+      "domain_name": "company.com",
+      "policy": "mailbox",
+      "is_routable": true,
+      "action": "mailbox",
+      "probe_email": "catchall_probe_a1b2c3@company.com",
+      "destination": "inbox@company.com",
+      "terminal_target": "inbox@company.com",
+      "status": "synchronized",
+      "warning": null,
+      "mta_driver": "postfix_mysql_map"
+    },
+    "available_mailboxes": [
+      {
+        "id": 5,
+        "email": "inbox@company.com",
+        "local_part": "inbox",
+        "display_name": "General Inbox",
+        "is_active": true
+      }
+    ],
+    "updated_at": "2026-10-17T00:00:00Z"
+  }
+}
+```
+
+### Catch-All Update Request (`PUT /api/domains/{domain}/catch-all`)
+```json
+{
+  "policy": "mailbox",
+  "mailbox_id": 5
+}
+```
+
+### Policy Allowlist & Semantics
+- **`disabled` (Default)**: Catch-all is inactive. Inbound mail sent to unknown recipients falls through to native Postfix recipient validation and is rejected during the SMTP dialog (`550 5.1.1 User unknown in virtual mailbox table`). This is the secure default.
+- **`reject`**: Explicitly rejects unknown recipients with RFC 550. Functionally equivalent to `disabled` in MTA routing.
+- **`mailbox`**: Routes unknown recipients to an active designated mailbox on the same domain (`catch_all_mailbox_id`).
+  - Precedence Guarantee: Physical mailboxes (`mailboxes`) and explicit aliases (`email_aliases`) take strict precedence over catch-all via `NOT EXISTS` query clauses.
+  - Requires `mailbox_id` pointing to an active, non-deleted mailbox belonging to the same domain and tenant.
+- **`discard`**: Acknowledges delivery with SMTP 250 OK and silently drops messages to `devnull@localhost` without generating a bounce.
+  - Requires explicit confirmation in the UI; displays destructive discard warning alert.
+
+
 

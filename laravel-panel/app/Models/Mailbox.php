@@ -58,4 +58,10 @@ class Mailbox extends Model
         return config('app.roundcube_url', 'https://webmail.yourdomain.com')
             . '/?_user=' . urlencode($this->email);
     }
+
+    /** Whether this mailbox is currently the designated catch-all */
+    public function isCatchAll(): bool
+    {
+        return (bool) $this->is_catchall;
+    }
 }

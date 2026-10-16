@@ -1,5 +1,40 @@
 # Changelog
 
+### Tenant Catch-All Mailbox & Inbound Email Routing Rules (Step 32)
+- **Implemented:** Database Schema & Domain Entity Integration:
+  - Created migration `2026_10_17_000001_add_catch_all_fields_to_domains_table.php` adding `catch_all_policy` (varchar(32), default `'disabled'`) and `catch_all_mailbox_id` (foreignId to `mailboxes`, nullable, `nullOnDelete()`) to `domains` table.
+  - Updated `Domain` model with `$fillable`, `catchAllMailbox(): BelongsTo`, and `isCatchAllEnabled(): bool`.
+  - Updated `Mailbox` model with `isCatchAll(): bool`.
+  - Updated `DomainResource` to expose `catch_all_policy` and `catch_all_mailbox_id`.
+  - Updated `MailboxApiController::destroy()` to automatically clear domain catch-all settings if the designated destination mailbox is deleted.
+- **Implemented:** Postfix Routing Configuration & Precedence Mapping:
+  - Created `postfix-config/mysql-virtual-catchall.cf` and `server-configs/mysql-virtual-catchall-maps.cf`.
+  - Registered `mysql-virtual-catchall.cf` in `virtual_alias_maps` inside `postfix-config/main.cf` and `server-configs/main-cf-snippet.txt`.
+  - Strictly enforced SQL precedence: Query ensures `NOT EXISTS (SELECT 1 FROM mailboxes WHERE email = '%s' ...)` and `NOT EXISTS (SELECT 1 FROM email_aliases WHERE source_email = '%s' ...)`, guaranteeing physical mailboxes and explicit aliases are never intercepted or overridden.
+  - Implemented discard-sink routing to `devnull@localhost` when `catch_all_policy = 'discard'`.
+- **Implemented:** Postfix Routing Service & CLI Diagnostics:
+  - Added `verifyCatchAllRouting(Domain $domain, ?string $probeLocalPart = null)` in `app/Services/PostfixService.php`, computing operational status (`synchronized`, `operational`, `configured`, `failed`), probe email address, probe resolution, and MTA driver status.
+  - Added `syncCatchAll(Domain $domain)` and `disableCatchAll(Domain $domain)` lifecycle synchronization hooks.
+  - Created `php artisan mail:verify-catchall {domain?} {--all}` command with comprehensive tabular diagnostics.
+- **Implemented:** RESTful Catch-All API (`app/Http/Controllers/Api/CatchAllApiController.php`):
+  - `GET /api/domains/{domain}/catch-all`: Retrieves policy, destination mailbox, eligible destination mailboxes, and live routing details.
+  - `PUT /api/domains/{domain}/catch-all`: Atomically updates domain catch-all policy and destination mailbox with strict validation (policy allowlist, verified/active domain check, active tenant subscription check via `EnsureActiveSubscription`, destination mailbox ownership and active check).
+  - Mutex & transactional synchronization of `mailboxes.is_catchall` flags.
+  - Immutable audit trail: Emits `domain.catch_all_update` events via `AuditService::record()`.
+- **Implemented:** Next.js Tenant Experience (`frontend/`):
+  - Added TypeScript definitions in `types/index.ts` (`CatchAllPolicy`, `CatchAllMailbox`, `CatchAllRoutingDetails`, `DomainCatchAllDetails`, `CatchAllUpdateRequest`).
+  - Created `useDomainCatchAll` and `updateCatchAll` SWR hooks in `hooks/useDomains.ts`.
+  - Created `CatchAllSettingsCard.tsx` with policy radio options (`disabled`, `reject`, `mailbox`, `discard`), active mailbox dropdown selector, high-risk discard alert, spam surge warning, and live routing status badges.
+  - Integrated `CatchAllSettingsCard` directly on the domain details page (`/domains/[id]`).
+- **Automated Verification & Three-Level Matrix:**
+  - Created `tests/Feature/TenantCatchAllManagementTest.php` with 19 comprehensive tests (73 assertions) covering authentication, subscription gating, domain ownership, policy validations, mailbox assignment, alias precedence, probe routing simulation, and cascade resets.
+  - Level A (Application & API Layer): `VERIFIED`.
+  - Level B (Configuration & SQL Maps): `VERIFIED`.
+  - Level C (End-to-End Live Mail Flow): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services; requires dedicated Linux VPS).
+  - Full backend test suite passing: **404 tests, 1,907 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+  - Frontend production build: **Next.js 14 compiles and optimizes all 27 static pages cleanly with zero errors or warnings**.
+
 ### Tenant Mailbox Storage & Quota Management (Step 31)
 - **Implemented:** Mailbox Storage Service Architecture (`app/Services/MailboxStorageService.php`):
   - Encapsulated disk usage measurement with support for `doveadm quota get -u <email>`, physical `maildirsize` header parsing, mock test resolvers, and safe Windows environment fallbacks.

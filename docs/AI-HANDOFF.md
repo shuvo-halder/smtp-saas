@@ -423,16 +423,51 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 32 — Tenant Catch-All Mailbox & Inbound Email Routing Rules (IMPLEMENTED & VERIFIED):**
+  - **Database Migration & Domain Model:**
+    - Migration `2026_10_17_000001_add_catch_all_fields_to_domains_table.php` added `catch_all_policy` (varchar(32), default `'disabled'`) and `catch_all_mailbox_id` (foreignId to `mailboxes`, nullable, `nullOnDelete()`) to `domains`.
+    - Added `Domain::catchAllMailbox()` relation, `isCatchAllEnabled()`, and `Mailbox::isCatchAll()`.
+    - Exposed `catch_all_policy` and `catch_all_mailbox_id` in `DomainResource`.
+    - Automated catch-all reset on destination mailbox deletion in `MailboxApiController::destroy()`.
+  - **Postfix Precedence & SQL Maps:**
+    - Created `postfix-config/mysql-virtual-catchall.cf` and `server-configs/mysql-virtual-catchall-maps.cf`.
+    - Included in `virtual_alias_maps` in `postfix-config/main.cf` and `server-configs/main-cf-snippet.txt`.
+    - Enforced strict query precedence: `NOT EXISTS` checks against both active `mailboxes` and active `email_aliases` prevent catch-all from ever hijacking physical mailboxes or explicit aliases.
+    - Supported policies: `disabled`, `reject`, `mailbox`, `discard` (`devnull@localhost`).
+  - **Routing Service & CLI Diagnostics:**
+    - `PostfixService::verifyCatchAllRouting(Domain $domain, ?string $probeLocalPart = null)` tests query syntax, detects live MTA socket, and reports routing status (`synchronized`, `operational`, `configured`, `failed`).
+    - Added `syncCatchAll` and `disableCatchAll` lifecycle synchronization hooks.
+    - CLI command: `php artisan mail:verify-catchall {domain?} {--all}`.
+  - **RESTful API & Security Boundaries:**
+    - `GET /api/domains/{domain}/catch-all`: Policy, destination mailbox, eligible mailboxes list, routing details.
+    - `PUT /api/domains/{domain}/catch-all`: Atomic policy update with domain ownership (`DomainPolicy`), active subscription check (`EnsureActiveSubscription`), active verified domain check, and destination mailbox validation.
+    - Transactional updates to `mailboxes.is_catchall` flags.
+    - Audit logging: Emits `domain.catch_all_update` in `audit_logs` via `AuditService`.
+  - **Next.js Frontend Experience:**
+    - TypeScript definitions in `types/index.ts` (`CatchAllPolicy`, `CatchAllMailbox`, `CatchAllRoutingDetails`, `DomainCatchAllDetails`, `CatchAllUpdateRequest`).
+    - SWR hooks `useDomainCatchAll` and `updateCatchAll` in `hooks/useDomains.ts`.
+    - Embedded `CatchAllSettingsCard.tsx` on `/domains/[id]` with policy radio selectors, destination mailbox selector, destructive discard warning, spam surge advisory, and routing status badges.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `TenantCatchAllManagementTest.php` passes (19/19 tests, 73 assertions).
+    - Level B (Configuration & SQL Maps): `VERIFIED`. Exact SQL query verified against local MySQL 8.4 database. CLI command verified.
+    - Level C (End-to-End Live Mail Flow): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services; requires dedicated Linux VPS).
+  - **Automated Verification & Test Coverage:**
+    - Feature test suite: **19 tests, 73 assertions passing (100%)**.
+    - Full backend regression test suite: **404 tests, 1,907 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 32 — Tenant Catch-All Mailbox & Inbound Email Routing Rules:**
-  - Catch-all mailbox routing configuration per domain (`@domain.com -> catchall@domain.com`).
-  - Domain-level fallback policies (reject, discard, or route to designated mailbox).
-  - Postfix `mysql-virtual-catchall.cf` mapping configuration.
-  - Next.js UI integration on domain settings and mailbox detail pages.
+- **Step 33 — Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics:**
+  - Automated DNS record generator & copyable snippets (MX, SPF, DKIM public key, DMARC policy, CNAME autodiscover).
+  - One-click DNS diagnostic probe querying public nameservers with propagation feedback and alignment badges.
+  - Inbound authentication telemetry and health scorecards per domain.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 

@@ -279,6 +279,192 @@ class PostfixService
         return trim((string) $output) === 'active';
     }
 
+    // ─── Catch-All Management & Inbound Recipient Routing (Step 32) ─────────────
+
+    /**
+     * Verify the actual Postfix SQL routing resolution for catch-all handling on a given domain.
+     * Simulates the exact SQL queries executed by Postfix's mysql-virtual-aliases.cf,
+     * mysql-virtual-catchall.cf, and mysql-virtual-mailboxes.cf lookup tables.
+     */
+    public function verifyCatchAllRouting(Domain $domain, ?string $probeLocalPart = null): array
+    {
+        $domainName = strtolower(trim($domain->domain_name));
+        $policy = $domain->catch_all_policy ?? 'disabled';
+        $probeLocal = strtolower(trim($probeLocalPart ?: 'catchall_probe_' . substr(md5($domainName), 0, 6)));
+        $probeEmail = "{$probeLocal}@{$domainName}";
+
+        // If domain is pending, inactive, or soft-deleted:
+        if ($domain->status !== 'active' || $domain->trashed()) {
+            return [
+                'domain_name'     => $domainName,
+                'policy'          => $policy,
+                'is_routable'     => false,
+                'action'          => 'reject',
+                'probe_email'     => $probeEmail,
+                'destination'     => null,
+                'terminal_target' => null,
+                'status'          => 'configured',
+                'warning'         => 'Domain is not active or verified. Inbound messages cannot be routed.',
+                'mta_driver'      => 'postfix_mysql_map',
+            ];
+        }
+
+        // If policy is 'disabled' or 'reject':
+        if (in_array($policy, ['disabled', 'reject'], true)) {
+            return [
+                'domain_name'     => $domainName,
+                'policy'          => $policy,
+                'is_routable'     => false,
+                'action'          => 'reject',
+                'probe_email'     => $probeEmail,
+                'destination'     => null,
+                'terminal_target' => null,
+                'status'          => $this->isPostfixOperational() ? 'operational' : 'synchronized',
+                'warning'         => null,
+                'mta_driver'      => 'postfix_mysql_map',
+            ];
+        }
+
+        // If policy is 'discard':
+        if ($policy === 'discard') {
+            $status = $this->isPostfixOperational() ? 'operational' : 'synchronized';
+            return [
+                'domain_name'     => $domainName,
+                'policy'          => 'discard',
+                'is_routable'     => true,
+                'action'          => 'discard',
+                'probe_email'     => $probeEmail,
+                'destination'     => 'devnull@localhost',
+                'terminal_target' => 'devnull@localhost',
+                'status'          => $status,
+                'warning'         => 'Unknown recipient emails on this domain will be accepted and silently discarded.',
+                'mta_driver'      => 'postfix_mysql_map',
+            ];
+        }
+
+        // Policy is 'mailbox':
+        if ($policy === 'mailbox') {
+            $mailbox = $domain->catchAllMailbox;
+
+            if (! $mailbox || $mailbox->trashed()) {
+                return [
+                    'domain_name'     => $domainName,
+                    'policy'          => 'mailbox',
+                    'is_routable'     => false,
+                    'action'          => 'reject',
+                    'probe_email'     => $probeEmail,
+                    'destination'     => null,
+                    'terminal_target' => null,
+                    'status'          => 'failed',
+                    'warning'         => 'Designated catch-all mailbox record does not exist or has been deleted.',
+                    'mta_driver'      => 'postfix_mysql_map',
+                ];
+            }
+
+            if (! $mailbox->is_active) {
+                return [
+                    'domain_name'     => $domainName,
+                    'policy'          => 'mailbox',
+                    'is_routable'     => false,
+                    'action'          => 'reject',
+                    'probe_email'     => $probeEmail,
+                    'destination'     => $mailbox->email,
+                    'terminal_target' => $mailbox->email,
+                    'status'          => 'failed',
+                    'warning'         => 'Designated catch-all mailbox is currently inactive. Inbound mail will be rejected.',
+                    'mta_driver'      => 'postfix_mysql_map',
+                ];
+            }
+
+            // Verify the exact Postfix SQL query simulation:
+            $match = DB::table('domains as d')
+                ->leftJoin('mailboxes as m_dest', 'd.catch_all_mailbox_id', '=', 'm_dest.id')
+                ->where('d.domain_name', $domainName)
+                ->where('d.status', 'active')
+                ->whereNull('d.deleted_at')
+                ->where(function ($query) {
+                    $query->where(function ($sub) {
+                        $sub->where('d.catch_all_policy', 'mailbox')
+                            ->whereNotNull('m_dest.id')
+                            ->where('m_dest.is_active', 1)
+                            ->whereNull('m_dest.deleted_at');
+                    })->orWhere('d.catch_all_policy', 'discard');
+                })
+                ->whereNotExists(function ($sub) use ($probeEmail) {
+                    $sub->select(DB::raw(1))
+                        ->from('mailboxes as m_existing')
+                        ->where('m_existing.email', $probeEmail)
+                        ->where('m_existing.is_active', 1)
+                        ->whereNull('m_existing.deleted_at');
+                })
+                ->whereNotExists(function ($sub) use ($probeEmail) {
+                    $sub->select(DB::raw(1))
+                        ->from('email_aliases as a_existing')
+                        ->where('a_existing.source_email', $probeEmail)
+                        ->where('a_existing.is_active', 1);
+                })
+                ->select(DB::raw("CASE WHEN d.catch_all_policy = 'mailbox' THEN m_dest.email WHEN d.catch_all_policy = 'discard' THEN 'devnull@localhost' ELSE NULL END as destination"))
+                ->first();
+
+            $status = $this->isPostfixOperational() ? 'operational' : 'synchronized';
+
+            return [
+                'domain_name'     => $domainName,
+                'policy'          => 'mailbox',
+                'is_routable'     => (bool) $match,
+                'action'          => 'mailbox',
+                'probe_email'     => $probeEmail,
+                'destination'     => $match?->destination ?? $mailbox->email,
+                'terminal_target' => $match?->destination ?? $mailbox->email,
+                'status'          => $match ? $status : 'failed',
+                'warning'         => $match ? null : 'Catch-all query resolution failed in SQL evaluation.',
+                'mta_driver'      => 'postfix_mysql_map',
+            ];
+        }
+
+        return [
+            'domain_name'     => $domainName,
+            'policy'          => $policy,
+            'is_routable'     => false,
+            'action'          => 'reject',
+            'probe_email'     => $probeEmail,
+            'destination'     => null,
+            'terminal_target' => null,
+            'status'          => 'unknown',
+            'warning'         => 'Unsupported catch-all policy: ' . $policy,
+            'mta_driver'      => 'postfix_mysql_map',
+        ];
+    }
+
+    /**
+     * Synchronize and verify domain catch-all rule
+     */
+    public function syncCatchAll(Domain $domain): array
+    {
+        $routing = $this->verifyCatchAllRouting($domain);
+
+        Log::info("PostfixService: Catch-all synchronized", [
+            'domain'      => $domain->domain_name,
+            'policy'      => $domain->catch_all_policy,
+            'mailbox_id'  => $domain->catch_all_mailbox_id,
+            'status'      => $routing['status'],
+            'is_routable' => $routing['is_routable'],
+        ]);
+
+        return $routing;
+    }
+
+    /**
+     * Disable catch-all rule on domain
+     */
+    public function disableCatchAll(Domain $domain): bool
+    {
+        Log::info("PostfixService: Catch-all disabled", [
+            'domain' => $domain->domain_name,
+        ]);
+
+        return true;
+    }
 
     // ─── Private Helpers ────────────────────────────────────────────────────────
 

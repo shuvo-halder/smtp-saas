@@ -41,9 +41,52 @@ export interface Domain {
   dmarc_verified: boolean;
   dkim_selector: string;
   mailboxes_count: number;
+  catch_all_policy?: CatchAllPolicy;
+  catch_all_mailbox_id?: number | null;
   required_dns_records: DnsRecord[];
   activated_at: string | null;
   created_at: string;
+}
+
+export type CatchAllPolicy = 'disabled' | 'reject' | 'mailbox' | 'discard';
+
+export interface CatchAllMailbox {
+  id: number;
+  email: string;
+  local_part: string;
+  display_name: string | null;
+  is_active: boolean;
+}
+
+export interface CatchAllRoutingDetails {
+  domain_name: string;
+  policy: CatchAllPolicy;
+  is_routable: boolean;
+  action: 'reject' | 'discard' | 'mailbox';
+  probe_email: string;
+  destination: string | null;
+  terminal_target: string | null;
+  status: 'synchronized' | 'operational' | 'configured' | 'failed' | 'unknown';
+  warning: string | null;
+  mta_driver: string;
+}
+
+export interface DomainCatchAllDetails {
+  domain_id: number;
+  domain_name: string;
+  domain_status: string;
+  is_verified: boolean;
+  policy: CatchAllPolicy;
+  is_enabled: boolean;
+  mailbox: CatchAllMailbox | null;
+  routing: CatchAllRoutingDetails;
+  available_mailboxes: CatchAllMailbox[];
+  updated_at: string | null;
+}
+
+export interface CatchAllUpdateRequest {
+  policy: CatchAllPolicy;
+  mailbox_id?: number | null;
 }
 
 export interface DnsRecord {

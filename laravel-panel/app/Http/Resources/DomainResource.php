@@ -19,6 +19,8 @@ class DomainResource extends JsonResource
             'dmarc_verified' => $this->dmarc_verified,
             'dkim_selector' => $this->dkim_selector,
             'mailboxes_count' => $this->mailboxes_count,
+            'catch_all_policy' => $this->catch_all_policy ?? 'disabled',
+            'catch_all_mailbox_id' => $this->catch_all_mailbox_id,
             'required_dns_records' => $this->requiredDnsRecords(),
             'activated_at' => $this->activated_at,
             'created_at' => $this->created_at,

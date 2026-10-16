@@ -31,3 +31,25 @@ export function useDomain(id: string | number) {
     mutate,
   };
 }
+
+export function useDomainCatchAll(domainId: string | number | null) {
+  const { data, error, isLoading, mutate } = useSWR<{ data: import('@/types').DomainCatchAllDetails }>(
+    domainId ? `/domains/${domainId}/catch-all` : null,
+    fetcher
+  );
+
+  const updateCatchAll = async (payload: import('@/types').CatchAllUpdateRequest) => {
+    const res = await api.put(`/domains/${domainId}/catch-all`, payload);
+    await mutate();
+    return res.data;
+  };
+
+  return {
+    catchAll: data?.data,
+    isLoading,
+    error,
+    mutate,
+    updateCatchAll,
+  };
+}
+

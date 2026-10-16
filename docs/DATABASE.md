@@ -29,13 +29,16 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 ### `domains` (Virtual Domains)
 - **Primary Key:** `id`
 - **Foreign Key:** `user_id` (Belongs to `User`)
-- **Fields:** `domain_name` (UNIQUE), `status` (`pending`, `active`, `suspended`), `mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dkim_public_key`
-- **Integration:** Postfix (`mysql-virtual-mailbox-domains.cf`) queries this table directly to determine if it should accept mail for a domain. `status` must be `active`.
+- **Fields:** `domain_name` (UNIQUE), `status` (`pending`, `active`, `suspended`), `mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dkim_public_key`, `catch_all_policy` (varchar(32), default `'disabled'`), `catch_all_mailbox_id` (nullable bigint unsigned, FK -> `mailboxes.id` on delete set null)
+- **Catch-All Policies:** `disabled`, `reject`, `mailbox`, `discard`. Default is `disabled` (rejects unknown recipients during SMTP validation).
+- **Integration:** 
+  - Postfix (`mysql-virtual-mailbox-domains.cf`) queries this table directly to determine if it should accept mail for a domain. `status` must be `active`.
+  - Postfix (`mysql-virtual-catchall.cf` / `mysql-virtual-catchall-maps.cf`) queries catch-all rules where `domains.status = 'active'`, `domains.deleted_at IS NULL`, `domains.catch_all_policy IN ('mailbox', 'discard')`, routing unknown recipients to the designated active destination mailbox or `discard` sink, strictly subordinate to physical mailboxes and explicit aliases.
 
 ### `mailboxes` (Virtual Users)
 - **Primary Key:** `id`
 - **Foreign Key:** `domain_id` (Belongs to `Domain`)
-- **Fields:** `local_part`, `email` (UNIQUE), `password` (SHA512-CRYPT), `quota_mb`, `is_active`
+- **Fields:** `local_part`, `email` (UNIQUE), `password` (SHA512-CRYPT), `quota_mb`, `is_active`, `is_catchall` (boolean, default false - reflects whether mailbox is the current designated catch-all recipient)
 - **Integration:** 
     - Dovecot (`dovecot-sql.conf.ext`) authenticates IMAP/POP3 logins directly against the `password` column using `SHA512-CRYPT`.
     - Postfix (`mysql-virtual-mailbox-maps.cf`) queries this table to resolve the physical `/var/vmail/` delivery path.
@@ -214,13 +217,13 @@ EmailSaaS enforces a clean, deterministic, and idempotent local development data
 - **PHP Runtime:** PHP 8.3 / 8.2 with `pdo_mysql`, `mysqli`, `openssl`, `sodium`, `pdo_sqlite`, `mbstring`, `intl`, `curl`.
 
 ### 2. Migration Inventory & Ordering
-All 16 core migrations are applied in strict dependency order:
+All 18 core migrations are applied in strict dependency order:
 1. `0001_01_01_000001_create_cache_table.php` (Cache lock and cache stores)
 2. `0001_01_01_000002_create_jobs_table.php` (Queue jobs, failed jobs, batches)
 3. `2024_01_01_000001_create_plans_table.php` (Subscription plan definitions)
 4. `2024_01_01_000002_create_users_table.php` (Tenant and admin accounts)
 5. `2024_01_01_000003_create_domains_table.php` (Virtual email domains)
-6. `2024_01_01_000004_create_mailboxes_table.php` (Virtual mail accounts)
+6. `2024_01_01_000004_create_mailboxes_table.php` (Virtual mail accounts & email aliases)
 7. `2024_01_01_000005_create_invoices_table.php` (Billing ledger)
 8. `2024_01_01_000006_add_password_to_mailboxes.php` (Mailbox authentication hashes)
 9. `2026_09_07_211409_add_outbound_quotas_to_plans_table.php` (Plan daily outbound limits)
@@ -231,6 +234,8 @@ All 16 core migrations are applied in strict dependency order:
 14. `2026_10_03_000003_seed_rbac_and_backfill_legacy_admins.php` (Initial role/permission definitions & legacy backfill)
 15. `2026_10_06_000001_create_abuse_incidents_table.php` (Abuse detection and resolution ledger)
 16. `2026_10_15_000001_create_scheduled_task_runs_table.php` (Scheduler run metrics and execution ledger)
+17. `2026_10_16_000001_create_delivery_logs_table.php` (Relational delivery and activity log ledger)
+18. `2026_10_17_000001_add_catch_all_fields_to_domains_table.php` (Domain catch-all policy and fallback mailbox routing)
 
 ### 3. Seeder Inventory & Idempotency Rules
 - **`PlanSeeder` (`Database\Seeders\PlanSeeder`):**
