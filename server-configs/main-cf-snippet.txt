@@ -3,8 +3,7 @@
 # Virtual Mailbox settings
 virtual_mailbox_domains = mysql:/etc/postfix/mysql-virtual-mailbox-domains.cf
 virtual_mailbox_maps = mysql:/etc/postfix/mysql-virtual-mailbox-maps.cf
-# If you have email forwarding/aliases configured later, you would add:
-# virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf
+virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf
 
 # Tell Postfix where to store the mail locally
 virtual_mailbox_base = /var/vmail

@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\Domain;
+use App\Models\EmailAlias;
 use App\Models\Mailbox;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -102,6 +104,181 @@ class PostfixService
         Log::info("PostfixService: Mailbox removed", ['email' => $mailbox->email]);
         return true;
     }
+
+    // ─── Alias Management & Routing Verification (Step 30) ──────────────────────
+
+    /**
+     * Synchronize and verify an email alias in the virtual routing map
+     */
+    public function syncAlias(EmailAlias $alias): bool
+    {
+        $this->validateEmail($alias->source_email);
+        $this->validateEmail($alias->destination_email);
+
+        $routing = $this->verifyAliasRouting($alias->source_email);
+
+        Log::info("PostfixService: Alias synchronized", [
+            'source_email'      => $alias->source_email,
+            'destination_email' => $alias->destination_email,
+            'is_active'         => $alias->is_active,
+            'status'            => $routing['status'],
+            'is_routable'       => $routing['is_routable'],
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Remove an email alias from the virtual routing map
+     */
+    public function removeAlias(EmailAlias $alias): bool
+    {
+        $this->validateEmail($alias->source_email);
+
+        Log::info("PostfixService: Alias removed", [
+            'source_email'      => $alias->source_email,
+            'destination_email' => $alias->destination_email,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Verify the actual Postfix SQL routing resolution for a given source address.
+     * Executes the exact query used by Postfix's mysql-virtual-aliases.cf lookup table.
+     */
+    public function verifyAliasRouting(string $sourceEmail): array
+    {
+        $email = strtolower(trim($sourceEmail));
+
+        // Postfix virtual_alias_maps SQL lookup
+        $result = DB::table('email_aliases')
+            ->join('domains', 'email_aliases.domain_id', '=', 'domains.id')
+            ->where('email_aliases.source_email', $email)
+            ->where('email_aliases.is_active', true)
+            ->where('domains.status', 'active')
+            ->whereNull('domains.deleted_at')
+            ->select('email_aliases.destination_email', 'email_aliases.is_active', 'domains.status as domain_status')
+            ->first();
+
+        if (! $result) {
+            // Check if record exists on an active, non-deleted domain
+            $existing = DB::table('email_aliases')
+                ->join('domains', 'email_aliases.domain_id', '=', 'domains.id')
+                ->where('email_aliases.source_email', $email)
+                ->whereNull('domains.deleted_at')
+                ->select('email_aliases.destination_email')
+                ->first();
+
+            return [
+                'is_routable'     => false,
+                'source_email'    => $email,
+                'destination'     => $existing?->destination_email,
+                'terminal_target' => $existing?->destination_email,
+                'status'          => $existing ? 'configured' : 'unknown',
+                'hops'            => [$email],
+                'hop_count'       => 1,
+                'cycle_detected'  => false,
+                'warning'         => $existing ? 'Alias is disabled or parent domain is not active.' : 'Alias not found or parent domain is deleted.',
+                'mta_driver'      => 'postfix_mysql_map',
+            ];
+        }
+
+        // Trace recursive multi-hop expansion
+        $hops = [$email];
+        $curr = strtolower(trim($result->destination_email));
+        $visited = [$email => true];
+        $cycleDetected = false;
+        $maxHops = 30;
+        $hopCount = 0;
+
+        while ($curr && $hopCount < $maxHops) {
+            $hopCount++;
+            $hops[] = $curr;
+
+            if (isset($visited[$curr])) {
+                $cycleDetected = true;
+                break;
+            }
+            $visited[$curr] = true;
+
+            $next = DB::table('email_aliases')
+                ->join('domains', 'email_aliases.domain_id', '=', 'domains.id')
+                ->where('email_aliases.source_email', $curr)
+                ->where('email_aliases.is_active', true)
+                ->where('domains.status', 'active')
+                ->whereNull('domains.deleted_at')
+                ->value('email_aliases.destination_email');
+
+            if (! $next) {
+                break;
+            }
+            $curr = strtolower(trim($next));
+        }
+
+        $terminalTarget = end($hops);
+        $warning = null;
+        $status = 'synchronized';
+
+        if ($cycleDetected) {
+            $status = 'failed';
+            $warning = 'Forwarding cycle detected in virtual alias expansion.';
+        } else {
+            // Check if terminal destination is on a hosted domain and has a valid recipient
+            $targetDomain = substr(strrchr($terminalTarget, '@') ?: '', 1);
+            if ($targetDomain) {
+                $isHostedDomain = DB::table('domains')
+                    ->where('domain_name', $targetDomain)
+                    ->where('status', 'active')
+                    ->whereNull('deleted_at')
+                    ->exists();
+
+                if ($isHostedDomain) {
+                    $hasMailbox = DB::table('mailboxes')
+                        ->where('email', $terminalTarget)
+                        ->where('is_active', true)
+                        ->whereNull('deleted_at')
+                        ->exists();
+
+                    if (! $hasMailbox) {
+                        $warning = "Local destination {$terminalTarget} does not correspond to an active mailbox. Inbound delivery may bounce.";
+                        $status = 'failed';
+                    }
+                }
+            }
+
+            if ($status !== 'failed') {
+                $status = $this->isPostfixOperational() ? 'operational' : 'synchronized';
+            }
+        }
+
+        return [
+            'is_routable'     => ($status === 'operational' || $status === 'synchronized') && ! $cycleDetected,
+            'source_email'    => $email,
+            'destination'     => $result->destination_email,
+            'terminal_target' => $terminalTarget,
+            'status'          => $status,
+            'hops'            => $hops,
+            'hop_count'       => count($hops),
+            'cycle_detected'  => $cycleDetected,
+            'warning'         => $warning,
+            'mta_driver'      => 'postfix_mysql_map',
+        ];
+    }
+
+    /**
+     * Check if the Postfix mail transfer agent is running and operational
+     */
+    public function isPostfixOperational(): bool
+    {
+        if (PHP_OS_FAMILY !== 'Linux' || app()->environment('local', 'testing')) {
+            return false;
+        }
+
+        $output = shell_exec('systemctl is-active postfix 2>/dev/null');
+        return trim((string) $output) === 'active';
+    }
+
 
     // ─── Private Helpers ────────────────────────────────────────────────────────
 

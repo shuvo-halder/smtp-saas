@@ -5,4 +5,5 @@ user     = __DB_USER__
 password = __DB_PASS__
 hosts    = 127.0.0.1
 dbname   = __DB_NAME__
-query    = SELECT destination FROM virtual_aliases WHERE source='%s'
+query    = SELECT email_aliases.destination_email FROM email_aliases INNER JOIN domains ON email_aliases.domain_id = domains.id WHERE email_aliases.source_email='%s' AND email_aliases.is_active=1 AND domains.status='active' AND domains.deleted_at IS NULL
+

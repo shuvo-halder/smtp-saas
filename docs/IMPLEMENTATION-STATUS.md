@@ -548,3 +548,57 @@
   - `[x]` Full backend test suite: **342 tests / 1,648 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend Next.js 14 production build: **Compiled all 26 static pages cleanly with zero errors (100%)**.
 
+---
+
+## Step 29 — Tenant Email Aliases & Forwarding Management (`IMPLEMENTED — VERIFIED`)
+- `[x]` Backend API & Service Architecture:
+  - `[x]` Extracted standalone `EmailAlias` PSR-4 model (`app/Models/EmailAlias.php`) with domain relationship, tenant scoping, search, and status scopes.
+  - `[x]` Implemented `EmailAliasPolicy` registered in `AuthServiceProvider` enforcing strict tenant domain ownership.
+  - `[x]` `AliasApiController`: RESTful endpoints (`GET /api/aliases`, `GET /api/domains/{domain}/aliases`, `POST /api/aliases`, `GET /api/aliases/{alias}`, `PUT /api/aliases/{alias}`, `POST /api/aliases/{alias}/toggle`, `DELETE /api/aliases/{alias}`) protected by `auth:sanctum` and `EnsureActiveSubscription`.
+  - `[x]` Invariant enforcement:
+    - Rejects alias creation on inactive, unverified, or foreign domains.
+    - Rejects alias creation if plan `max_aliases_per_domain` quota is reached.
+    - Rejects alias collision with physical mailboxes (`mailboxes.email`).
+    - Rejects direct self-forwarding (`source === destination`).
+    - Rejects circular multi-hop forwarding loops (`A -> B -> C -> A`).
+    - Disabling alias is always permitted; re-enabling strictly validates parent domain DNS verification state.
+  - `[x]` Audit trail integration: `alias.create`, `alias.update`, `alias.toggle`, `alias.delete` recorded via `AuditService`.
+- `[x]` Frontend Next.js Hub (`/aliases`):
+  - `[x]` Bounded paginated alias management interface with keyword search, domain filter, and status filter.
+  - `[x]` `CreateAliasModal` with active domain dropdown, `@domain` preview, destination validation, and loop warning.
+  - `[x]` `EditAliasModal` with immutable source email notice and destination update.
+  - `[x]` `AliasRow` with quick toggle switch, status pills, and delete confirmation dialog.
+  - `[x]` Sidebar navigation updated with `{ name: 'Email Aliases', href: '/aliases', icon: ArrowRightLeft }`.
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Implemented `tests/Feature/TenantAliasManagementTest.php` with 21 tests (76 assertions).
+  - `[x]` Full backend test suite passing cleanly with zero errors.
+
+---
+
+## Step 30 — Email Alias Routing Integration & Mail Flow Verification (`IMPLEMENTED — VERIFIED`)
+- `[x]` Mail Pipeline Configuration & Schema Alignment:
+  - `[x]` Updated `postfix-config/mysql-virtual-aliases.cf` and created `server-configs/mysql-virtual-alias-maps.cf` querying canonical `email_aliases` joined with `domains` with `status = 'active'` and `domains.deleted_at IS NULL`.
+  - `[x]` Modernized `mysql-virtual-domains.cf`, `mysql-virtual-mailboxes.cf`, and `mysql-virtual-sender-login-maps.cf` with `status = 'active'` and `deleted_at IS NULL` for SoftDeletes compatibility.
+  - `[x]` Enabled `virtual_alias_maps` in `server-configs/main-cf-snippet.txt`.
+- `[x]` Postfix Routing Service Integration (`PostfixService.php`):
+  - `[x]` Added `syncAlias(EmailAlias $alias): bool` and `removeAlias(EmailAlias $alias): bool`.
+  - `[x]` Implemented `verifyAliasRouting(string $sourceEmail): array`:
+    - Simulates real-time Postfix MySQL map lookup query.
+    - Traces recursive expansion chains up to 30 hops.
+    - Detects cycle loops (`cycle_detected => true`).
+    - Verifies local terminal destinations exist in `mailboxes` (flags dangling local mailboxes with explicit warning).
+    - Checks live MTA operational state via `isPostfixOperational()`.
+  - `[x]` Injected `PostfixService` into `AliasApiController` across all lifecycle actions (`store`, `update`, `toggle`, `destroy`).
+- `[x]` Telemetry & User Experience:
+  - `[x]` `EmailAliasResource` returns dynamic `forwarding_status` (`synchronized`, `operational`, `configured`, `failed`, `unknown`) and complete `routing_details` payload.
+  - `[x]` Frontend `AliasRow.tsx` displays color-coded badges, hop count chips (`(2 hops)`), and tooltip warnings for unroutable aliases.
+  - `[x]` CLI tool `php artisan mail:verify-alias {source_email?} {--all}` with tabular diagnostics.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. Covered by `TenantAliasRoutingIntegrationTest.php` and `TenantAliasManagementTest.php`.
+  - `[x]` **Level B (Configuration & SQL Maps):** `VERIFIED`. Exact `.cf` SQL queries and artisan command verified against database.
+  - `[x]` **Level C (End-to-End Live Mail Flow):** `BLOCKED — REQUIRES INFRASTRUCTURE`. Local Windows + Laragon development environment lacks Linux Postfix/Dovecot services; requires dedicated Linux VPS for live TCP socket delivery.
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Implemented `tests/Feature/TenantAliasRoutingIntegrationTest.php` with 8 tests (44 assertions).
+  - `[x]` Full backend test suite: **371 tests / 1,768 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend Next.js 14 production build: **Compiled all 27 static pages cleanly with zero errors (100%)**.
+

@@ -69,6 +69,15 @@ export interface Mailbox {
   created_at: string;
 }
 
+export interface EmailAliasRoutingDetails {
+  is_routable: boolean;
+  terminal_target: string | null;
+  hop_count: number;
+  hops: string[];
+  warning: string | null;
+  mta_driver: string;
+}
+
 export interface EmailAlias {
   id: number;
   domain_id: number;
@@ -76,10 +85,12 @@ export interface EmailAlias {
   source_email: string;
   destination_email: string;
   is_active: boolean;
-  forwarding_status: string;
+  forwarding_status: 'configured' | 'synchronized' | 'operational' | 'failed' | 'unknown' | string;
+  routing_details?: EmailAliasRoutingDetails;
   created_at: string;
   updated_at: string;
 }
+
 
 export interface Invoice {
   id: number;

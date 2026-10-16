@@ -390,3 +390,68 @@ All endpoints in this group require authenticated Sanctum session and active sub
 }
 ```
 
+---
+
+## Step 29 & Step 30 — Tenant Email Aliases & Forwarding Routing Contracts
+
+All alias management endpoints require an authenticated Sanctum session and an active tenant subscription (`EnsureActiveSubscription`). Authorization is strictly gated per-tenant via `EmailAliasPolicy`.
+
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/api/aliases` | List tenant aliases across all owned domains with search, domain, and status filters. Bounded pagination. | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/api/domains/{domain}/aliases` | List aliases strictly belonging to the specified domain. | `auth:sanctum`, `EnsureActiveSubscription` |
+| POST | `/api/aliases` | Create new alias (`domain_id`, `local_part`, `destination_email`). Enforces domain ownership, active status, plan quota, mailbox collision, and loop/cycle detection. | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/api/aliases/{alias}` | Inspect alias details, forwarding status, and live routing resolution chain. | `auth:sanctum`, `EnsureActiveSubscription` |
+| PUT | `/api/aliases/{alias}` | Update alias destination email. Source email is immutable. Re-validates cycle detection. | `auth:sanctum`, `EnsureActiveSubscription` |
+| POST | `/api/aliases/{alias}/toggle` | Enable or disable alias forwarding in real-time. Blocked if parent domain is inactive. | `auth:sanctum`, `EnsureActiveSubscription` |
+| DELETE | `/api/aliases/{alias}` | Delete alias. Logs `alias.delete` in immutable audit trail. | `auth:sanctum`, `EnsureActiveSubscription` |
+
+### Email Alias Resource with Routing Details (`EmailAliasResource`)
+```json
+{
+  "data": {
+    "id": 1,
+    "domain_id": 2,
+    "domain_name": "company.com",
+    "domain_status": "active",
+    "source_email": "sales@company.com",
+    "destination_email": "lead-team@gmail.com",
+    "is_active": true,
+    "forwarding_status": "synchronized",
+    "routing_details": {
+      "is_routable": true,
+      "source_email": "sales@company.com",
+      "destination": "lead-team@gmail.com",
+      "terminal_target": "lead-team@gmail.com",
+      "status": "synchronized",
+      "hops": [
+        "sales@company.com",
+        "lead-team@gmail.com"
+      ],
+      "hop_count": 2,
+      "cycle_detected": false,
+      "warning": null,
+      "mta_driver": "postfix_mysql_map"
+    },
+    "created_at": "2026-10-16T12:00:00Z",
+    "updated_at": "2026-10-16T12:00:00Z"
+  }
+}
+```
+
+### Forwarding Status Semantics
+- **`synchronized`**: Alias is active, domain is active and verified, and database lookup for Postfix `virtual_alias_maps` is valid and routable.
+- **`operational`**: Live Postfix MTA daemon verified running and processing recipient resolution socket queries.
+- **`configured`**: Stored in database but inactive (e.g. disabled by tenant, or parent domain is pending/unverified).
+- **`failed`**: Routing resolution failed (e.g., local destination points to nonexistent mailbox or expansion cycle detected).
+- **`unknown`**: Alias record not found or parent domain deleted.
+
+### CLI Diagnostics Tool (`php artisan mail:verify-alias`)
+```bash
+# Verify single alias routing chain
+php artisan mail:verify-alias sales@company.com
+
+# Audit all aliases across all domains in the database
+php artisan mail:verify-alias --all
+```
+

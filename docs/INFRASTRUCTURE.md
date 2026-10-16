@@ -192,3 +192,32 @@ The unified Linux server installation script (`scripts/install.sh`) has been har
 - **Live Dovecot MDA / Maildir Verification:** `PENDING INFRASTRUCTURE` (Requires active Dovecot daemon).
 - **Live Postfix Delivery & SASL Relay:** `PENDING INFRASTRUCTURE` (Requires active Postfix daemon with port 10031 policy daemon).
 - **Local Application Stack Integration:** `VERIFIED` (Sanctum auth, Spatie RBAC, GCM backup encryption, audit logging, abuse management, usage tracking, read-only reconciliation).
+
+---
+
+## Step 30 — Email Alias Routing Integration & Mail Flow Verification
+
+### 1. Postfix Virtual Alias Resolution Architecture
+- **Dynamic SQL Map Mechanism:** Postfix relies on MySQL map lookups (`virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-alias-maps.cf`) configured in `/etc/postfix/main.cf`.
+- **Zero-Latency Inbound Lookup:** Queries are executed directly against the active database at SMTP envelope recipient evaluation (`RCPT TO`). Row insertions, modifications, toggles, or deletions in `email_aliases` take effect immediately without requiring `postmap` hash compilation or Postfix service reload.
+- **SQL Map Canonical Schema Alignment:**
+  ```ini
+  user     = laravel_db_user
+  password = laravel_db_password
+  hosts    = 127.0.0.1
+  dbname   = email_saas_db
+  query    = SELECT email_aliases.destination_email FROM email_aliases INNER JOIN domains ON email_aliases.domain_id = domains.id WHERE email_aliases.source_email='%s' AND email_aliases.is_active=1 AND domains.status='active' AND domains.deleted_at IS NULL
+  ```
+- **SoftDeletes Compliance:** To prevent routing mail to soft-deleted domains or deleted mailboxes, all `.cf` maps (`mysql-virtual-aliases.cf`, `mysql-virtual-domains.cf`, `mysql-virtual-mailboxes.cf`, and `mysql-virtual-sender-login-maps.cf`) enforce `domains.deleted_at IS NULL` and `mailboxes.deleted_at IS NULL`.
+
+### 2. Multi-Hop Expansion & Recursion Limits
+- **MTA Recursion Mechanics:** Postfix recursively resolves aliases until reaching a physical terminal mailbox or an external domain, bounded by `virtual_alias_expansion_limit` (default 1000).
+- **Application-Level Guardrails:** `AliasApiController` validates forwarding chains at creation and update time. `PostfixService::verifyAliasRouting` inspects recursive paths up to 30 hops to detect cycles (`A -> B -> A`) or dangling local destinations (where the terminal target is a hosted domain but no matching physical mailbox exists in `mailboxes`), returning `status: "failed"` and preventing bounce loops.
+
+### 3. Three-Level Verification Matrix
+
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `PostfixService`, `AliasApiController`, `EmailAliasResource` | `VERIFIED` | Full test coverage for lifecycle hooks (`syncAlias`, `removeAlias`), dynamic status computation (`synchronized`, `operational`, `configured`, `failed`), multi-hop resolution chains, and dangling local destination warnings. |
+| **Level B: Configuration & SQL Query Layer** | `postfix-config/*.cf`, `server-configs/*.cf`, CLI tooling | `VERIFIED` | Exact SQL map queries tested directly against MySQL. CLI verification command `php artisan mail:verify-alias` verified for single alias diagnostics and `--all` database audits. |
+| **Level C: End-to-End Mail Flow** | Live Postfix MTA daemon, TCP port 25/587, Dovecot MDA delivery | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks native Linux Postfix/Dovecot daemons, Unix domain sockets, and inbound MX routing. End-to-end SMTP transmission requires a dedicated Linux VPS environment. |

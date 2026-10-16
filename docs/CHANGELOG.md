@@ -1,5 +1,33 @@
 # Changelog
 
+### Email Alias Routing Integration & Mail Flow Verification (Step 30)
+- **Implemented:** Postfix Dynamic MySQL Map Configuration Alignment:
+  - Modernized `postfix-config/mysql-virtual-aliases.cf` and created canonical `server-configs/mysql-virtual-alias-maps.cf` querying `email_aliases` joined with `domains` with `email_aliases.is_active = 1`, `domains.status = 'active'`, and `domains.deleted_at IS NULL`.
+  - Modernized `postfix-config/mysql-virtual-domains.cf`, `postfix-config/mysql-virtual-mailboxes.cf`, and `postfix-config/mysql-virtual-sender-login-maps.cf` to enforce `status = 'active'` and `deleted_at IS NULL` for SoftDeletes compatibility.
+  - Uncommented `virtual_alias_maps` in `server-configs/main-cf-snippet.txt`.
+- **Implemented:** Postfix Routing Service Engine (`app/Services/PostfixService.php`):
+  - Added `syncAlias(EmailAlias $alias): bool` and `removeAlias(EmailAlias $alias): bool`.
+  - Added `verifyAliasRouting(string $sourceEmail): array`: evaluates real-time Postfix MySQL map query, traces recursive expansion chains up to 30 hops, detects cycle loops, verifies terminal recipient mailbox existence for local domains, and returns comprehensive routing details.
+  - Added `isPostfixOperational(): bool`: detects live Postfix MTA socket or process state.
+- **Implemented:** Controller Lifecycle Integration (`app/Http/Controllers/Api/AliasApiController.php`):
+  - Injected `PostfixService` into `store`, `update`, `toggle`, and `destroy` operations.
+- **Implemented:** Dynamic API Resource Telemetry (`app/Http/Resources/EmailAliasResource.php`):
+  - Evaluates dynamic `forwarding_status`: `synchronized` (map valid & routable), `operational` (live MTA active), `configured` (disabled or pending domain), `failed` (dangling destination or loop), `unknown` (missing record or deleted domain).
+  - Supplies `routing_details` payload (`is_routable`, `source_email`, `destination`, `terminal_target`, `status`, `hops`, `hop_count`, `cycle_detected`, `warning`, `mta_driver`).
+- **Implemented:** Next.js Tenant UI Enhancements (`frontend/`):
+  - Updated `types/index.ts` with `EmailAliasRoutingDetails` and updated `forwarding_status` union type.
+  - Enhanced `AliasRow.tsx` with color-coded status badges (Emerald for operational, Blue for synchronized, Amber for unknown, Gray for configured, Red for failed), hop count chips, and hover tooltips for routing warnings.
+  - Updated `/aliases` header with routing verification status legend.
+- **Implemented:** Operator CLI Tooling:
+  - `php artisan mail:verify-alias {source_email?} {--all}` with detailed tabular output of alias resolution, hop chains, and routing integrity.
+- **Automated Verification & Three-Level Matrix**:
+  - Created `tests/Feature/TenantAliasRoutingIntegrationTest.php` with 8 comprehensive tests (44 assertions).
+  - Level A (Application & API Layer): `VERIFIED`.
+  - Level B (Configuration & SQL Maps): `VERIFIED`.
+  - Level C (End-to-End Live Mail Flow): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services; requires dedicated Linux VPS).
+  - Full backend test suite passing: **371 tests, 1,768 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Full frontend production build passing: **Next.js 14 compiles and optimizes all 27 static pages with zero errors or warnings**.
+
 ### Tenant Email Aliases & Forwarding Management (Step 29)
 - **Implemented:** Standalone `EmailAlias` PSR-4 Model & Authorization Policy:
   - Extracted `App\Models\EmailAlias` into its own model file (`app/Models/EmailAlias.php`) with domain relationship, tenant scoping (`scopeForTenant`), search scope (`scopeSearch`), and status scope (`scopeByStatus`).

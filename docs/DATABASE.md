@@ -284,3 +284,74 @@ All 16 core migrations are applied in strict dependency order:
   - `audit-demo-overquota@example.test`: Seeded with 550 recipient usage on a 500-recipient starter plan to verify `TENANT_OVER_QUOTA` alerting.
   - `audit-demo-suspended@example.test`: Seeded with suspended state to verify domain suspension invariants.
 - **Safe Cleanup Guarantee:** Running `php artisan emailsaas:seed-audit-demo --cleanup` targets only records in the explicit synthetic ownership registry (`audit-demo-` prefix, `@example.test` domain), deleting them in safe relational order (mailboxes -> domains -> invoices -> usage -> incidents -> audit logs -> users). Canonical baseline users (`test@example.com`, `admin@example.com`) and subscription plans are permanently preserved.
+
+---
+
+## 19. Email Aliases & Postfix SQL Map Resolution Architecture (Step 29 & Step 30)
+
+### 1. `email_aliases` Schema & Relational Invariants
+- **Table:** `email_aliases`
+- **Columns:**
+  - `id`: `BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY`
+  - `domain_id`: `BIGINT UNSIGNED`, foreign key referencing `domains(id)` with `ON DELETE CASCADE`.
+  - `source_email`: `VARCHAR(255) NOT NULL`, virtual routing address (e.g. `support@tenantdomain.com`).
+  - `destination_email`: `VARCHAR(255) NOT NULL`, forwarding target address (internal mailbox or external email).
+  - `is_active`: `TINYINT(1) DEFAULT 1`, routing toggle switch.
+  - `created_at`, `updated_at`: `TIMESTAMP NULL`.
+- **Integrity Constraints:**
+  - `UNIQUE(source_email)`: Prevents duplicate alias creation across tenants and domains.
+  - Foreign key constraint cascades deletion: deleting a domain deletes all associated aliases automatically.
+  - Application-level uniqueness check enforces mutual exclusion with `mailboxes.email` (an alias cannot collide with a physical mailbox on the same domain).
+  - Loop and cycle prevention rejects self-forwarding (`source === destination`) and multi-hop cyclic graphs (`A -> B -> C -> A`).
+
+### 2. Postfix Dynamic MySQL Map Specifications
+Postfix evaluates routing lookups at inbound SMTP connection time. To prevent routing to soft-deleted or unverified entities, all `.cf` configuration queries explicitly enforce `domains.status = 'active'`, `domains.deleted_at IS NULL`, and `mailboxes.deleted_at IS NULL`:
+
+1. **Virtual Alias Maps (`postfix-config/mysql-virtual-aliases.cf` & `server-configs/mysql-virtual-alias-maps.cf`):**
+   ```sql
+   SELECT email_aliases.destination_email
+   FROM email_aliases
+   INNER JOIN domains ON email_aliases.domain_id = domains.id
+   WHERE email_aliases.source_email = '%s'
+     AND email_aliases.is_active = 1
+     AND domains.status = 'active'
+     AND domains.deleted_at IS NULL;
+   ```
+2. **Virtual Domains Map (`postfix-config/mysql-virtual-domains.cf`):**
+   ```sql
+   SELECT domain_name
+   FROM domains
+   WHERE domain_name = '%s'
+     AND status = 'active'
+     AND deleted_at IS NULL;
+   ```
+3. **Virtual Mailbox Maps (`postfix-config/mysql-virtual-mailboxes.cf`):**
+   ```sql
+   SELECT CONCAT(domains.domain_name, '/', mailboxes.local_part, '/')
+   FROM mailboxes
+   INNER JOIN domains ON mailboxes.domain_id = domains.id
+   WHERE mailboxes.email = '%s'
+     AND mailboxes.is_active = 1
+     AND domains.status = 'active'
+     AND domains.deleted_at IS NULL
+     AND mailboxes.deleted_at IS NULL;
+   ```
+4. **Sender Login Maps (`postfix-config/mysql-virtual-sender-login-maps.cf`):**
+   ```sql
+   SELECT mailboxes.email
+   FROM mailboxes
+   INNER JOIN domains ON mailboxes.domain_id = domains.id
+   WHERE mailboxes.email = '%s'
+     AND mailboxes.is_active = 1
+     AND domains.status = 'active'
+     AND domains.deleted_at IS NULL
+     AND mailboxes.deleted_at IS NULL
+   UNION
+   SELECT email_aliases.destination_email
+   FROM email_aliases
+   INNER JOIN domains ON email_aliases.domain_id = domains.id
+   WHERE email_aliases.source_email = '%s'
+     AND email_aliases.is_active = 1
+     AND domains.status = 'active'
+     AND domains.deleted_at IS NULL;
+   ```

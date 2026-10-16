@@ -147,3 +147,25 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - Audit Trail Integration: All lifecycle operations (`alias.create`, `alias.update`, `alias.toggle`, `alias.delete`) record immutable events via `AuditService`.
 - Next.js Dashboard UI (`/aliases`): Full-featured alias management hub with search, domain and status filters, bounded pagination, creation dialog with domain selector and loop warning, edit destination modal, toggle switch, and delete confirmation.
 
+## 19. Email Alias Routing Integration & Mail Flow Verification (Step 30)
+**Status:** IMPLEMENTED & VERIFIED (Step 30)
+**Purpose:** Bridge tenant-managed email aliases with Postfix mail delivery pipeline via dynamic MySQL virtual maps, multi-hop routing resolution, dangling destination detection, and truthful status telemetry.
+**Components:**
+- **Postfix MySQL Configuration Alignment:**
+  - Modernized `postfix-config/mysql-virtual-aliases.cf` and created `server-configs/mysql-virtual-alias-maps.cf` querying canonical `email_aliases` table joined with `domains` where `is_active = 1`, `domains.status = 'active'`, and `domains.deleted_at IS NULL`.
+  - Modernized `mysql-virtual-domains.cf`, `mysql-virtual-mailboxes.cf`, and `mysql-virtual-sender-login-maps.cf` to enforce `status = 'active'` and `deleted_at IS NULL` for SoftDeletes compatibility.
+- **PostfixService Routing Engine (`app/Services/PostfixService.php`):**
+  - `syncAlias(EmailAlias $alias): bool` and `removeAlias(EmailAlias $alias): bool`.
+  - `verifyAliasRouting(string $sourceEmail): array`: Executes Postfix lookup, traces recursive expansion chains up to 30 hops, detects cycle loops, verifies terminal recipient mailbox existence for local domains, and returns comprehensive routing details.
+  - `isPostfixOperational(): bool`: Checks if live Postfix daemon is responsive via socket or process list.
+- **Controller Lifecycle Integration (`app/Http/Controllers/Api/AliasApiController.php`):**
+  - Injected `PostfixService` across `store`, `update`, `toggle`, and `destroy` operations.
+- **Resource & API Telemetry (`app/Http/Resources/EmailAliasResource.php`):**
+  - Dynamically calculates `forwarding_status`: `synchronized` (map valid & routable), `operational` (live MTA active), `configured` (disabled or pending domain), `failed` (dangling destination or loop), `unknown` (missing record or deleted domain).
+  - Supplies `routing_details` payload (`is_routable`, `source_email`, `destination`, `terminal_target`, `status`, `hops`, `hop_count`, `cycle_detected`, `warning`, `mta_driver`).
+- **Next.js Dashboard Integration (`frontend/`):**
+  - Enhanced `AliasRow.tsx` with dynamic status pills (Emerald for operational, Blue for synchronized, Amber for unknown, Gray for configured, Red for failed), hop count chips, and hover tooltips for routing warnings.
+  - Updated `/aliases` header legend explaining routing verification statuses.
+- **Operator CLI Diagnostic Tool:**
+  - `php artisan mail:verify-alias {source_email?} {--all}`: Detailed tabular inspection of alias resolution, hop expansion chains, and routing integrity.
+

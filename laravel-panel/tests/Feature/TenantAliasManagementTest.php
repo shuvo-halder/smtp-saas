@@ -181,7 +181,7 @@ class TenantAliasManagementTest extends TestCase
         $response->assertStatus(200)
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.source_email', 'info@alpha.com')
-            ->assertJsonPath('data.0.forwarding_status', 'configured');
+            ->assertJsonPath('data.0.forwarding_status', 'synchronized');
     }
 
     public function test_tenant_can_create_alias_with_local_part(): void
@@ -197,7 +197,7 @@ class TenantAliasManagementTest extends TestCase
             ->assertJsonPath('data.source_email', 'billing@alpha.com')
             ->assertJsonPath('data.destination_email', 'accounting@myfinance.com')
             ->assertJsonPath('data.is_active', true)
-            ->assertJsonPath('data.forwarding_status', 'configured');
+            ->assertJsonPath('data.forwarding_status', 'synchronized');
 
         $this->assertDatabaseHas('email_aliases', [
             'domain_id'         => $this->activeDomain->id,

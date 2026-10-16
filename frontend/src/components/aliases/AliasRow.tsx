@@ -6,7 +6,7 @@ import { EmailAlias } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import EditAliasModal from './EditAliasModal';
-import { ArrowRight, Edit2, Power, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Edit2, Power, Trash2 } from 'lucide-react';
 
 interface AliasRowProps {
   alias: EmailAlias;
@@ -75,10 +75,43 @@ export default function AliasRow({ alias, onRefresh }: AliasRowProps) {
 
         {/* Forwarding Status */}
         <td className="py-3 px-4 whitespace-nowrap">
-          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs font-normal">
-            Configured
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {alias.forwarding_status === 'operational' ? (
+              <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-300 text-xs font-medium">
+                Operational
+              </Badge>
+            ) : alias.forwarding_status === 'synchronized' ? (
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300 text-xs font-medium" title="Virtual alias map synchronized in database">
+                Synchronized
+              </Badge>
+            ) : alias.forwarding_status === 'failed' ? (
+              <Badge variant="outline" className="bg-red-50 text-red-700 border-red-300 text-xs font-medium" title={alias.routing_details?.warning || 'Routing failure'}>
+                Failed
+              </Badge>
+            ) : alias.forwarding_status === 'unknown' ? (
+              <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-xs font-medium">
+                Unknown
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-300 text-xs font-normal">
+                Configured
+              </Badge>
+            )}
+
+            {alias.routing_details && alias.routing_details.hop_count > 2 && (
+              <span className="text-[11px] text-gray-500 font-mono" title={`Route hops: ${alias.routing_details.hops.join(' -> ')}`}>
+                ({alias.routing_details.hop_count - 1} hops)
+              </span>
+            )}
+
+            {alias.routing_details?.warning && (
+              <span title={alias.routing_details.warning} className="text-amber-500 cursor-help">
+                <AlertTriangle className="h-3.5 w-3.5" />
+              </span>
+            )}
+          </div>
         </td>
+
 
         {/* Active Status */}
         <td className="py-3 px-4 whitespace-nowrap">

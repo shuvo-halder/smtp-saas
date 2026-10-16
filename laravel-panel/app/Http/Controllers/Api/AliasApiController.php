@@ -8,6 +8,7 @@ use App\Models\Domain;
 use App\Models\EmailAlias;
 use App\Models\Mailbox;
 use App\Services\AuditService;
+use App\Services\PostfixService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -97,7 +98,7 @@ class AliasApiController extends Controller
     /**
      * Store a new alias
      */
-    public function store(Request $request)
+    public function store(Request $request, PostfixService $postfixService)
     {
         $validated = $request->validate([
             'domain_id'         => 'required|integer',
@@ -184,12 +185,16 @@ class AliasApiController extends Controller
 
         $isActive = $request->has('is_active') ? $request->boolean('is_active') : true;
 
-        $alias = DB::transaction(function () use ($domain, $sourceEmail, $destEmail, $isActive) {
-            return $domain->aliases()->create([
+        $alias = DB::transaction(function () use ($domain, $sourceEmail, $destEmail, $isActive, $postfixService) {
+            $created = $domain->aliases()->create([
                 'source_email'      => $sourceEmail,
                 'destination_email' => $destEmail,
                 'is_active'         => $isActive,
             ]);
+
+            $postfixService->syncAlias($created);
+
+            return $created;
         });
 
         app(AuditService::class)->record(
@@ -214,10 +219,11 @@ class AliasApiController extends Controller
             ->setStatusCode(201);
     }
 
+
     /**
      * Update an alias destination email or active status
      */
-    public function update(Request $request, EmailAlias $alias)
+    public function update(Request $request, EmailAlias $alias, PostfixService $postfixService)
     {
         $this->authorize('update', $alias);
 
@@ -270,6 +276,7 @@ class AliasApiController extends Controller
         }
 
         $alias->update($updateData);
+        $postfixService->syncAlias($alias);
 
         app(AuditService::class)->record(
             action: 'alias.update',
@@ -292,7 +299,7 @@ class AliasApiController extends Controller
     /**
      * Toggle alias active status
      */
-    public function toggle(Request $request, EmailAlias $alias)
+    public function toggle(Request $request, EmailAlias $alias, PostfixService $postfixService)
     {
         $this->authorize('update', $alias);
 
@@ -318,6 +325,8 @@ class AliasApiController extends Controller
             'is_active' => $targetState,
         ]);
 
+        $postfixService->syncAlias($alias);
+
         app(AuditService::class)->record(
             action: 'alias.toggle',
             entityType: 'EmailAlias',
@@ -338,7 +347,7 @@ class AliasApiController extends Controller
     /**
      * Delete an alias
      */
-    public function destroy(Request $request, EmailAlias $alias)
+    public function destroy(Request $request, EmailAlias $alias, PostfixService $postfixService)
     {
         $this->authorize('delete', $alias);
 
@@ -349,6 +358,7 @@ class AliasApiController extends Controller
         ];
         $aliasId = $alias->id;
 
+        $postfixService->removeAlias($alias);
         $alias->delete();
 
         app(AuditService::class)->record(
@@ -367,6 +377,7 @@ class AliasApiController extends Controller
 
         return response()->json(null, 204);
     }
+
 
     /**
      * Detect circular forwarding cycles

@@ -60,13 +60,21 @@ export default function TenantAliasesPage() {
         </Button>
       </div>
 
-      {/* Info Notice */}
-      <div className="bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-lg p-4 flex items-start gap-3 text-indigo-900 dark:text-indigo-200">
-        <Info className="h-5 w-5 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0" />
-        <div className="text-sm">
-          <span className="font-semibold">Zero-overhead Forwarding:</span> Aliases do not store messages on the server; they route directly to your specified forwarding target. Addresses configured here automatically synchronize with Postfix virtual alias maps.
+      {/* Info Notice & Status Legend */}
+      <div className="bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 rounded-lg p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-indigo-900 dark:text-indigo-200">
+        <div className="flex items-start gap-3">
+          <Info className="h-5 w-5 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0" />
+          <div className="text-sm">
+            <span className="font-semibold">MTA Virtual Routing:</span> Inbound messages are dynamically resolved by Postfix using database virtual alias maps. Active aliases forward immediately with zero local storage overhead.
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs font-medium pl-8 md:pl-0">
+          <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-800">Synchronized (Map Ready)</span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">Operational (Live MTA)</span>
+          <span className="inline-flex items-center px-2 py-0.5 rounded bg-gray-100 text-gray-700">Configured (Disabled)</span>
         </div>
       </div>
+
 
       {/* Filter / Search Bar */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border shadow-sm flex flex-col md:flex-row gap-3">
