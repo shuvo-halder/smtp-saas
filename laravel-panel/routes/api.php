@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\BillingApiController;
 use App\Http\Controllers\Api\DashboardApiController;
 use App\Http\Controllers\Api\DomainApiController;
 use App\Http\Controllers\Api\MailboxApiController;
+use App\Http\Controllers\Api\TenantSmtpApiController;
 use App\Http\Middleware\EnsureActiveSubscription;
 use App\Http\Middleware\EnsureAdmin;
 use Illuminate\Support\Facades\Route;
@@ -56,6 +57,16 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             Route::apiResource('domains.mailboxes', MailboxApiController::class)->shallow();
             Route::post('/mailboxes/{mailbox}/change-password', [MailboxApiController::class, 'changePassword']);
             Route::post('/mailboxes/{mailbox}/toggle', [MailboxApiController::class, 'toggle']);
+
+            // Tenant SMTP Management (Step 28)
+            Route::prefix('smtp')->group(function () {
+                Route::get('/settings', [TenantSmtpApiController::class, 'settings']);
+                Route::get('/usage', [TenantSmtpApiController::class, 'usage']);
+                Route::get('/credentials', [TenantSmtpApiController::class, 'credentials']);
+                Route::post('/credentials/{mailbox}/rotate-password', [TenantSmtpApiController::class, 'rotatePassword']);
+                Route::get('/activity', [TenantSmtpApiController::class, 'activity']);
+                Route::get('/diagnostics', [TenantSmtpApiController::class, 'diagnostics']);
+            });
         });
 
         // Admin Routes

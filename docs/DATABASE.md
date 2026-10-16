@@ -127,10 +127,32 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
   - `duration_ms` (unsigned integer, nullable) — Execution duration in milliseconds.
   - `failure_summary` (varchar(500), nullable) — Sanitized error summary (passwords, tokens, API keys, DSN credentials, and cryptographic hashes are strictly redacted before persistence).
   - `created_at`, `updated_at` (timestamps).
-- **Composite Indexes:**
-  - `['task_name', 'created_at']`, `['status', 'created_at']`.
 - **Model:** `App\Models\ScheduledTaskRun`.
 - **Retention & Pruning Policy:** Retained for 7 days; automatically pruned via daily scheduled task (`scheduled-tasks:prune`) at 04:00 UTC using `withoutOverlapping(15)`.
+
+### `delivery_logs` (Outbound Delivery Activity Ledger - Step 28)
+- **Primary Key:** `id` (bigint unsigned, auto-increment)
+- **Foreign Keys:**
+  - `tenant_id` (nullable bigint unsigned -> `users.id` with `nullOnDelete()`)
+  - `domain_id` (nullable bigint unsigned -> `domains.id` with `nullOnDelete()`)
+  - `mailbox_id` (nullable bigint unsigned -> `mailboxes.id` with `nullOnDelete()`)
+- **Fields:**
+  - `sender_email` (varchar(255), indexed)
+  - `recipient_email` (varchar(255), indexed)
+  - `queue_id` (varchar(64), nullable, indexed) — Postfix queue ID
+  - `message_id` (varchar(255), nullable, indexed) — RFC 5322 Message-ID
+  - `status` (varchar(32), indexed) — Outcome classification: `delivered`, `deferred`, `bounced`, `rejected`, `accepted`
+  - `dsn_code` (varchar(32), nullable) — Enhanced delivery status code (e.g., `2.0.0`, `4.4.1`, `5.1.1`, `5.7.1`)
+  - `smtp_code` (unsigned smallint, nullable) — 3-digit RFC 5321 reply code (e.g., `250`, `450`, `550`, `554`)
+  - `response_text` (text, nullable) — Sanitized MTA response text or policy daemon rejection reason
+  - `occurred_at` (timestamp, indexed) — Event timestamp
+  - `created_at`, `updated_at` (timestamps)
+- **Composite Indexes:**
+  - `['tenant_id', 'occurred_at']`, `['tenant_id', 'status', 'occurred_at']`, `['mailbox_id', 'occurred_at']`
+- **Model:** `App\Models\DeliveryLog`
+- **Data Ingestion Channels:**
+  1. `AbuseDetectionService::processEvent`: downstream Postfix syslog delivery events parsed by `mail:process-log` daemon.
+  2. `PolicyDecisionService::recordQuotaAbuseIncident`: inbound submission rejections triggered by outbound recipient quota exhaustion or inactive account states.
 
 ## Cross-System Coupling
 > **CRITICAL RULE:** Do NOT alter the schemas of `domains` or `mailboxes` without simultaneously verifying and updating `/etc/postfix/mysql-virtual-mailbox-*.cf` and `/etc/dovecot/dovecot-sql.conf.ext`. The mail stack relies precisely on the current table names and column structures.

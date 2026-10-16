@@ -2,6 +2,7 @@
 
 namespace App\Services\Abuse;
 
+use App\Models\DeliveryLog;
 use App\Models\TenantOutboundUsage;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Config;
@@ -120,6 +121,9 @@ class AbuseDetectionService
                 if ($isNewEvent) {
                     // 6. Update Redis Abuse Counters
                     $this->updateCounters($tenantId, $mailboxId, $classification, $date);
+
+                    // 6b. Record into persistent delivery activity logs
+                    $this->recordDeliveryLog($tenantId, $mailboxId, $attribution['domain_id'] ?? null, $event, $classification, $senderEmail);
                 }
 
                 // Clean up Queue ID mapping on terminal delivery if queueId known
@@ -512,6 +516,49 @@ class AbuseDetectionService
             Log::channel('abuse')->error('AbuseDetectionService: Failed to record abuse incident in ledger', [
                 'alert_type' => $alertType,
                 'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Record delivery event in persistent delivery activity logs.
+     */
+    protected function recordDeliveryLog(
+        int $tenantId,
+        ?int $mailboxId,
+        ?int $domainId,
+        NormalizedMailEvent $event,
+        string $classification,
+        ?string $senderEmail
+    ): void {
+        try {
+            $status = match ($classification) {
+                BounceClassificationService::CLASSIFICATION_SUCCESS => 'delivered',
+                BounceClassificationService::CLASSIFICATION_SOFT_BOUNCE => 'deferred',
+                BounceClassificationService::CLASSIFICATION_HARD_BOUNCE => 'bounced',
+                default => 'deferred',
+            };
+
+            $responseText = !empty($event->message) ? substr(trim($event->message), 0, 1000) : null;
+
+            DeliveryLog::create([
+                'tenant_id'       => $tenantId,
+                'domain_id'       => $domainId,
+                'mailbox_id'      => $mailboxId,
+                'sender_email'    => $senderEmail ?? ($event->sender ?? ''),
+                'recipient_email' => $event->recipient ?? '',
+                'queue_id'        => $event->queueId,
+                'message_id'      => null,
+                'status'          => $status,
+                'dsn_code'        => $event->dsn,
+                'smtp_code'       => $event->smtpCode,
+                'response_text'   => $responseText,
+                'occurred_at'     => $event->timestamp ? Carbon::parse($event->timestamp) : now(),
+            ]);
+        } catch (Throwable $e) {
+            Log::channel('abuse')->warning('AbuseDetection: Failed to record delivery log', [
+                'error' => $e->getMessage(),
+                'queue_id' => $event->queueId,
             ]);
         }
     }

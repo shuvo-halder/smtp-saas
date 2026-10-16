@@ -351,3 +351,106 @@ export interface TenantSubscriptionSummary {
     storage_mb_per_mailbox: number;
   };
 }
+
+export interface SmtpPortConfig {
+  port: number;
+  protocol: string;
+  recommended: boolean;
+  description: string;
+}
+
+export interface SmtpSettings {
+  hostname: string;
+  ports: SmtpPortConfig[];
+  authentication: string;
+  username_format: string;
+  password_format: string;
+  tls_minimum_version: string;
+  code_snippets: {
+    nodejs: string;
+    python: string;
+    php: string;
+    env: string;
+  };
+}
+
+export interface SmtpUsageHistoryItem {
+  date: string;
+  recipient_count: number;
+  is_today: boolean;
+}
+
+export interface SmtpMailboxUsage {
+  id: number;
+  email: string;
+  display_name: string | null;
+  is_active: boolean;
+  used_today: number;
+  mailbox_daily_limit: number;
+}
+
+export interface TenantSmtpUsage {
+  plan_name: string;
+  daily_limit: number;
+  is_unlimited: boolean;
+  mailbox_daily_limit: number;
+  used_today: number;
+  remaining_today: number | null;
+  percent_used: number;
+  history: SmtpUsageHistoryItem[];
+  mailboxes_breakdown: SmtpMailboxUsage[];
+}
+
+export interface SmtpCredential {
+  id: number;
+  domain_id: number;
+  domain_name: string;
+  email: string;
+  display_name: string | null;
+  is_active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+export interface RotatePasswordResponse {
+  message: string;
+  email: string;
+  generated_password: string;
+  warning: string;
+}
+
+export interface DeliveryLogItem {
+  id: number;
+  domain_id: number | null;
+  mailbox_id: number | null;
+  sender_email: string;
+  recipient_email: string;
+  queue_id: string | null;
+  status: 'delivered' | 'deferred' | 'bounced' | 'rejected' | 'accepted';
+  dsn_code: string | null;
+  smtp_code: number | null;
+  response_text: string | null;
+  occurred_at: string;
+  created_at: string;
+}
+
+export interface SmtpDiagnosticCheck {
+  key: string;
+  title: string;
+  status: 'pass' | 'warning' | 'fail';
+  summary: string;
+  remediation: string | null;
+}
+
+export interface SmtpCommonError {
+  code: string;
+  cause: string;
+  remediation: string;
+}
+
+export interface SmtpDiagnosticsResponse {
+  status: 'healthy' | 'warning' | 'error';
+  checks: SmtpDiagnosticCheck[];
+  common_errors: SmtpCommonError[];
+}
+

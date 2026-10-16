@@ -499,3 +499,32 @@
   - `[x]` Implemented `tests/Feature/LocalIntegrationAndSecurityAuditTest.php` with 14 comprehensive tests (26 assertions).
   - `[x]` Full backend test suite: **299 passed (1,300 assertions)** cleanly with zero failures and zero regressions.
   - `[x]` Frontend Next.js 14 production build: **Compiled all 24 static pages cleanly with zero errors (100%)**.
+
+---
+
+## Step 28 — Tenant SMTP Access, Sending Activity & Delivery Logs (`IMPLEMENTED — VERIFIED`)
+- `[x]` Backend API & Service Architecture:
+  - `[x]` `TenantSmtpService`: Server connection settings resolution, real-time quota telemetry, credential management, one-time reveal password rotation with Dovecot SHA512-CRYPT, activity log querying, and account diagnostics.
+  - `[x]` `TenantSmtpApiController`: 6 REST endpoints (`GET /api/smtp/settings`, `GET /api/smtp/usage`, `GET /api/smtp/credentials`, `POST /api/smtp/credentials/{mailbox}/rotate-password`, `GET /api/smtp/activity`, `GET /api/smtp/diagnostics`) protected by `auth:sanctum` and `EnsureActiveSubscription`.
+  - `[x]` `DeliveryLog` Model & Migration (`2026_10_16_000001_create_delivery_logs_table.php`): Tracks outcomes (`delivered`, `deferred`, `bounced`, `rejected`), Postfix queue IDs, DSN codes, SMTP reply codes, and sanitized responses.
+  - `[x]` Integrated Pipeline Ingestion:
+    - Downstream Postfix syslog delivery events logged by `AbuseDetectionService::processEvent`.
+    - Inbound quota and policy rejections logged by `PolicyDecisionService::recordQuotaAbuseIncident`.
+  - `[x]` `DeliveryLogResource`: Centralized response text sanitization, stripping internal filesystem paths (`/var/vmail/...`, `/etc/...`) and truncating long responses.
+- `[x]` Security & Tenant Isolation:
+  - `[x]` Strict tenant scoping across all SMTP endpoints; cross-tenant access returns HTTP 403.
+  - `[x]` Suspended tenants are denied access via `EnsureActiveSubscription`.
+  - `[x]` Stored password hashes strictly excluded from API responses; rotated passwords revealed strictly once in the rotation response.
+  - `[x]` Zero SSRF risk in diagnostics: checks operate solely on internal relational and Redis state with zero external socket or HTTP requests.
+- `[x]` Frontend Next.js Hub (`/smtp`):
+  - `[x]` Settings & Code tab: Hostname with copy button, port configuration table (587, 465, 25), TLS 1.2+ specification, code snippets (Node.js, Python, PHP, .env).
+  - `[x]` Quota & Usage tab: Real-time sent today, remaining allowance, mailbox cap, progress bar, 14-day history, mailbox usage breakdown.
+  - `[x]` Credentials tab: Authorized mailboxes table, status badges, and secure password rotation modal with one-time reveal notice.
+  - `[x]` Activity Logs tab: Filterable delivery table (status, search, bounded pagination 1-50), formatted outcome badges, and sanitized MTA responses.
+  - `[x]` Diagnostics & Troubleshooting tab: Automated self-service checks (subscription, domains, mailboxes, quota, deliverability) and RFC error code resolution reference guide.
+  - `[x]` Sidebar navigation updated with `{ name: 'SMTP Access', href: '/smtp', icon: Send }`.
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Implemented `tests/Feature/TenantSmtpManagementTest.php` with 10 comprehensive tests (216 assertions).
+  - `[x]` Full backend test suite: **342 tests / 1,648 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend Next.js 14 production build: **Compiled all 26 static pages cleanly with zero errors (100%)**.
+

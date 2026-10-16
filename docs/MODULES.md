@@ -117,3 +117,23 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - Next.js Dashboard UI (`/billing`): Real-time subscription posture, remaining days badge, quota progress indicators (domains, mailboxes, daily outbound emails, mailbox storage), renewal CTA, and payment gateway callback alerts (`?status=success|failed|cancelled`).
 - Next.js Invoice Ledger (`InvoiceTable.tsx` & `InvoiceDetailModal.tsx`): Bounded pagination, status filtering (`paid`, `pending`, `failed`, `cancelled`), printable modal layout, and direct PDF download links.
 - Next.js Plans & Checkout UI (`/billing/plans` & `PlanCard.tsx`): Monthly/yearly billing toggle, plan feature comparison, recommended tier badge, current plan indicator, and SSLCommerz checkout redirect.
+
+## 16. Tenant Domain & Mailbox Management (Step 27)
+**Status:** IMPLEMENTED & VERIFIED (Step 27)
+**Purpose:** Self-service domain verification, lifecycle management, and mailbox creation/configuration under active tenant subscriptions.
+**Components:**
+- `DomainApiController`: Domain CRUD, casing normalization, DNS record verification reporting, and cascading transaction deletions.
+- `MailboxApiController`: Mailbox CRUD, tenant-wide listing (`/api/mailboxes`), plan storage caps, Dovecot SHA512-CRYPT hashing, display name updates, and state toggles.
+- Next.js UI (`/domains`, `/domains/[id]`, `/mailboxes`): Domain verification checklist, DNS wizard, mailbox table, create/update modals.
+
+## 17. Tenant SMTP Access, Sending Activity & Delivery Logs (Step 28)
+**Status:** IMPLEMENTED & VERIFIED (Step 28)
+**Purpose:** Self-service outbound SMTP relay configuration, secure credentials lifecycle, real-time quota telemetry, persistent delivery activity ledger, and zero-SSRF account diagnostics.
+**Components:**
+- `TenantSmtpService`: Encapsulates SMTP configuration generation, Redis/MariaDB quota aggregation, one-time reveal password rotation with Dovecot SHA512-CRYPT, activity log queries, and account configuration diagnostics.
+- `TenantSmtpApiController`: Exposes 6 RESTful endpoints protected by `auth:sanctum` and `EnsureActiveSubscription` (`/api/smtp/settings`, `/api/smtp/usage`, `/api/smtp/credentials`, `/api/smtp/credentials/{mailbox}/rotate-password`, `/api/smtp/activity`, `/api/smtp/diagnostics`).
+- `DeliveryLog` Model & Migration: Relational storage for message outcomes (`delivered`, `deferred`, `bounced`, `rejected`), Postfix queue IDs, DSN codes, and sanitized MTA responses.
+- `DeliveryLogResource`: Formats and sanitizes MTA response text, stripping internal server paths and sensitive fragments.
+- Integrated Pipeline Ingestion: `AbuseDetectionService::processEvent` logs terminal delivery events; `PolicyDecisionService::recordQuotaAbuseIncident` logs outbound submission rejections.
+- Next.js Frontend Hub (`/smtp`): Tabbed interface for Settings & Snippets (Node.js, Python, PHP, .env), Quota & Usage (progress bars, 14-day history, mailbox breakdown), Credentials (authorized mailboxes, password rotation dialog with one-time reveal), Activity Logs (search, status filters, bounded pagination), and Diagnostics & Troubleshooting (self-service health checks, common error resolutions).
+

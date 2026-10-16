@@ -16,6 +16,7 @@ import {
   Activity,
   LogOut,
   Mail,
+  Send,
   X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Domains', href: '/domains', icon: Globe },
     { name: 'Mailboxes', href: '/mailboxes', icon: Mail },
+    { name: 'SMTP Access', href: '/smtp', icon: Send },
     { name: 'Billing', href: '/billing', icon: CreditCard },
     { name: 'Settings', href: '/settings', icon: Settings },
   ];

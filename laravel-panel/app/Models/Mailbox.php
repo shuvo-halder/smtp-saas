@@ -36,6 +36,11 @@ class Mailbox extends Model
         return $this->belongsTo(Domain::class);
     }
 
+    public function deliveryLogs(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(DeliveryLog::class, 'mailbox_id')->latest('occurred_at');
+    }
+
     // ─── Helpers ────────────────────────────────────────────────────────────────
 
     /** Quota in human-readable format */

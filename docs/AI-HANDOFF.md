@@ -326,9 +326,32 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 25/25 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 28 — Tenant SMTP Access, Sending Activity & Delivery Logs (IMPLEMENTED & VERIFIED):**
+  - **Backend API & Service Layer (`TenantSmtpService` & `TenantSmtpApiController`):**
+    - Implemented `TenantSmtpService` providing connection settings, live quota calculation from Redis, 14-day sending volume aggregation, credentials queries, password rotation with Dovecot SHA512-CRYPT, activity log queries, and account configuration diagnostics.
+    - Implemented `TenantSmtpApiController` exposing 6 RESTful endpoints protected by `auth:sanctum` and `EnsureActiveSubscription` (`/api/smtp/settings`, `/api/smtp/usage`, `/api/smtp/credentials`, `/api/smtp/credentials/{mailbox}/rotate-password`, `/api/smtp/activity`, `/api/smtp/diagnostics`).
+  - **Database & Model Layer (`delivery_logs`):**
+    - Created migration `2026_10_16_000001_create_delivery_logs_table.php` and `App\Models\DeliveryLog`.
+    - Integrated with `AbuseDetectionService::processEvent`: downstream delivery events parsed by `mail:process-log` daemon are automatically recorded in `delivery_logs`.
+    - Integrated with `PolicyDecisionService::recordQuotaAbuseIncident`: outbound quota and policy rejections are automatically recorded in `delivery_logs`.
+    - Implemented `DeliveryLogResource` with centralized response text sanitization (stripping internal server paths and sensitive fragments).
+  - **Frontend Next.js Hub (`frontend/src/app/(dashboard)/smtp/page.tsx`):**
+    - Added "SMTP Access" link with `Send` icon in `Sidebar.tsx`.
+    - Implemented tabbed interface: Settings & Code snippets (Node.js, Python, PHP, .env), Quota & Usage metrics, Credentials with one-time reveal password rotation dialog, filterable Activity Logs table, and account Diagnostics with common RFC error guidance.
+  - **Automated Verification & Test Coverage:**
+    - Authored `tests/Feature/TenantSmtpManagementTest.php` with 10 comprehensive tests (216 assertions).
+    - Full backend regression test suite: **342 tests, 1,648 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 26/26 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 28 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
+- **Step 29 — Tenant Email Templates, Webhooks & API Keys:**
+  - Tenant-managed API keys with scoped permissions for programmatic sending.
+  - Outbound email webhooks for delivery, bounce, and complaint notifications.
+  - Transactional email template management and substitution variables.
+- **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement and Redis -> MariaDB usage reconciliation under live traffic.
+

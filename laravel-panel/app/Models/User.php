@@ -61,6 +61,11 @@ class User extends Authenticatable
         return $this->hasMany(Invoice::class)->latest();
     }
 
+    public function deliveryLogs(): HasMany
+    {
+        return $this->hasMany(DeliveryLog::class, 'tenant_id')->latest('occurred_at');
+    }
+
     // ─── Computed Properties ────────────────────────────────────────────────────
 
     public function activeDomains(): HasMany

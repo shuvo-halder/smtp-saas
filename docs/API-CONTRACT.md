@@ -329,3 +329,53 @@ php artisan emailsaas:seed-audit-demo [--dry-run] [--cleanup]
 - **Missing Administrative Permission:** `HTTP 403 Forbidden` (`{"message": "Forbidden: missing required permission [admin.permission.name]."}`).
 - **Cross-Tenant Resource Access:** `HTTP 403 Forbidden` (`{"message": "This action is unauthorized."}`).
 - **Audit Log Ledger Mutation:** `HTTP 405 Method Not Allowed` across `POST`, `PUT`, `PATCH`, `DELETE`.
+
+---
+
+## Step 28 — Tenant SMTP Access, Sending Activity & Delivery Logs API Contracts
+
+All endpoints in this group require authenticated Sanctum session and active subscription (`EnsureActiveSubscription`).
+
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/api/smtp/settings` | Server connection parameters (hostname, ports 587 STARTTLS / 465 SMTPS / 25, TLS 1.2+, Dovecot SASL specification, code snippets for Node.js, Python, PHP, .env). | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/api/smtp/usage` | Real-time quota telemetry, daily recipient consumption from Redis, remaining allowance, 14-day history, and mailbox breakdown. | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/api/smtp/credentials` | List tenant's SMTP sending identities (mailboxes) under active domains. Passwords and hashes strictly excluded. | `auth:sanctum`, `EnsureActiveSubscription` |
+| POST | `/api/smtp/credentials/{mailbox}/rotate-password` | Securely rotate mailbox password. Hashes with Dovecot SHA512-CRYPT, audit logs the event, and returns generated password strictly once in the response. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| GET | `/api/smtp/activity` | Bounded paginated delivery activity logs (`per_page` clamped 1-50). Supports `?status=delivered\|deferred\|bounced\|rejected`, `search`, `mailbox_id`, `date_from`, `date_to`. | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/api/smtp/diagnostics` | Safe account-level configuration diagnostics (Zero SSRF risk, evaluates subscription, domains, mailboxes, quota, and bounce health). | `auth:sanctum`, `EnsureActiveSubscription` |
+
+### Password Rotation Response (`POST /api/smtp/credentials/{mailbox}/rotate-password`)
+```json
+{
+  "message": "Mailbox password rotated successfully.",
+  "email": "user@yourdomain.com",
+  "generated_password": "GeneratedPlaintextPassword16Chars",
+  "warning": "This password is displayed strictly once. Copy and store it securely."
+}
+```
+
+### Delivery Activity Log Resource (`GET /api/smtp/activity`)
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "domain_id": 2,
+      "mailbox_id": 5,
+      "sender_email": "sales@acme.com",
+      "recipient_email": "customer@example.com",
+      "queue_id": "4X9Vp30...",
+      "status": "delivered",
+      "dsn_code": "2.0.0",
+      "smtp_code": 250,
+      "response_text": "250 2.0.0 Ok: queued as 4X9Vp30...",
+      "occurred_at": "2026-10-16T12:00:00Z",
+      "created_at": "2026-10-16T12:00:01Z"
+    }
+  ],
+  "links": { ... },
+  "meta": { ... }
+}
+```
+

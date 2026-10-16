@@ -127,4 +127,21 @@ This document describes the current implementation state of the EmailSaaS projec
   - All user-facing strings centralized in `frontend/messages/en.json` under `Admin.audit_logs`.
 - **Retention Policy:** Undefined in Step 16B.1. Explicitly marked as `NOT YET DEFINED — REQUIRES ARCHITECTURE APPROVAL` to prevent premature automatic data loss.
 
+## 13. Tenant SMTP Access, Sending Activity & Delivery Logs (Step 28)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **API & Service Layer:**
+  - `TenantSmtpService`: Handles connection parameter resolution, live quota calculation from Redis (`outbound:tenant:{id}:recipients:daily:{date}`), 14-day history aggregation with MariaDB `tenant_outbound_usage`, mailbox credential queries, password rotation with Dovecot `SHA512-CRYPT` (`$6$`), and safe account configuration diagnostics.
+  - `TenantSmtpApiController`: Exposes 6 RESTful endpoints (`/api/smtp/settings`, `/api/smtp/usage`, `/api/smtp/credentials`, `/api/smtp/credentials/{mailbox}/rotate-password`, `/api/smtp/activity`, `/api/smtp/diagnostics`) protected by Sanctum and `EnsureActiveSubscription`.
+- **Database & Model:**
+  - `2026_10_16_000001_create_delivery_logs_table.php`: Relational schema for message delivery outcomes, queue IDs, DSN codes, SMTP reply codes, and sanitized responses.
+  - `DeliveryLog` Model: Tenant scoping (`scopeForTenant`), status filters, date range filters, search, and relationships (`tenant`, `domain`, `mailbox`).
+  - Integrated Pipeline Ingestion: Terminal delivery outcomes (`delivered`, `deferred`, `bounced`) are logged automatically by `AbuseDetectionService::processEvent`; quota/policy rejections are logged by `PolicyDecisionService::recordQuotaAbuseIncident`.
+- **Frontend Hub:** Next.js dashboard view at `frontend/src/app/(dashboard)/smtp/page.tsx`:
+  - Settings & Code tab: Server hostname copy, supported port guide (587 STARTTLS, 465 SMTPS, 25), TLS 1.2+ policy, copyable code snippets (Node.js, Python, PHP, .env).
+  - Quota & Usage tab: KPI cards for sent today, remaining allowance, mailbox limit, visual progress bar, 14-day sending volume trend, and individual mailbox breakdown table.
+  - Credentials tab: Authorized mailboxes table, active status badges, and secure "Rotate Password" modal with Dovecot SHA512-CRYPT generation and strict one-time plaintext reveal dialog.
+  - Activity Logs tab: Filterable delivery table (status, search, bounded pagination 1-50), formatted badges (`delivered`, `deferred`, `bounced`, `rejected`), sanitized response snippets, and timestamping.
+  - Diagnostics & Troubleshooting tab: Zero-SSRF account diagnostics checking subscription, domains, mailboxes, quota headroom, and bounce health, plus common SMTP errors reference guide (535, 554, 451/452, 550).
+
+
 

@@ -2,6 +2,7 @@
 
 namespace App\Services\Policy;
 
+use App\Models\DeliveryLog;
 use App\Models\Mailbox;
 use App\Services\Abuse\AbuseIncidentService;
 use App\Services\OutboundQuotaService;
@@ -244,6 +245,21 @@ class PolicyDecisionService
                 ],
                 'idempotency_key'  => $idempotencyKey,
                 'occurred_at'      => now(),
+            ]);
+
+            DeliveryLog::create([
+                'tenant_id'       => $tenant->id,
+                'domain_id'       => $mailbox->domain_id,
+                'mailbox_id'      => $mailbox->id,
+                'sender_email'    => $saslUsername,
+                'recipient_email' => 'undisclosed-recipients',
+                'queue_id'        => null,
+                'message_id'      => null,
+                'status'          => 'rejected',
+                'dsn_code'        => '5.7.1',
+                'smtp_code'       => 554,
+                'response_text'   => $reason ?? 'Outbound SMTP recipient quota exceeded',
+                'occurred_at'     => now(),
             ]);
         } catch (Throwable $e) {
             // Fail-safe: Quota rejection MUST NOT fail even if ledger recording encounters an issue

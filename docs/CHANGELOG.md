@@ -1,5 +1,34 @@
 # Changelog
 
+### Tenant SMTP Access, Sending Activity & Delivery Logs (Step 28)
+- **Implemented:** Backend Service Layer & REST API Endpoints:
+  - Created `App\Services\TenantSmtpService` managing connection parameters, live Redis/MariaDB quota telemetry, credentials lifecycle, password rotation, activity logs, and account diagnostics.
+  - Created `App\Http\Controllers\Api\TenantSmtpApiController` exposing 6 RESTful endpoints protected by `auth:sanctum` and `EnsureActiveSubscription`:
+    - `GET /api/smtp/settings`: Hostname, supported ports (587, 465, 25), TLS 1.2+ policy, Dovecot SASL specification, copyable code snippets (Node.js, Python, PHP, .env).
+    - `GET /api/smtp/usage`: Live daily recipient usage from Redis, remaining allowance, plan quota ceiling, 14-day history, and individual mailbox breakdown.
+    - `GET /api/smtp/credentials`: List authorized SMTP sending identities (mailboxes) under active domains, with zero hash or password exposure.
+    - `POST /api/smtp/credentials/{mailbox}/rotate-password`: Generates cryptographically secure 16-character password, hashes with Dovecot SHA512-CRYPT, audit logs the event, and returns generated password strictly once in response.
+    - `GET /api/smtp/activity`: Bounded paginated delivery activity logs (1-50 per page) with status filtering (`delivered`, `deferred`, `bounced`, `rejected`), recipient/sender search, and date filters.
+    - `GET /api/smtp/diagnostics`: Account-level self-service health checks (subscription, domains, mailboxes, quota headroom, deliverability) with zero SSRF risk.
+- **Implemented:** Database Schema & Pipeline Ingestion:
+  - Created migration `2026_10_16_000001_create_delivery_logs_table.php` and `App\Models\DeliveryLog`.
+  - Created `App\Http\Resources\DeliveryLogResource` with centralized response text sanitization (stripping internal server paths and sensitive fragments).
+  - Integrated with `AbuseDetectionService::processEvent`: downstream delivery events parsed by `mail:process-log` daemon are automatically recorded in `delivery_logs`.
+  - Integrated with `PolicyDecisionService::recordQuotaAbuseIncident`: outbound quota and policy rejections are automatically recorded in `delivery_logs`.
+- **Implemented:** Next.js Tenant SMTP Access Hub (`frontend/src/app/(dashboard)/smtp/page.tsx`):
+  - Added "SMTP Access" link with `Send` icon in `Sidebar.tsx`.
+  - Built tabbed interface:
+    - **Settings & Code**: Copyable hostname, port reference table, security requirements, multi-language code snippets with language selector and one-click copy.
+    - **Quota & Usage**: Real-time KPI stat cards, dynamic utilization progress bar, 14-day sending trend table, and mailbox-level usage breakdown table.
+    - **Credentials**: Table of authorized mailboxes under active domains, active status badges, and secure "Rotate Password" modal with Dovecot SHA512-CRYPT generation and strict one-time reveal notice.
+    - **Activity Logs**: Filterable delivery table (search, status dropdown, pagination), colored outcome badges (`delivered`, `deferred`, `bounced`, `rejected`), and sanitized response snippets.
+    - **Diagnostics & Troubleshooting**: Automated diagnostic checks with pass/warning/fail badges and remediation instructions, plus an RFC error resolution table (535, 554, 451/452, 550).
+- **Automated Verification & Test Coverage**:
+  - Created `tests/Feature/TenantSmtpManagementTest.php` with 10 comprehensive tests (216 assertions) covering unauthenticated blocking, suspended tenant gating, settings resolution, quota telemetry, credential listing without hash exposure, password rotation with one-time reveal and SHA512-CRYPT verification, cross-tenant isolation, activity log filtering, and safe diagnostics.
+  - Full backend test suite passing: **342 tests, 1,648 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Full frontend production build passing: **Next.js 14 compiles and optimizes all 26 static pages with zero errors or warnings**.
+  - Git working tree verified: Zero git staging, zero commits, zero pushes.
+
 ### Tenant Domain & Mailbox Self-Service Management (Step 27)
 - **Implemented:** Dedicated Mailbox Policy & RBAC Ownership Verification:
   - Created `App\Policies\MailboxPolicy` and registered in `AuthServiceProvider`. Enforces strict tenant isolation across view, create, update, and delete actions.

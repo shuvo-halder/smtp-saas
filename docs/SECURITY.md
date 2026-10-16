@@ -282,3 +282,20 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - **Read-Only Audit Trail:** Audit log endpoints reject `POST`, `PUT`, `DELETE` mutations with HTTP 405 Method Not Allowed.
   - **Cryptographic Integrity:** Backup decryption with an invalid key fails closed and purges partial plaintexts; tampered manifest metadata fails HMAC-SHA256 verification.
   - **Credential Redaction:** Passwords and credentials in failed logins and state payloads are recursively scrubbed to `[REDACTED]`.
+
+## 23. Tenant SMTP Access, Credentials Lifecycle & Diagnostics Security (Step 28)
+- **Canonical Credentials Architecture:**
+  - SMTP authentication utilizes Dovecot SASL querying the `mailboxes` table. Mailbox username (full email address) and mailbox password are the sole canonical SMTP credentials.
+  - No redundant secondary credentials or application password tables exist, eliminating state desynchronization between webmail, IMAP, and SMTP.
+- **One-Time Reveal & Zero Hash Exposure:**
+  - Password rotation (`POST /api/smtp/credentials/{mailbox}/rotate-password`) generates a cryptographically secure 16-character password and updates the database with Dovecot `SHA512-CRYPT` (`$6$`).
+  - The plaintext password is returned strictly once in the rotation API response. It is never stored in plaintext in the database, caches, browser storage, or logs.
+  - All credentials endpoints (`GET /api/smtp/credentials`, `GET /api/mailboxes`, `GET /api/domains/{id}/mailboxes`) exclude the `password` column from resources. Stored password hashes are never exposed.
+- **Strict Cross-Tenant Isolation:**
+  - Delivery logs, credentials, and password rotation operations enforce strict tenant ownership checks. Cross-tenant access attempts receive `HTTP 403 Forbidden`.
+  - Suspended tenants are blocked from all SMTP API endpoints (`EnsureActiveSubscription`).
+- **Response Text Sanitization:**
+  - `DeliveryLogResource` sanitizes raw MTA responses, stripping internal filesystem paths (e.g., `/var/vmail/...`, `/etc/...`) and truncating response text to safe limits to prevent information leakage.
+- **Zero SSRF Risk in Diagnostics:**
+  - The diagnostics endpoint (`GET /api/smtp/diagnostics`) evaluates configuration health strictly against internal database state, subscription models, and Redis usage keys.
+  - It accepts zero host, port, or URL parameters and initiates zero outbound network socket connections or HTTP probes, completely eliminating Server-Side Request Forgery (SSRF) vulnerabilities.
