@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useTenantMailboxes } from '@/hooks/useMailboxes';
+import { useTenantMailboxes, useMailboxStorageOverview } from '@/hooks/useMailboxes';
 import { useDomains } from '@/hooks/useDomains';
 import MailboxRow from '@/components/mailboxes/MailboxRow';
 import CreateMailboxModal from '@/components/mailboxes/CreateMailboxModal';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
-import { Mail, Plus, Search, Filter, AlertCircle, ChevronLeft, ChevronRight, Globe } from 'lucide-react';
+import { Mail, Plus, Search, Filter, AlertCircle, ChevronLeft, ChevronRight, Globe, HardDrive } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function TenantMailboxesPage() {
@@ -28,8 +28,14 @@ export default function TenantMailboxesPage() {
     search: search,
   });
 
+  const { storageOverview, mutate: mutateStorage } = useMailboxStorageOverview({
+    domain_id: domainId,
+    search: search,
+  });
+
   const domainOptions = domains?.data || [];
   const activeDomains = domainOptions.filter((d) => d.status === 'active');
+  const summary = storageOverview?.summary;
 
   return (
     <div className="space-y-6">
@@ -45,6 +51,56 @@ export default function TenantMailboxesPage() {
           <Plus className="h-4 w-4" />
           Add Mailbox
         </Button>
+      </div>
+
+      {/* Storage & Quota Telemetry Overview Banner */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-4 rounded-lg border shadow-sm flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-indigo-50 text-indigo-600">
+            <Mail className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Provisioned Mailboxes</div>
+            <div className="text-lg font-bold text-gray-900">
+              {summary ? `${summary.active_mailboxes} / ${summary.total_mailboxes} Active` : '-'}
+            </div>
+            <div className="text-xs text-gray-400">Accounts configured</div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-lg border shadow-sm flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-emerald-50 text-emerald-600">
+            <HardDrive className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Provisioned Storage</div>
+            <div className="text-lg font-bold text-gray-900">
+              {summary ? summary.total_quota_formatted : '-'}
+            </div>
+            <div className="text-xs text-gray-400">
+              {summary ? `Cap: ${summary.plan_storage_limit_formatted || `${summary.plan_storage_limit_per_mailbox_mb} MB`}/box` : '-'}
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-lg border shadow-sm flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-blue-50 text-blue-600">
+            <Filter className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 font-medium">Storage Telemetry</div>
+            <div className="text-sm font-semibold text-gray-800">
+              {summary?.environment_support
+                ? `${summary.measured_mailboxes_count} / ${summary.total_mailboxes} Measured`
+                : 'Dovecot Unmeasured'}
+            </div>
+            <div className="text-xs text-gray-400">
+              {summary?.environment_support
+                ? `${summary.total_usage_formatted} used`
+                : 'Local environment (Offline MDA)'}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Filter / Search Bar */}
@@ -90,6 +146,11 @@ export default function TenantMailboxesPage() {
             <option value="">All Statuses</option>
             <option value="active">Active</option>
             <option value="disabled">Disabled</option>
+            <option value="over_limit">Storage: Over Quota</option>
+            <option value="near_limit">Storage: Near Limit (90%+)</option>
+            <option value="warning">Storage: Warning (80%+)</option>
+            <option value="normal">Storage: Normal Usage</option>
+            <option value="unknown">Storage: Unmeasured</option>
           </select>
 
           {(search || domainId || status) && (
@@ -168,7 +229,7 @@ export default function TenantMailboxesPage() {
                 <tr className="bg-gray-50 border-b text-xs font-semibold uppercase tracking-wider text-gray-500">
                   <th className="py-3 px-4">Mailbox</th>
                   <th className="py-3 px-4">Domain</th>
-                  <th className="py-3 px-4">Storage Quota</th>
+                  <th className="py-3 px-4">Storage & Quota</th>
                   <th className="py-3 px-4">Status</th>
                   <th className="py-3 px-4">Last Login</th>
                   <th className="py-3 px-4">Webmail</th>
@@ -181,7 +242,10 @@ export default function TenantMailboxesPage() {
                     key={mailbox.id}
                     mailbox={mailbox}
                     showDomain={true}
-                    onRefresh={mutate}
+                    onRefresh={() => {
+                      mutate();
+                      mutateStorage();
+                    }}
                   />
                 ))}
               </tbody>

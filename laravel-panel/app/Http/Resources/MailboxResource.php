@@ -22,6 +22,7 @@ class MailboxResource extends JsonResource
             'is_catchall' => $this->is_catchall,
             'webmail_url' => $this->webmailUrl(),
             'last_login_at' => $this->last_login_at,
+            'storage' => app(\App\Services\MailboxStorageService::class)->getMailboxStorage($this->resource),
             'created_at' => $this->created_at,
         ];
     }

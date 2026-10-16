@@ -169,3 +169,28 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 - **Operator CLI Diagnostic Tool:**
   - `php artisan mail:verify-alias {source_email?} {--all}`: Detailed tabular inspection of alias resolution, hop expansion chains, and routing integrity.
 
+## 20. Tenant Mailbox Storage & Quota Management (Step 31)
+**Status:** IMPLEMENTED & VERIFIED (Step 31)
+**Purpose:** Tenant-authorized mailbox storage usage telemetry, plan limits, utilization calculations, quota alert badges, and Dovecot `quota_rule` SQL configuration alignment.
+**Components:**
+- **MailboxStorageService (`app/Services/MailboxStorageService.php`):**
+  - Encapsulates mailbox disk usage measurement via `doveadm quota get -u <email>`, maildirsize file inspection, fake test resolvers, and safe Windows environment fallbacks.
+  - Computes exact storage metrics: `quota_mb`, `quota_bytes`, `usage_bytes`, `usage_mb`, `remaining_bytes`, `utilization_percent`, `status`, and `status_label`.
+  - Calculates status thresholds: `normal` (< 80%), `warning` (80% - 89.9%), `near_limit` (90% - 99.9%), `over_limit` ($\ge 100\%$), or `unknown` (unmeasured / Dovecot offline).
+  - Handles unlimited quota allocations (`quota_mb = -1` or `NULL`) without division by zero.
+  - Aggregates tenant-wide storage summary: total mailboxes, measured mailboxes, unmeasured mailboxes, provisioned storage, plan storage limit, total measured usage, overall utilization, and status count distribution.
+  - Truthful telemetry guarantee: never substitutes `0` for unmeasured usage; reports `is_measured = false`, `usage_bytes = null`, and `status = 'unknown'`.
+- **API Endpoints & Resource Integration (`MailboxApiController`, `MailboxResource`):**
+  - `GET /api/mailboxes/storage`: Tenant overview and per-mailbox breakdown with optional `status`, `domain_id`, and `search` filters.
+  - `GET /api/mailboxes/{mailbox}/storage`: Single mailbox storage telemetry protected by `MailboxPolicy`.
+  - Automatically embeds detailed `storage` object inside `MailboxResource` (`/api/mailboxes`, `/api/mailboxes/{id}`).
+- **Dovecot SQL Quota Configuration (`dovecot-sql.conf.ext`):**
+  - Updated `user_query` in `server-configs/dovecot-sql.conf.ext` and `dovecot-config/dovecot-sql.conf.ext` to include `CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576)) AS quota_rule`.
+  - Dovecot LMTP/LDA dynamically enforces mailbox storage limits in real-time based on database values.
+- **Next.js Dashboard Integration (`frontend/`):**
+  - Storage Overview KPI cards at `/mailboxes` showing Provisioned Mailboxes, Provisioned Storage vs Plan Limit, and Storage Telemetry status.
+  - Status filter dropdown (`over_limit`, `near_limit`, `warning`, `normal`, `unknown`) on `/mailboxes`.
+  - Enhanced `MailboxRow.tsx` with storage progress bar, colored warning badges, or `Unmeasured` badge when Dovecot is offline.
+  - `MailboxStorageModal.tsx` provides detailed breakdown of usage, quota ceiling, remaining capacity, provenance source, and measured timestamp.
+
+

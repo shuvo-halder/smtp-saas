@@ -391,8 +391,40 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 31 — Tenant Mailbox Storage & Quota Management (IMPLEMENTED & VERIFIED):**
+  - **Backend Service & Quota Telemetry Engine (`MailboxStorageService`):**
+    - Implemented `MailboxStorageService` providing single-mailbox and tenant-wide disk storage inspection.
+    - Supports `doveadm quota get -u <email>`, physical `maildirsize` cache file inspection, mock test resolvers, and safe Windows environment fallbacks.
+    - Computes exact storage telemetry: `quota_mb`, `quota_bytes`, `usage_bytes`, `usage_mb`, `remaining_bytes`, `utilization_percent`, `status`, and `status_label`.
+    - Handles unlimited quota allocations (`quota_mb = -1` or `NULL`) avoiding division by zero.
+    - Evaluates status thresholds: `normal` (< 80%), `warning` (80% - 89.9%), `near_limit` (90% - 99.9%), `over_limit` ($\ge 100\%$), or `unknown` (unmeasured / Dovecot offline).
+    - Aggregates tenant overview metrics: provisioned storage, plan limits, total measured usage, overall utilization, and status count distribution.
+    - Truthful telemetry guarantee: never substitutes `0` for unmeasured usage; reports `is_measured = false`, `usage_bytes = null`, and `status = 'unknown'`.
+  - **RESTful API & Serialization Layer:**
+    - `GET /api/mailboxes/storage`: Tenant overview and per-mailbox breakdown with optional `status`, `domain_id`, and `search` filters.
+    - `GET /api/mailboxes/{mailbox}/storage`: Single mailbox storage telemetry protected by `MailboxPolicy`.
+    - Embedded `storage` telemetry object automatically included inside `MailboxResource` (`/api/mailboxes`, `/api/mailboxes/{id}`).
+  - **Dovecot SQL Quota Rule Alignment (`dovecot-sql.conf.ext`):**
+    - Modernized `server-configs/dovecot-sql.conf.ext` and `dovecot-config/dovecot-sql.conf.ext` to dynamically map `quota_rule` via `CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576))`.
+    - Added `deleted_at IS NULL` and `domains.status = 'active'` for SoftDeletes compatibility.
+  - **Next.js Tenant Frontend Experience (`frontend/`):**
+    - Added Storage Overview KPI cards at `/mailboxes` (Provisioned Mailboxes, Provisioned Storage vs Plan Limit, and Storage Telemetry status).
+    - Added storage status filter options (`over_limit`, `near_limit`, `warning`, `normal`, `unknown`) to the Mailbox filter bar.
+    - Enhanced `MailboxRow.tsx` with storage progress bar, colored warning badges, or `Unmeasured` badge when Dovecot is offline, plus trigger to open modal.
+    - Built `MailboxStorageModal.tsx` providing a detailed breakdown of usage, quota ceiling, remaining capacity, provenance source, and measured timestamp.
+  - **Three-Level Verification Matrix:**
+    - **Level A (Application & API Layer):** `VERIFIED`. `TenantMailboxStorageTest.php` passes with 14 tests (66 assertions).
+    - **Level B (Configuration & SQL Maps):** `VERIFIED`. Dovecot SQL query and `quota_rule` byte multiplier verified against local MySQL 8.4 database.
+    - **Level C (End-to-End Live Mail Flow):** `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Dovecot daemon and `/var/vmail` filesystem; requires dedicated Linux VPS).
+  - **Automated Verification & Test Coverage:**
+    - Authored `tests/Feature/TenantMailboxStorageTest.php` with 14 comprehensive tests (66 assertions).
+    - Full backend regression test suite: **385 tests, 1,834 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 31 — Tenant Catch-All Mailbox & Inbound Email Routing Rules:**
+- **Step 32 — Tenant Catch-All Mailbox & Inbound Email Routing Rules:**
   - Catch-all mailbox routing configuration per domain (`@domain.com -> catchall@domain.com`).
   - Domain-level fallback policies (reject, discard, or route to designated mailbox).
   - Postfix `mysql-virtual-catchall.cf` mapping configuration.
@@ -402,4 +434,5 @@ This document is the operational starting point for any AI coding agent working 
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 

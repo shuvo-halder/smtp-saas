@@ -602,3 +602,32 @@
   - `[x]` Full backend test suite: **371 tests / 1,768 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend Next.js 14 production build: **Compiled all 27 static pages cleanly with zero errors (100%)**.
 
+---
+
+## Step 31 — Tenant Mailbox Storage & Quota Management (`IMPLEMENTED — VERIFIED`)
+- `[x]` Backend Storage Service Architecture (`MailboxStorageService.php`):
+  - `[x]` Mailbox disk usage measurement engine supporting `doveadm quota get -u <email>`, maildirsize file parsing, test fakes, and safe Windows environment fallbacks.
+  - `[x]` Exact storage telemetry computation: `quota_mb`, `quota_bytes`, `usage_bytes`, `usage_mb`, `remaining_bytes`, `utilization_percent`, `status`, and `status_label`.
+  - `[x]` Status threshold rules: `normal` (< 80%), `warning` (80% - 89.9%), `near_limit` (90% - 99.9%), `over_limit` ($\ge 100\%$), or `unknown` (unmeasured / Dovecot offline).
+  - `[x]` Safe unlimited quota allocation handling (`quota_mb = -1` or `NULL`) avoiding division by zero.
+  - `[x]` Tenant-wide summary aggregation: total mailboxes, measured count, unmeasured count, provisioned storage, plan storage limit, total usage, overall utilization, and status count distribution.
+  - `[x]` Truthful telemetry guarantee: never substitutes `0` for unmeasured usage; reports `is_measured = false`, `usage_bytes = null`, and `status = 'unknown'`.
+- `[x]` RESTful API & Serialization:
+  - `[x]` `GET /api/mailboxes/storage`: Tenant overview and per-mailbox breakdown with optional `status`, `domain_id`, and `search` filters.
+  - `[x]` `GET /api/mailboxes/{mailbox}/storage`: Single mailbox storage telemetry protected by `MailboxPolicy`.
+  - `[x]` Embedded `storage` telemetry object inside `MailboxResource` (`/api/mailboxes`, `/api/mailboxes/{id}`).
+- `[x]` Dovecot Quota Rule Configuration:
+  - `[x]` Updated `server-configs/dovecot-sql.conf.ext` and `dovecot-config/dovecot-sql.conf.ext` to dynamically map `quota_rule` via `CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576))`.
+  - `[x]` Modernized Dovecot SQL queries to enforce `mailboxes.is_active = 1`, `domains.status = 'active'`, and `deleted_at IS NULL`.
+- `[x]` Frontend Next.js Hub (`/mailboxes`):
+  - `[x]` Top KPI cards displaying Provisioned Mailboxes, Provisioned Storage vs Plan Limit, and Storage Telemetry status.
+  - `[x]` Storage status filter dropdown (`over_limit`, `near_limit`, `warning`, `normal`, `unknown`).
+  - `[x]` Updated `MailboxRow.tsx` with storage progress bar, colored warning badges, or `Unmeasured` badge when Dovecot is offline.
+  - `[x]` `MailboxStorageModal.tsx` provides detailed breakdown of usage, quota ceiling, remaining capacity, provenance source, and measured timestamp.
+- `[x]` Verification Matrix:
+  - `[x]` Feature test suite (`tests/Feature/TenantMailboxStorageTest.php`): **14 tests, 66 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **385 tests, 1,834 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.
+
+

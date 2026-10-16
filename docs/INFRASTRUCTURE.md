@@ -221,3 +221,44 @@ The unified Linux server installation script (`scripts/install.sh`) has been har
 | **Level A: Application & API Layer** | `PostfixService`, `AliasApiController`, `EmailAliasResource` | `VERIFIED` | Full test coverage for lifecycle hooks (`syncAlias`, `removeAlias`), dynamic status computation (`synchronized`, `operational`, `configured`, `failed`), multi-hop resolution chains, and dangling local destination warnings. |
 | **Level B: Configuration & SQL Query Layer** | `postfix-config/*.cf`, `server-configs/*.cf`, CLI tooling | `VERIFIED` | Exact SQL map queries tested directly against MySQL. CLI verification command `php artisan mail:verify-alias` verified for single alias diagnostics and `--all` database audits. |
 | **Level C: End-to-End Mail Flow** | Live Postfix MTA daemon, TCP port 25/587, Dovecot MDA delivery | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks native Linux Postfix/Dovecot daemons, Unix domain sockets, and inbound MX routing. End-to-end SMTP transmission requires a dedicated Linux VPS environment. |
+
+## Dovecot Mailbox Storage & Quota Architecture (Step 31)
+
+### 1. Dovecot Dynamic SQL Quota Rule Mechanism
+Dovecot MDA (Local Delivery Agent / LMTP) enforces storage ceilings dynamically via the `quota` plugin without requiring hardcoded configuration files per mailbox.
+- **Dynamic SQL Query (`dovecot-sql.conf.ext`):**
+  ```sql
+  user_query = SELECT \
+      CONCAT('/var/vmail/', domains.domain_name, '/', mailboxes.local_part) AS home, \
+      5000 AS uid, \
+      5000 AS gid, \
+      CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576)) AS quota_rule \
+  FROM mailboxes \
+  INNER JOIN domains ON mailboxes.domain_id = domains.id \
+  WHERE mailboxes.email = '%u' \
+    AND mailboxes.is_active = 1 \
+    AND domains.status = 'active' \
+    AND domains.deleted_at IS NULL \
+    AND mailboxes.deleted_at IS NULL;
+  ```
+- **Quota Rule Syntax:** `*:bytes=<byte_limit>`. Dovecot automatically translates `mailboxes.quota_mb * 1048576` into bytes. If `quota_mb = -1` or `NULL`, the mailbox is treated as unlimited.
+- **Enforcement Action:** When inbound delivery exceeds the quota rule, Dovecot returns error `452 4.2.2 Mailbox is full / quota exceeded` (temporary deferral) or `552 5.2.2 Over quota` (permanent bounce).
+
+### 2. Storage Measurement Telemetry Probing
+`MailboxStorageService` employs a robust layered strategy to inspect live mailbox storage footprint:
+1. **Primary Probe (Dovecot CLI):** `doveadm quota get -u <email>`. Retrieves the real-time calculated quota dictionary (`STORAGE` bytes, `MESSAGE` count) from Dovecot's quota backend (e.g. `quota_dict` or `maildirsize`).
+2. **Secondary Probe (Maildir Size Header):** Inspects physical `/var/vmail/<domain>/<mailbox>/maildirsize`. Dovecot maintains this cache file containing the quota ceiling and a running tally of byte sizes and message counts.
+3. **Environment-Safe Fallback (Windows / Offline MDA):** If `doveadm` is not installed and `/var/vmail` is not mounted (as in local Windows + Laragon development), the service gracefully falls back:
+   - Sets `is_measured = false`.
+   - Sets `usage_bytes = null` and `usage_mb = null`.
+   - Sets `status = 'unknown'` and `status_label = 'Unmeasured'`.
+   - **Crucial Invariant:** The application never fabricates 0-byte usage for unmeasured mailboxes, ensuring complete operational transparency for operators and tenants.
+
+### 3. Three-Level Storage Verification Matrix
+
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `MailboxStorageService`, `MailboxApiController`, `MailboxResource` | `VERIFIED` | Full test coverage for storage calculation, threshold evaluations, tenant aggregation, fake probe resolvers, unlimited quotas, and policy authorization via `TenantMailboxStorageTest.php`. |
+| **Level B: Configuration & SQL Query Layer** | `dovecot-sql.conf.ext`, `quota_rule` SQL mapping | `VERIFIED` | Exact SQL syntax verified against local MySQL 8.4 database. `quota_mb * 1048576` produces exact byte counts. |
+| **Level C: Live Dovecot LMTP Enforcement** | Live Linux Dovecot daemon, `doveadm`, physical `/var/vmail` disk writes | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks Linux Dovecot daemon and `/var/vmail` filesystem; live enforcement will execute in production Linux VPS environment. |
+

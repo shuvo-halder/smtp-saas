@@ -53,6 +53,76 @@ export interface DnsRecord {
   verified: boolean;
 }
 
+export type MailboxStorageStatus = 'normal' | 'warning' | 'near_limit' | 'over_limit' | 'unknown';
+
+export interface MailboxStorageDetails {
+  mailbox_id: number;
+  email: string;
+  local_part?: string;
+  domain_id: number;
+  domain_name?: string;
+  domain_status?: string;
+  is_active: boolean;
+  quota_mb: number;
+  quota_bytes: number;
+  quota_formatted: string;
+  plan_limit_mb: number;
+  plan_limit_formatted?: string;
+  usage_bytes: number | null;
+  usage_mb: number | null;
+  usage_formatted: string;
+  remaining_bytes: number | null;
+  remaining_mb: number | null;
+  remaining_formatted: string;
+  utilization_percent: number | null;
+  status: MailboxStorageStatus;
+  status_label: string;
+  is_measured: boolean;
+  measurement_source: string;
+  measured_at: string | null;
+  warning: string | null;
+}
+
+export interface TenantStorageSummary {
+  total_mailboxes: number;
+  active_mailboxes: number;
+  total_quota_mb: number;
+  total_quota_formatted: string;
+  plan_storage_limit_per_mailbox_mb: number;
+  plan_storage_limit_formatted?: string;
+  measured_mailboxes_count: number;
+  unmeasured_mailboxes_count: number;
+  total_usage_bytes: number | null;
+  total_usage_mb: number | null;
+  total_usage_formatted: string;
+  aggregate_utilization_percent: number | null;
+  aggregate_status: MailboxStorageStatus;
+  aggregate_status_label?: string;
+  status_counts: Record<MailboxStorageStatus, number>;
+  measurement_source: string;
+  environment_support: boolean;
+  environment_note: string;
+}
+
+export interface TenantStorageOverviewResponse {
+  summary: TenantStorageSummary;
+  data: MailboxStorageDetails[];
+  links?: {
+    first: string | null;
+    last: string | null;
+    prev: string | null;
+    next: string | null;
+  };
+  meta?: {
+    current_page: number;
+    from: number | null;
+    last_page: number;
+    per_page: number;
+    to: number | null;
+    total: number;
+  };
+}
+
 export interface Mailbox {
   id: number;
   domain_id?: number;
@@ -66,6 +136,7 @@ export interface Mailbox {
   is_catchall: boolean;
   webmail_url: string;
   last_login_at: string | null;
+  storage?: MailboxStorageDetails;
   created_at: string;
 }
 

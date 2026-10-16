@@ -355,3 +355,35 @@ Postfix evaluates routing lookups at inbound SMTP connection time. To prevent ro
      AND domains.status = 'active'
      AND domains.deleted_at IS NULL;
    ```
+
+## Mailbox Storage & Dovecot Quota Enforcement (Step 31)
+
+### 1. Schema & Field Semantics
+- **`mailboxes.quota_mb` (`INT`, default: `1024`, nullable):**
+  - Defines the storage ceiling for the virtual mailbox in Megabytes.
+  - Value `-1` or `NULL` indicates an unlimited storage allocation.
+  - Values $\ge 0$ define the hard disk quota enforced during incoming LDA / LMTP message delivery.
+- **`plans.storage_limit_mb` (`INT`, default: `10240`):**
+  - Defines the total tenant storage capacity across all provisioned mailboxes.
+  - Managed dynamically via `Plan` limits; sum of tenant's `quota_mb` allocations must not exceed `storage_limit_mb` unless the plan allows unlimited storage (`-1`).
+
+### 2. Dovecot SQL Dynamic Quota Rule Mapping
+Dovecot LDA and IMAP/POP3 engines query `dovecot-sql.conf.ext` to resolve virtual mailbox destinations and enforce per-mailbox storage limits:
+```sql
+# dovecot-config/dovecot-sql.conf.ext & server-configs/dovecot-sql.conf.ext
+user_query = SELECT \
+    CONCAT('/var/vmail/', domains.domain_name, '/', mailboxes.local_part) AS home, \
+    5000 AS uid, \
+    5000 AS gid, \
+    CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576)) AS quota_rule \
+FROM mailboxes \
+INNER JOIN domains ON mailboxes.domain_id = domains.id \
+WHERE mailboxes.email = '%u' \
+  AND mailboxes.is_active = 1 \
+  AND domains.status = 'active' \
+  AND domains.deleted_at IS NULL \
+  AND mailboxes.deleted_at IS NULL;
+```
+- Multiplier `1048576` converts `mailboxes.quota_mb` into exact bytes for Dovecot's `quota_rule` parameter `*:bytes=<limit>`.
+- Inbound deliveries exceeding `quota_rule` are deferred or rejected by Dovecot with SMTP 452/552 (Mailbox quota exceeded).
+

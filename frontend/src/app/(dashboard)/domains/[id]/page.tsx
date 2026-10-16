@@ -161,7 +161,7 @@ export default function DomainDetailPage() {
                 <thead>
                   <tr className="bg-gray-50 border-b text-xs font-semibold uppercase tracking-wider text-gray-500">
                     <th className="py-3 px-4">Mailbox</th>
-                    <th className="py-3 px-4">Storage Quota</th>
+                    <th className="py-3 px-4">Storage & Quota</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4">Last Login</th>
                     <th className="py-3 px-4">Webmail</th>

@@ -1,5 +1,36 @@
 # Changelog
 
+### Tenant Mailbox Storage & Quota Management (Step 31)
+- **Implemented:** Mailbox Storage Service Architecture (`app/Services/MailboxStorageService.php`):
+  - Encapsulated disk usage measurement with support for `doveadm quota get -u <email>`, physical `maildirsize` header parsing, mock test resolvers, and safe Windows environment fallbacks.
+  - Calculated exact telemetry attributes: `quota_mb`, `quota_bytes`, `usage_bytes`, `usage_mb`, `remaining_bytes`, `utilization_percent`, `status`, and `status_label`.
+  - Implemented quota status thresholds: `normal` (< 80%), `warning` (80% - 89.9%), `near_limit` (90% - 99.9%), `over_limit` ($\ge 100\%$), or `unknown` (unmeasured / Dovecot offline).
+  - Built unlimited quota support (`quota_mb = -1` or `NULL`) avoiding division by zero.
+  - Implemented tenant-wide summary aggregation: total mailboxes, measured mailboxes, unmeasured mailboxes, provisioned storage, plan storage limit, total measured usage, overall utilization, and status count distribution.
+  - Enforced truthful telemetry invariant: unmeasured storage is never reported as 0 bytes or 0%; always reports `is_measured = false`, `usage_bytes = null`, and `status = 'unknown'`.
+- **Implemented:** RESTful Endpoints & Resource Integration (`MailboxApiController`, `MailboxResource`):
+  - `GET /api/mailboxes/storage`: Tenant overview and per-mailbox breakdown with optional `status`, `domain_id`, and `search` filters.
+  - `GET /api/mailboxes/{mailbox}/storage`: Single mailbox storage telemetry protected by `MailboxPolicy`.
+  - Automatically embedded `storage` telemetry object inside `MailboxResource` (`/api/mailboxes`, `/api/mailboxes/{id}`).
+- **Implemented:** Dovecot Dynamic SQL Quota Rule Configuration:
+  - Updated `server-configs/dovecot-sql.conf.ext` and `dovecot-config/dovecot-sql.conf.ext` to include `CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576)) AS quota_rule` in `user_query`.
+  - Modernized Dovecot SQL queries to enforce `mailboxes.is_active = 1`, `domains.status = 'active'`, and `deleted_at IS NULL` for SoftDeletes compatibility.
+- **Implemented:** Next.js Tenant Dashboard UI Enhancements (`frontend/`):
+  - Added `MailboxStorageStatus`, `MailboxStorageDetails`, `TenantStorageSummary`, `TenantStorageOverviewResponse` types in `types/index.ts`.
+  - Added `useMailboxStorageOverview(filters)` and `useMailboxStorage(mailboxId)` SWR hooks in `hooks/useMailboxes.ts`.
+  - Added Storage Overview KPI cards at `/mailboxes` (Provisioned Mailboxes, Provisioned Storage vs Plan Limit, and Storage Telemetry status).
+  - Added storage status filter options (`over_limit`, `near_limit`, `warning`, `normal`, `unknown`) to the Mailbox filter bar.
+  - Enhanced `MailboxRow.tsx` with storage progress bar, colored warning badges, or `Unmeasured` badge when Dovecot is offline, plus trigger to open modal.
+  - Built `MailboxStorageModal.tsx` providing a detailed breakdown of usage, quota ceiling, remaining capacity, provenance source, and measured timestamp.
+- **Automated Verification & Three-Level Matrix**:
+  - Created `tests/Feature/TenantMailboxStorageTest.php` with 14 comprehensive tests (66 assertions).
+  - Level A (Application & API Layer): `VERIFIED`.
+  - Level B (Configuration & SQL Maps): `VERIFIED`.
+  - Level C (End-to-End Live Mail Flow): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Dovecot daemon and `/var/vmail` filesystem; requires dedicated Linux VPS).
+  - Full backend test suite passing: **385 tests, 1,834 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+  - Frontend production build: **Next.js 14 compiles and optimizes all 27 static pages with zero errors or warnings**.
+
 ### Email Alias Routing Integration & Mail Flow Verification (Step 30)
 - **Implemented:** Postfix Dynamic MySQL Map Configuration Alignment:
   - Modernized `postfix-config/mysql-virtual-aliases.cf` and created canonical `server-configs/mysql-virtual-alias-maps.cf` querying `email_aliases` joined with `domains` with `email_aliases.is_active = 1`, `domains.status = 'active'`, and `domains.deleted_at IS NULL`.

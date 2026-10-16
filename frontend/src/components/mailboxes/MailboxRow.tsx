@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import ChangePasswordModal from './ChangePasswordModal';
 import EditMailboxModal from './EditMailboxModal';
+import MailboxStorageModal from './MailboxStorageModal';
 import { Mailbox } from '@/types';
-import { ExternalLink, Edit2, Key, Power, Trash2 } from 'lucide-react';
+import { ExternalLink, Edit2, Key, Power, Trash2, HardDrive } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface MailboxRowProps {
   mailbox: Mailbox;
@@ -19,6 +21,7 @@ interface MailboxRowProps {
 export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: MailboxRowProps) {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [isViewingStorage, setIsViewingStorage] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -78,9 +81,56 @@ export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: M
         )}
 
         <td className="py-3 px-4 whitespace-nowrap text-sm text-gray-600">
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
-            {mailbox.quota_formatted || `${mailbox.quota_mb} MB`}
-          </span>
+          <div
+            onClick={() => mailbox.storage && setIsViewingStorage(true)}
+            className={cn(
+              "flex flex-col gap-1 max-w-[170px]",
+              mailbox.storage && "cursor-pointer group"
+            )}
+            title={mailbox.storage?.warning || 'Click to inspect detailed storage telemetry'}
+          >
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-gray-700 group-hover:text-indigo-600 transition-colors">
+                {mailbox.storage?.is_measured
+                  ? `${mailbox.storage.usage_formatted} / ${mailbox.storage.quota_formatted}`
+                  : (mailbox.quota_formatted || `${mailbox.quota_mb} MB`)}
+              </span>
+              {mailbox.storage?.is_measured && mailbox.storage.utilization_percent !== null ? (
+                <span
+                  className={cn(
+                    "font-semibold text-[11px]",
+                    mailbox.storage.status === 'over_limit' ? "text-red-600" :
+                    mailbox.storage.status === 'near_limit' ? "text-orange-600" :
+                    mailbox.storage.status === 'warning' ? "text-amber-600" : "text-emerald-600"
+                  )}
+                >
+                  {mailbox.storage.utilization_percent}%
+                </span>
+              ) : (
+                <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">
+                  Unmeasured
+                </span>
+              )}
+            </div>
+
+            {mailbox.storage?.is_measured && mailbox.storage.utilization_percent !== null ? (
+              <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    mailbox.storage.status === 'over_limit' ? "bg-red-500" :
+                    mailbox.storage.status === 'near_limit' ? "bg-orange-500" :
+                    mailbox.storage.status === 'warning' ? "bg-amber-500" : "bg-emerald-500"
+                  )}
+                  style={{ width: `${Math.min(mailbox.storage.utilization_percent, 100)}%` }}
+                />
+              </div>
+            ) : (
+              <div className="text-[10px] text-gray-400 italic">
+                Dovecot unmeasured
+              </div>
+            )}
+          </div>
         </td>
 
         <td className="py-3 px-4 whitespace-nowrap">
@@ -112,6 +162,18 @@ export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: M
         </td>
 
         <td className="py-3 px-4 whitespace-nowrap text-right text-sm font-medium space-x-1">
+          {mailbox.storage && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsViewingStorage(true)}
+              title="Inspect storage telemetry"
+              className="h-8 px-2 text-gray-500 hover:text-indigo-600"
+            >
+              <HardDrive className="h-3.5 w-3.5" />
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="sm"
@@ -179,6 +241,13 @@ export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: M
             setIsChangingPassword(false);
             onRefresh();
           }}
+        />
+      )}
+
+      {isViewingStorage && mailbox.storage && (
+        <MailboxStorageModal
+          storage={mailbox.storage}
+          onClose={() => setIsViewingStorage(false)}
         />
       )}
     </>

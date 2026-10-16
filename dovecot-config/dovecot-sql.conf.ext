@@ -11,19 +11,26 @@ default_pass_scheme = SHA512-CRYPT
 
 # Password lookup
 password_query = \
-    SELECT email AS username, password \
-    FROM virtual_users \
-    WHERE email='%u' AND is_active=1
+    SELECT mailboxes.email AS username, mailboxes.password \
+    FROM mailboxes \
+    INNER JOIN domains ON mailboxes.domain_id = domains.id \
+    WHERE mailboxes.email='%u' AND mailboxes.is_active=1 AND domains.status='active' AND domains.deleted_at IS NULL AND mailboxes.deleted_at IS NULL
 
-# User lookup — returns quota and mailbox location
+# User lookup — returns quota_rule and mailbox location
 user_query = \
     SELECT \
-        CONCAT('/var/mail/vhosts/', SUBSTRING_INDEX(email,'@',-1),'/',SUBSTRING_INDEX(email,'@',1)) AS home, \
-        'vmail' AS uid, \
-        'vmail' AS gid, \
-        CONCAT('*:bytes=', quota) AS quota_rule \
-    FROM virtual_users \
-    WHERE email='%u' AND is_active=1
+        CONCAT('/var/vmail/', domains.domain_name, '/', mailboxes.local_part) AS home, \
+        5000 AS uid, \
+        5000 AS gid, \
+        CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576)) AS quota_rule \
+    FROM mailboxes \
+    INNER JOIN domains ON mailboxes.domain_id = domains.id \
+    WHERE mailboxes.email='%u' AND mailboxes.is_active=1 AND domains.status='active' AND domains.deleted_at IS NULL AND mailboxes.deleted_at IS NULL
 
-# Quota update
-iterate_query = SELECT email AS username FROM virtual_users WHERE is_active=1
+# Quota update / user iteration
+iterate_query = \
+    SELECT mailboxes.email AS username \
+    FROM mailboxes \
+    INNER JOIN domains ON mailboxes.domain_id = domains.id \
+    WHERE mailboxes.is_active=1 AND domains.status='active' AND domains.deleted_at IS NULL AND mailboxes.deleted_at IS NULL
+

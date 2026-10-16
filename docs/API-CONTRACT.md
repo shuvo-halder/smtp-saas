@@ -455,3 +455,103 @@ php artisan mail:verify-alias sales@company.com
 php artisan mail:verify-alias --all
 ```
 
+---
+
+## Step 31 — Tenant Mailbox Storage & Quota Management Contracts
+
+All mailbox storage endpoints require an authenticated Sanctum session and an active tenant subscription (`EnsureActiveSubscription`). Mailbox authorization is strictly gated per-tenant via `MailboxPolicy`.
+
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/api/mailboxes/storage` | Tenant-wide mailbox storage overview and aggregated telemetry (total provisioned storage, plan storage limit, total measured usage, high-utilization mailboxes, status breakdown, and per-mailbox storage breakdown with optional `status`, `domain_id`, and `search` filters). | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/api/mailboxes/{mailbox}/storage` | Detailed storage telemetry for a single owned mailbox (quota, usage bytes/MB, remaining bytes, utilization percentage, status, status label, measurement source, and measurement timestamp). | `auth:sanctum`, `EnsureActiveSubscription` |
+
+### Embedded Storage in `MailboxResource` (`GET /api/mailboxes`, `GET /api/mailboxes/{id}`)
+Every mailbox listed or retrieved automatically contains an embedded `storage` object:
+```json
+{
+  "id": 1,
+  "domain_id": 2,
+  "email": "user@company.com",
+  "name": "Jane Doe",
+  "quota_mb": 1024,
+  "is_active": true,
+  "storage": {
+    "mailbox_id": 1,
+    "email": "user@company.com",
+    "quota_mb": 1024,
+    "quota_bytes": 1073741824,
+    "quota_formatted": "1 GB",
+    "is_measured": true,
+    "usage_bytes": 209715200,
+    "usage_mb": 200,
+    "usage_formatted": "200 MB",
+    "remaining_bytes": 864026624,
+    "remaining_formatted": "824 MB",
+    "utilization_percent": 19.5,
+    "status": "normal",
+    "status_label": "Normal",
+    "measured_at": "2026-10-16T12:00:00Z",
+    "measurement_source": "doveadm"
+  }
+}
+```
+
+### Tenant Storage Overview Contract (`GET /api/mailboxes/storage`)
+```json
+{
+  "data": {
+    "summary": {
+      "total_mailboxes": 12,
+      "measured_mailboxes": 12,
+      "unmeasured_mailboxes": 0,
+      "total_quota_mb": 12288,
+      "total_quota_formatted": "12 GB",
+      "plan_storage_limit_mb": 51200,
+      "plan_storage_limit_formatted": "50 GB",
+      "total_usage_bytes": 2411724800,
+      "total_usage_mb": 2300,
+      "total_usage_formatted": "2.25 GB",
+      "overall_utilization_percent": 18.7,
+      "status_counts": {
+        "normal": 10,
+        "warning": 1,
+        "near_limit": 1,
+        "over_limit": 0,
+        "unknown": 0
+      }
+    },
+    "mailboxes": [
+      {
+        "mailbox_id": 1,
+        "email": "user@company.com",
+        "domain_id": 2,
+        "domain_name": "company.com",
+        "quota_mb": 1024,
+        "quota_bytes": 1073741824,
+        "quota_formatted": "1 GB",
+        "is_measured": true,
+        "usage_bytes": 209715200,
+        "usage_mb": 200,
+        "usage_formatted": "200 MB",
+        "remaining_bytes": 864026624,
+        "remaining_formatted": "824 MB",
+        "utilization_percent": 19.5,
+        "status": "normal",
+        "status_label": "Normal",
+        "measured_at": "2026-10-16T12:00:00Z",
+        "measurement_source": "doveadm"
+      }
+    ]
+  }
+}
+```
+
+### Storage Status Semantics & Thresholds
+- **`normal`**: Utilization is under 80% ($0.0\% \le \text{usage} < 80.0\%$).
+- **`warning`**: Utilization is between 80% and 89.9% ($80.0\% \le \text{usage} < 90.0\%$). Quota alert badge rendered in amber.
+- **`near_limit`**: Utilization is between 90% and 99.9% ($90.0\% \le \text{usage} < 100.0\%$). Critical warning rendered in orange/red.
+- **`over_limit`**: Mailbox storage has reached or exceeded 100% quota ($\text{usage} \ge 100.0\%$). Dovecot rejects or defers inbound messages under `quota_rule`; UI displays destructive badge and disables remaining capacity.
+- **`unknown`**: Storage cannot be probed or Dovecot service is unavailable (e.g. local Windows development or unmounted mail storage). `is_measured` is explicitly `false`, `usage_bytes` is `null`, and UI displays an informational `Unmeasured` badge. **Unmeasured storage is NEVER reported as 0% or 0 bytes.**
+
+

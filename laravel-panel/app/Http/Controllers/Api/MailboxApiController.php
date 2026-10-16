@@ -319,4 +319,37 @@ class MailboxApiController extends Controller
 
         return response()->json(null, 204);
     }
+
+    /**
+     * Tenant mailbox storage overview and aggregated capacity telemetry (Step 31)
+     */
+    public function storageOverview(Request $request, \App\Services\MailboxStorageService $storageService)
+    {
+        $filters = [
+            'page'      => $request->query('page', 1),
+            'per_page'  => $request->query('per_page', 15),
+            'domain_id' => $request->query('domain_id'),
+            'status'    => $request->query('status'),
+            'search'    => $request->query('search'),
+        ];
+
+        $overview = $storageService->getTenantStorageOverview($request->user(), $filters);
+
+        return response()->json($overview);
+    }
+
+    /**
+     * Single mailbox storage telemetry (Step 31)
+     */
+    public function mailboxStorage(Mailbox $mailbox, \App\Services\MailboxStorageService $storageService)
+    {
+        $this->authorize('view', $mailbox);
+
+        $storage = $storageService->getMailboxStorage($mailbox);
+
+        return response()->json([
+            'data' => $storage,
+        ]);
+    }
 }
+

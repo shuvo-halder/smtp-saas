@@ -9,8 +9,8 @@ default_pass_scheme = SHA512-CRYPT
 
 # Authentication Query
 # Returns password for Dovecot to verify. Ensures both mailbox and domain are active.
-password_query = SELECT mailboxes.password FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%u' AND mailboxes.is_active = 1 AND domains.status = 'active'
+password_query = SELECT mailboxes.password FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%u' AND mailboxes.is_active = 1 AND domains.status = 'active' AND domains.deleted_at IS NULL AND mailboxes.deleted_at IS NULL
 
 # User Query
-# Returns the physical mail location (home/mail) and the UID/GID for permission handling.
-user_query = SELECT CONCAT('/var/vmail/', domains.domain_name, '/', mailboxes.local_part) AS home, 5000 AS uid, 5000 AS gid FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%u' AND mailboxes.is_active = 1 AND domains.status = 'active'
+# Returns the physical mail location (home/mail), UID/GID, and Dovecot quota_rule for storage enforcement.
+user_query = SELECT CONCAT('/var/vmail/', domains.domain_name, '/', mailboxes.local_part) AS home, 5000 AS uid, 5000 AS gid, CONCAT('*:bytes=', (mailboxes.quota_mb * 1048576)) AS quota_rule FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%u' AND mailboxes.is_active = 1 AND domains.status = 'active' AND domains.deleted_at IS NULL AND mailboxes.deleted_at IS NULL
