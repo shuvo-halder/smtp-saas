@@ -1,5 +1,29 @@
 # Changelog
 
+### Tenant Domain & Mailbox Self-Service Management (Step 27)
+- **Implemented:** Dedicated Mailbox Policy & RBAC Ownership Verification:
+  - Created `App\Policies\MailboxPolicy` and registered in `AuthServiceProvider`. Enforces strict tenant isolation across view, create, update, and delete actions.
+  - Implemented `GET /api/mailboxes` for tenant-wide mailbox listing across all customer domains with bounded pagination (1-50), search, status, and domain filtering.
+  - Implemented `GET /api/mailboxes/{mailbox}` and `PUT /api/mailboxes/{mailbox}` (safe fields only: `display_name`).
+- **Hardened:** Domain & Mailbox Creation and Lifecycle Invariants:
+  - Domain creation (`POST /api/domains`): automatic domain case normalization (lowercase & trim) before validation, uniqueness check, plan domain limit enforcement.
+  - Domain verification (`POST /api/domains/{id}/verify`): truthful reporting of verification status (`verified: boolean`, descriptive message, record results, refreshed domain object).
+  - Domain deletion (`DELETE /api/domains/{id}`): transactional cascade deletion of associated mailboxes and aliases before domain removal.
+  - Mailbox creation (`POST /api/domains/{id}/mailboxes`): strictly requires verified domain (`domain.status === 'active'`; returns HTTP 422 if unverified/pending), enforces plan storage cap (`quota_mb <= storage_mb_per_mailbox`), hashes passwords with SHA512-CRYPT for Dovecot, and redacts passwords from API responses.
+  - Mailbox toggle (`POST /api/mailboxes/{id}/toggle`): disabling is always permitted for security/quarantine; enabling strictly requires parent domain is active and tenant subscription is active (HTTP 422 if violated).
+  - PostfixService script execution: simulated fallback in local and testing environments when `/opt/emailsaas/scripts` is absent, preventing local Windows test failures while maintaining Linux daemon execution.
+- **Implemented:** Next.js Tenant Domain & Mailbox Self-Service Experience (`frontend/`):
+  - **Sidebar Navigation**: Added Mailboxes navigation link (`/mailboxes`) for customer tenants.
+  - **Tenant Mailboxes Hub (`/mailboxes`)**: Search bar, domain selector filter, active/disabled filter, mailboxes table, Webmail SSO links, and pagination.
+  - **Domain Mailbox Management (`/domains/[id]`)**: Embedded active mailbox management under domain detail view when verified; clear guidance and setup link when unverified.
+  - **Modals**: Added `CreateMailboxModal` (with multi-domain selector, plan quota hints, password validation), `EditMailboxModal` (display name editing), and `ChangePasswordModal` (min 8 chars, SHA512-CRYPT hashed).
+  - **DNS Verification Feedback (`/domains/[id]/setup`)**: Truthful UI feedback distinguishing verified active domains from pending DNS propagation.
+- **Automated Verification & Test Coverage**:
+  - Created `tests/Feature/TenantDomainAndMailboxManagementTest.php` with 21 feature tests (86 assertions) covering domain listing, normalization, limits, DNS verification reporting, cascade deletion, mailbox listing, verified domain gating, plan storage limits, password hashing & redaction, display name updates, toggle invariants, and cross-tenant isolation.
+  - Full backend test suite passing: **332 tests, 1,432 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Full frontend production build passing: **Next.js 14 compiles and optimizes all 25 static pages with zero errors or warnings**.
+  - Git working tree verified: Zero git staging, zero commits, zero pushes.
+
 ### Tenant Self-Service Billing & Subscription Management (Step 26)
 - **Implemented:** Dedicated Tenant Subscription API (`GET /api/billing/subscription`):
   - Returns authoritative plan configuration, lifecycle state (`active`, `expired`, `suspended`, `inactive`), countdown remaining days, `is_expiring_soon` flag (<= 7 days), and `can_renew` capability.

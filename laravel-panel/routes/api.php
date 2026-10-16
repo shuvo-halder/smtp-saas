@@ -52,7 +52,8 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             Route::post('/domains/{domain}/verify', [DomainApiController::class, 'verify']);
 
             // Mailboxes CRUD
-            Route::apiResource('domains.mailboxes', MailboxApiController::class)->shallow()->except(['show', 'update']);
+            Route::get('/mailboxes', [MailboxApiController::class, 'allMailboxes']);
+            Route::apiResource('domains.mailboxes', MailboxApiController::class)->shallow();
             Route::post('/mailboxes/{mailbox}/change-password', [MailboxApiController::class, 'changePassword']);
             Route::post('/mailboxes/{mailbox}/toggle', [MailboxApiController::class, 'toggle']);
         });

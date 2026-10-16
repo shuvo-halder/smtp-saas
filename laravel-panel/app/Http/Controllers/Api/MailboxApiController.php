@@ -14,27 +14,117 @@ class MailboxApiController extends Controller
 {
     use AuthorizesRequests;
 
-    public function index(Domain $domain)
+    /**
+     * Tenant-wide mailbox listing across all tenant domains
+     */
+    public function allMailboxes(Request $request)
     {
-        $this->authorize('view', $domain);
+        $perPage = min(max((int) $request->query('per_page', 15), 1), 50);
 
-        $mailboxes = $domain->mailboxes()->paginate(15);
+        $query = $request->user()->mailboxes()->with('domain');
+
+        if ($request->filled('domain_id')) {
+            $query->where('mailboxes.domain_id', $request->query('domain_id'));
+        }
+
+        if ($request->filled('search')) {
+            $search = '%' . trim((string) $request->query('search')) . '%';
+            $query->where(function ($q) use ($search) {
+                $q->where('mailboxes.local_part', 'like', $search)
+                  ->orWhere('mailboxes.email', 'like', $search)
+                  ->orWhere('mailboxes.display_name', 'like', $search);
+            });
+        }
+
+        if ($request->filled('status')) {
+            $status = $request->query('status');
+            if ($status === 'active') {
+                $query->where('mailboxes.is_active', true);
+            } elseif ($status === 'inactive' || $status === 'disabled') {
+                $query->where('mailboxes.is_active', false);
+            }
+        }
+
+        $mailboxes = $query->latest('mailboxes.id')->paginate($perPage);
+
         return MailboxResource::collection($mailboxes);
     }
 
+    /**
+     * Mailbox listing for a specific domain
+     */
+    public function index(Request $request, Domain $domain)
+    {
+        $this->authorize('view', $domain);
+
+        $perPage = min(max((int) $request->query('per_page', 15), 1), 50);
+
+        $query = $domain->mailboxes()->with('domain');
+
+        if ($request->filled('search')) {
+            $search = '%' . trim((string) $request->query('search')) . '%';
+            $query->where(function ($q) use ($search) {
+                $q->where('local_part', 'like', $search)
+                  ->orWhere('email', 'like', $search)
+                  ->orWhere('display_name', 'like', $search);
+            });
+        }
+
+        if ($request->filled('status')) {
+            $status = $request->query('status');
+            if ($status === 'active') {
+                $query->where('is_active', true);
+            } elseif ($status === 'inactive' || $status === 'disabled') {
+                $query->where('is_active', false);
+            }
+        }
+
+        $mailboxes = $query->latest('id')->paginate($perPage);
+
+        return MailboxResource::collection($mailboxes);
+    }
+
+    /**
+     * View a single mailbox
+     */
+    public function show(Mailbox $mailbox)
+    {
+        $this->authorize('view', $mailbox);
+
+        return new MailboxResource($mailbox->load('domain'));
+    }
+
+    /**
+     * Create a new mailbox under a verified domain
+     */
     public function store(Request $request, Domain $domain, PostfixService $postfixService)
     {
         $this->authorize('update', $domain);
 
+        if ($domain->status !== 'active') {
+            return response()->json([
+                'message' => 'Cannot create mailbox on an unverified or inactive domain. Please verify domain DNS records first.'
+            ], 422);
+        }
+
+        $user = $request->user();
+
+        if (!$user->canAddMailbox($domain)) {
+            return response()->json(['message' => __('api.mailbox_limit_reached')], 403);
+        }
+
         $validated = $request->validate([
-            'local_part' => 'required|string|alpha_dash|max:64',
-            'password' => 'required|string|min:8',
+            'local_part'   => 'required|string|alpha_dash|max:64',
+            'password'     => 'required|string|min:8',
             'display_name' => 'nullable|string|max:255',
-            'quota_mb' => 'nullable|integer|min:1',
+            'quota_mb'     => 'nullable|integer|min:1',
         ]);
 
-        if (!$request->user()->canAddMailbox($domain)) {
-            return response()->json(['message' => __('api.mailbox_limit_reached')], 403);
+        $maxStorageMb = $user->plan?->storage_mb_per_mailbox ?? 0;
+        if ($maxStorageMb > 0 && isset($validated['quota_mb']) && $validated['quota_mb'] > $maxStorageMb) {
+            return response()->json([
+                'message' => "Mailbox storage quota cannot exceed plan limit of {$maxStorageMb} MB."
+            ], 422);
         }
 
         $email = strtolower($validated['local_part']) . '@' . $domain->domain_name;
@@ -45,15 +135,16 @@ class MailboxApiController extends Controller
 
         $salt = \Illuminate\Support\Str::random(16);
         $dovecotPassword = crypt($validated['password'], '$6$' . $salt . '$');
+        $quotaMb = $validated['quota_mb'] ?? ($maxStorageMb > 0 ? $maxStorageMb : 1024);
 
-        $mailbox = \DB::transaction(function () use ($domain, $validated, $email, $request, $dovecotPassword, $postfixService) {
+        $mailbox = \DB::transaction(function () use ($domain, $validated, $email, $quotaMb, $dovecotPassword, $postfixService) {
             $mb = $domain->mailboxes()->create([
-                'local_part' => strtolower($validated['local_part']),
-                'email' => $email,
-                'password' => $dovecotPassword, // Hashed specifically for Dovecot SHA512-CRYPT
+                'local_part'   => strtolower($validated['local_part']),
+                'email'        => $email,
+                'password'     => $dovecotPassword, // Hashed specifically for Dovecot SHA512-CRYPT
                 'display_name' => $validated['display_name'] ?? null,
-                'quota_mb' => $validated['quota_mb'] ?? $request->user()->plan->storage_mb_per_mailbox,
-                'is_active' => true,
+                'quota_mb'     => $quotaMb,
+                'is_active'    => true,
             ]);
 
             $postfixService->addMailbox($mb);
@@ -72,17 +163,56 @@ class MailboxApiController extends Controller
                 'is_active' => $mailbox->is_active,
                 'outcome'   => 'success',
             ],
-            actor: $request->user(),
+            actor: $user,
             reason: 'Mailbox created by tenant',
             request: $request
         );
 
-        return response()->json(new MailboxResource($mailbox), 201);
+        return (new MailboxResource($mailbox->load('domain')))
+            ->response()
+            ->setStatusCode(201);
     }
 
+    /**
+     * Update mailbox display name (safe fields only)
+     */
+    public function update(Request $request, Mailbox $mailbox)
+    {
+        $this->authorize('update', $mailbox);
+
+        $validated = $request->validate([
+            'display_name' => 'nullable|string|max:255',
+        ]);
+
+        $beforeDisplayName = $mailbox->display_name;
+
+        $mailbox->update([
+            'display_name' => $validated['display_name'] ?? null,
+        ]);
+
+        app(\App\Services\AuditService::class)->record(
+            action: 'mailbox.update',
+            entityType: 'Mailbox',
+            entityId: $mailbox->id,
+            before: ['display_name' => $beforeDisplayName],
+            after: [
+                'display_name' => $mailbox->display_name,
+                'outcome'      => 'success',
+            ],
+            actor: $request->user(),
+            reason: 'Mailbox display name updated by tenant',
+            request: $request
+        );
+
+        return new MailboxResource($mailbox->load('domain'));
+    }
+
+    /**
+     * Change mailbox password
+     */
     public function changePassword(Request $request, Mailbox $mailbox)
     {
-        $this->authorize('update', $mailbox->domain);
+        $this->authorize('update', $mailbox);
 
         $validated = $request->validate([
             'password' => 'required|string|min:8',
@@ -90,7 +220,7 @@ class MailboxApiController extends Controller
 
         $salt = \Illuminate\Support\Str::random(16);
         $mailbox->update([
-            'password' => crypt($validated['password'], '$6$' . $salt . '$')
+            'password' => crypt($validated['password'], '$6$' . $salt . '$'),
         ]);
 
         app(\App\Services\AuditService::class)->record(
@@ -111,14 +241,34 @@ class MailboxApiController extends Controller
         return response()->json(['message' => __('messages.mailbox_password_changed')]);
     }
 
-    public function toggle(Mailbox $mailbox)
+    /**
+     * Toggle mailbox active status
+     */
+    public function toggle(Request $request, Mailbox $mailbox)
     {
-        $this->authorize('update', $mailbox->domain);
+        $this->authorize('update', $mailbox);
+
+        $targetState = !$mailbox->is_active;
+
+        // When enabling a mailbox, verify parent domain and tenant subscription are active
+        if ($targetState === true) {
+            if ($mailbox->domain?->status !== 'active') {
+                return response()->json([
+                    'message' => 'Cannot enable mailbox on an unverified or inactive domain.'
+                ], 422);
+            }
+
+            if (!$request->user()->isSubscriptionActive()) {
+                return response()->json([
+                    'message' => 'Cannot enable mailbox while tenant subscription is inactive or suspended.'
+                ], 422);
+            }
+        }
 
         $beforeState = ['is_active' => (bool) $mailbox->is_active];
 
         $mailbox->update([
-            'is_active' => !$mailbox->is_active
+            'is_active' => $targetState,
         ]);
 
         app(\App\Services\AuditService::class)->record(
@@ -130,17 +280,20 @@ class MailboxApiController extends Controller
                 'is_active' => (bool) $mailbox->is_active,
                 'outcome'   => 'success',
             ],
-            actor: request()->user(),
+            actor: $request->user(),
             reason: 'Mailbox active status toggled by tenant',
-            request: request()
+            request: $request
         );
 
-        return response()->json(new MailboxResource($mailbox));
+        return new MailboxResource($mailbox->load('domain'));
     }
 
-    public function destroy(Mailbox $mailbox, PostfixService $postfixService)
+    /**
+     * Delete mailbox
+     */
+    public function destroy(Request $request, Mailbox $mailbox, PostfixService $postfixService)
     {
-        $this->authorize('delete', $mailbox->domain);
+        $this->authorize('delete', $mailbox);
 
         $beforeState = [
             'email' => $mailbox->email,
@@ -159,9 +312,9 @@ class MailboxApiController extends Controller
                 'deleted' => true,
                 'outcome' => 'success',
             ],
-            actor: request()->user(),
+            actor: $request->user(),
             reason: 'Mailbox deleted by tenant',
-            request: request()
+            request: $request
         );
 
         return response()->json(null, 204);

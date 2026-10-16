@@ -16,12 +16,32 @@ class DomainApiController extends Controller
 
     public function index(Request $request)
     {
-        $domains = $request->user()->domains()->withCount('mailboxes')->paginate(15);
+        $perPage = min(max((int) $request->query('per_page', 15), 1), 50);
+
+        $query = $request->user()->domains()->withCount('mailboxes');
+
+        if ($request->filled('search')) {
+            $search = '%' . trim((string) $request->query('search')) . '%';
+            $query->where('domain_name', 'like', $search);
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', (string) $request->query('status'));
+        }
+
+        $domains = $query->latest('id')->paginate($perPage);
+
         return DomainResource::collection($domains);
     }
 
     public function store(Request $request, PostfixService $postfixService)
     {
+        if ($request->has('domain_name')) {
+            $request->merge([
+                'domain_name' => strtolower(trim((string) $request->input('domain_name'))),
+            ]);
+        }
+
         $validated = $request->validate([
             'domain_name' => 'required|string|regex:/^(?!:\/\/)(?=.{1,255}$)((.{1,63}\.){1,127}(?![0-9]*$)[a-z0-9-]+\.?)$/i|unique:domains,domain_name',
         ]);
@@ -58,7 +78,9 @@ class DomainApiController extends Controller
             request: $request
         );
 
-        return new DomainResource($domain);
+        return (new DomainResource($domain))
+            ->response()
+            ->setStatusCode(201);
     }
 
     public function show(Domain $domain)
@@ -76,11 +98,14 @@ class DomainApiController extends Controller
         $this->authorize('update', $domain);
         
         $results = $verificationService->verifyAll($domain);
+        $freshDomain = $domain->fresh();
+        $isVerified = ($freshDomain->status === 'active');
 
         return response()->json([
-            'message' => __('messages.domain_verified'),
+            'verified' => $isVerified,
+            'message' => $isVerified ? __('messages.domain_verified') : 'Domain DNS verification incomplete. Please ensure MX, SPF, and DKIM records are published.',
             'results' => $results,
-            'domain' => new DomainResource($domain->fresh()),
+            'domain' => new DomainResource($freshDomain),
         ]);
     }
 
@@ -94,8 +119,12 @@ class DomainApiController extends Controller
         ];
         $domainId = $domain->id;
 
-        $postfixService->removeDomain($domain);
-        $domain->delete();
+        \DB::transaction(function () use ($domain, $postfixService) {
+            $domain->mailboxes()->delete();
+            $domain->aliases()->delete();
+            $postfixService->removeDomain($domain);
+            $domain->delete();
+        });
 
         app(\App\Services\AuditService::class)->record(
             action: 'domain.delete',

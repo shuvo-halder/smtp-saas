@@ -17,20 +17,23 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | Method | Endpoint | Description | Middleware |
 |---|---|---|---|
 | GET | `/dashboard` | Tenant statistics (domains, mailboxes). | `auth:sanctum`, `EnsureActiveSubscription` |
-| GET | `/domains` | Paginated domains list. | `auth:sanctum`, `EnsureActiveSubscription` |
-| POST | `/domains` | Add a new domain. Triggers DKIM script. | `auth:sanctum`, `EnsureActiveSubscription` |
-| GET | `/domains/{id}` | Domain details, DNS records, aliases. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
-| POST | `/domains/{id}/verify`| Trigger DNS verification. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
-| DELETE| `/domains/{id}` | Soft delete domain & archive maildir. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| GET | `/domains` | Paginated domains list. Supports `per_page` (clamped 1-50), `search` (domain name search), and `status` filter (`active`, `pending`). | `auth:sanctum`, `EnsureActiveSubscription` |
+| POST | `/domains` | Add a new domain. Normalizes input to lowercase and trimmed before validation. Enforces plan `max_domains` cap. Triggers DKIM key generation. | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/domains/{id}` | Domain details, DNS records, aliases. Governed by `DomainPolicy::view`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| POST | `/domains/{id}/verify`| Trigger DNS verification. Returns truthful verification status (`verified: boolean`, `results`, `message`, `domain`). | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| DELETE| `/domains/{id}` | Soft delete domain & cascade soft-deletes associated mailboxes and aliases in transaction. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 
-## Mailbox API
+## Mailbox API (Requires active subscription)
 | Method | Endpoint | Description | Middleware |
 |---|---|---|---|
-| GET | `/domains/{id}/mailboxes`| Paginated mailboxes for a domain. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
-| POST | `/domains/{id}/mailboxes`| Create mailbox (SHA512-CRYPT). | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
-| POST | `/mailboxes/{id}/change-password`| Change mailbox password. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
-| POST | `/mailboxes/{id}/toggle` | Activate/Deactivate mailbox. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
-| DELETE| `/mailboxes/{id}` | Soft delete mailbox & archive maildir.| `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| GET | `/mailboxes` | Tenant-wide mailbox listing across all tenant domains. Supports `per_page` (clamped 1-50), `domain_id`, `status` (`active`/`disabled`), and `search` (email, local part, display name). | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/domains/{id}/mailboxes`| Paginated mailboxes for a specific domain. Supports `per_page` (clamped 1-50), `status`, `search`. Governed by `DomainPolicy::view`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| POST | `/domains/{id}/mailboxes`| Create mailbox under verified domain. Strictly requires `domain.status === 'active'` (HTTP 422 if unverified/pending). Enforces plan storage cap (`storage_mb_per_mailbox`) and mailbox limits. Hashes password with SHA512-CRYPT for Dovecot. Redacts password from response. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| GET | `/mailboxes/{id}` | Single mailbox detail with associated domain. Governed by `MailboxPolicy::view`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| PUT | `/mailboxes/{id}` | Update mailbox display name (safe fields only). Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| POST | `/mailboxes/{id}/change-password`| Change mailbox password (min 8 chars). Hashes with SHA512-CRYPT. Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| POST | `/mailboxes/{id}/toggle` | Toggle active/disabled status. Disabling is always allowed for security/quarantine. Enabling strictly checks parent domain is active and tenant subscription is active (HTTP 422 if violated). Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| DELETE| `/mailboxes/{id}` | Soft delete mailbox and remove virtual config. Governed by `MailboxPolicy::delete`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 
 ## Billing & SSO API
 | Method | Endpoint | Description | Middleware |

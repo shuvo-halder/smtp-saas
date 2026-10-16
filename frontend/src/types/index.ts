@@ -55,6 +55,8 @@ export interface DnsRecord {
 
 export interface Mailbox {
   id: number;
+  domain_id?: number;
+  domain_name?: string;
   local_part: string;
   email: string;
   display_name: string | null;

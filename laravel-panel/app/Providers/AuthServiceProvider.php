@@ -5,8 +5,10 @@ namespace App\Providers;
 use Illuminate\Foundation\Support\Providers\AuthServiceProvider as ServiceProvider;
 use App\Models\Domain;
 use App\Models\Invoice;
+use App\Models\Mailbox;
 use App\Policies\DomainPolicy;
 use App\Policies\InvoicePolicy;
+use App\Policies\MailboxPolicy;
 
 class AuthServiceProvider extends ServiceProvider
 {
@@ -18,6 +20,7 @@ class AuthServiceProvider extends ServiceProvider
     protected $policies = [
         Domain::class => DomainPolicy::class,
         Invoice::class => InvoicePolicy::class,
+        Mailbox::class => MailboxPolicy::class,
     ];
 
     /**

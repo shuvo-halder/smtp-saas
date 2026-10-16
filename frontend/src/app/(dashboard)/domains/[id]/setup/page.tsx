@@ -23,16 +23,24 @@ export default function DomainSetupPage() {
     setIsVerifying(true);
     setVerificationResult(null);
     try {
-      await api.post(`/domains/${id}/verify`);
+      const res = await api.post(`/domains/${id}/verify`);
       await mutate();
-      setVerificationResult({
-        success: true,
-        message: 'DNS verification initiated. Changes may take some time to propagate.'
-      });
+      const verified = res.data?.verified;
+      if (verified) {
+        setVerificationResult({
+          success: true,
+          message: 'All DNS records successfully verified! Domain is now active and ready for mailboxes.'
+        });
+      } else {
+        setVerificationResult({
+          success: false,
+          message: res.data?.message || 'DNS verification incomplete. Please make sure all DNS records (MX, SPF, DKIM) have propagated.'
+        });
+      }
     } catch (err: any) {
       setVerificationResult({
         success: false,
-        message: err.response?.data?.message || 'Verification failed. Please check your DNS records.'
+        message: err.response?.data?.message || 'Verification check failed. Please check your network and try again.'
       });
     } finally {
       setIsVerifying(false);

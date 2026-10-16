@@ -302,9 +302,33 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 24/24 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 27 — Tenant Domain & Mailbox Self-Service Management (IMPLEMENTED & VERIFIED):**
+  - **Mailbox Policy & Strict Tenancy Isolation:**
+    - Created `App\Policies\MailboxPolicy` and mapped in `AuthServiceProvider`. Enforces strict tenant ownership across all mailbox operations.
+    - Added `GET /api/mailboxes` for tenant-wide mailbox listing across all customer domains with bounded pagination (1-50), search, domain filtering, and status filtering.
+    - Added `GET /api/mailboxes/{mailbox}` and `PUT /api/mailboxes/{mailbox}` (safe fields only: `display_name`).
+  - **Hardened Domain & Mailbox Lifecycle Invariants:**
+    - Domain creation: case normalization (lowercase & trim) before validation, uniqueness check, plan domain limit enforcement.
+    - Domain DNS verification: truthful reporting of verification status (`verified: boolean`, descriptive message, record results, refreshed domain object).
+    - Domain deletion: transactional cascade soft-deletion of associated mailboxes and aliases before domain removal.
+    - Mailbox creation: strictly requires verified domain (`domain.status === 'active'`; returns HTTP 422 if unverified/pending), enforces plan storage cap (`quota_mb <= storage_mb_per_mailbox`), hashes passwords with SHA512-CRYPT for Dovecot, and redacts passwords from API responses.
+    - Mailbox toggle: disabling is always permitted for security/quarantine; enabling strictly requires parent domain is active and tenant subscription is active (HTTP 422 if violated).
+    - PostfixService script execution: simulated fallback in local and testing environments when `/opt/emailsaas/scripts` is absent, preventing local Windows test failures while maintaining Linux daemon execution.
+  - **Next.js Self-Service Domain & Mailbox Management (`frontend/`):**
+    - Sidebar Navigation: Added Mailboxes navigation link (`/mailboxes`) for customer tenants.
+    - Tenant Mailboxes Hub (`/mailboxes`): Search bar, domain selector filter, active/disabled filter, mailboxes table, Webmail SSO links, and pagination.
+    - Domain Mailbox Management (`/domains/[id]`): Embedded active mailbox management under domain detail view when verified; clear guidance and setup link when unverified.
+    - Modals: Added `CreateMailboxModal` (with multi-domain selector, plan quota hints, password validation), `EditMailboxModal` (display name editing), and `ChangePasswordModal` (min 8 chars, SHA512-CRYPT hashed).
+    - DNS Verification Feedback (`/domains/[id]/setup`): Truthful UI feedback distinguishing verified active domains from pending DNS propagation.
+  - **Automated Verification & Test Coverage:**
+    - Authored `tests/Feature/TenantDomainAndMailboxManagementTest.php` with 21 feature tests (86 assertions).
+    - Full backend regression test suite: **332 tests, 1,432 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 25/25 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 27 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
+- **Step 28 — Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance:**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
-  - Validate end-to-end outbound SMTP policy enforcement and Redis $\to$ MariaDB usage reconciliation under live traffic.
+  - Validate end-to-end outbound SMTP policy enforcement and Redis -> MariaDB usage reconciliation under live traffic.

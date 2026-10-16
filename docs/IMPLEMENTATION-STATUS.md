@@ -28,13 +28,23 @@
 - [x] Clear unused `routes/web.php` authenticated endpoints
 - [x] Remove duplicate legacy migration `0001_01_01_000000_create_users_table.php` (restoring clean test suite)
 
-## Domains & Mailboxes
-- [x] Domain CRUD API
-- [x] Domain DNS verification API
-- [x] Mailbox creation API (with `DB::transaction`)
-- [x] Mailbox password generation and hashing (SHA512-CRYPT)
-- [x] Mailbox suspend/activate toggle API
-- [x] Soft-deletion and archival (`remove_mailbox.sh`)
+## Domains & Mailboxes (Step 27 Completed)
+- [x] Domain listing API with bounded pagination (1-50), search, and status filters
+- [x] Domain creation API with case normalization (lowercase & trim) and plan quota limits
+- [x] Domain DNS verification API with truthful reporting of propagation & activation
+- [x] Domain deletion with transactional cascade soft-deletion of associated mailboxes and aliases
+- [x] Tenant-wide mailbox listing API (`GET /api/mailboxes`) across all customer domains
+- [x] Domain-specific mailbox listing API (`GET /api/domains/{id}/mailboxes`)
+- [x] Mailbox creation strictly under verified domains (`status === 'active'`; 422 if unverified)
+- [x] Mailbox creation enforcing plan storage cap (`storage_mb_per_mailbox`) and mailbox limits
+- [x] Mailbox password generation and hashing (Dovecot SHA512-CRYPT), redacted from API responses
+- [x] Mailbox display name update (`PUT /api/mailboxes/{id}`)
+- [x] Mailbox password change API (`POST /api/mailboxes/{id}/change-password`)
+- [x] Mailbox active toggle API enforcing domain active and subscription active invariants
+- [x] Dedicated Mailbox Policy (`MailboxPolicy`) enforcing tenant boundary isolation
+- [x] Frontend customer domain management (`/domains`, `/domains/new`, `/domains/[id]`, `/domains/[id]/setup`)
+- [x] Frontend customer mailbox management (`/mailboxes` hub with search, domain filter, and status filter)
+- [x] Frontend embedded domain mailbox table and modals (`CreateMailboxModal`, `EditMailboxModal`, `ChangePasswordModal`)
 
 ## Webmail
 - [x] Roundcube configuration

@@ -14,7 +14,7 @@ import { AlertCircle } from 'lucide-react';
 const addDomainSchema = z.object({
   domain_name: z.string()
     .min(1, 'Domain name is required')
-    .regex(/^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/, 'Invalid domain format (e.g. example.com)'),
+    .regex(/^(?!:\/\/)([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/, 'Invalid domain format (e.g. example.com)'),
 });
 
 type AddDomainFormValues = z.infer<typeof addDomainSchema>;

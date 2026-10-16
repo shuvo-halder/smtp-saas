@@ -156,6 +156,9 @@ class AdminAuditTrailCoverageTest extends TestCase
             'actor_user_id' => $this->tenant->id,
         ]);
 
+        // Activate domain so mailbox creation succeeds on verified domain (Step 27 invariant)
+        Domain::where('id', $domainId)->update(['status' => 'active']);
+
         // 2. Mailbox Create
         $mailboxResponse = $this->actingAs($this->tenant)->postJson("/api/domains/{$domainId}/mailboxes", [
             'local_part' => 'support',

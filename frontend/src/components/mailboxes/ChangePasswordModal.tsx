@@ -27,6 +27,11 @@ export default function ChangePasswordModal({
     e.preventDefault();
     setErrors({});
     
+    if (password.length < 8) {
+      setErrors({ password: ['Password must be at least 8 characters long'] });
+      return;
+    }
+
     if (password !== passwordConfirmation) {
       setErrors({ password_confirmation: ['Passwords do not match'] });
       return;
@@ -34,7 +39,7 @@ export default function ChangePasswordModal({
 
     setIsLoading(true);
     try {
-      await api.post(`/api/mailboxes/${mailboxId}/change-password`, {
+      await api.post(`/mailboxes/${mailboxId}/change-password`, {
         password: password,
         password_confirmation: passwordConfirmation,
       });
@@ -44,6 +49,8 @@ export default function ChangePasswordModal({
         setErrors(error.response.data.errors);
       } else if (error.response?.data?.message) {
         setErrors({ general: [error.response.data.message] });
+      } else {
+        setErrors({ general: ['Failed to change password. Please try again.'] });
       }
     } finally {
       setIsLoading(false);
@@ -57,11 +64,11 @@ export default function ChangePasswordModal({
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
         >
-          X
+          ✕
         </button>
         <h2 className="text-xl font-semibold mb-2 text-gray-900 dark:text-white">Change Password</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          For mailbox: <span className="font-semibold">{email}</span>
+          Mailbox: <span className="font-semibold text-gray-900 dark:text-white">{email}</span>
         </p>
         
         {errors.general && (
@@ -72,13 +79,14 @@ export default function ChangePasswordModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">New Password</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">New Password (min 8 characters)</label>
             <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1"
               required
+              minLength={8}
             />
             {errors.password && <p className="text-sm text-red-600 mt-1">{errors.password[0]}</p>}
           </div>
@@ -91,6 +99,7 @@ export default function ChangePasswordModal({
               onChange={(e) => setPasswordConfirmation(e.target.value)}
               className="mt-1"
               required
+              minLength={8}
             />
             {errors.password_confirmation && <p className="text-sm text-red-600 mt-1">{errors.password_confirmation[0]}</p>}
           </div>

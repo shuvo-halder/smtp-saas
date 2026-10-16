@@ -11,6 +11,8 @@ class MailboxResource extends JsonResource
     {
         return [
             'id' => $this->id,
+            'domain_id' => $this->domain_id,
+            'domain_name' => $this->domain?->domain_name,
             'local_part' => $this->local_part,
             'email' => $this->email,
             'display_name' => $this->display_name,
