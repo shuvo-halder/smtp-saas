@@ -306,4 +306,52 @@ To ensure that catch-all mappings never intercept, override, or shadow valid phy
 | **Level B: Configuration & SQL Query Layer** | `mysql-virtual-catchall.cf`, `virtual_alias_maps`, CLI tool | `VERIFIED` | Exact SQL map query tested directly against MySQL with aliases, physical mailboxes, probe emails, and fallback policies. CLI verification command `php artisan mail:verify-catchall` verified. |
 | **Level C: Live End-to-End SMTP Reception** | Live Postfix MTA daemon, TCP port 25 recipient verification | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks Linux Postfix MTA, network MX records, and Unix domain sockets. Full live mail-flow requires dedicated Linux VPS staging environment. |
 
+---
+
+## Mailbox Forwarding & Dovecot Sieve Vacation Auto-Reply Architecture (Step 33)
+
+### 1. Inbound Virtual Alias Precedence & Postfix Multi-Recipient Expansion
+In Postfix virtual delivery, incoming messages addressed to physical mailboxes are evaluated through `virtual_alias_maps`:
+```ini
+virtual_alias_maps = mysql:/etc/postfix/mysql-virtual-aliases.cf,
+                     mysql:/etc/postfix/mysql-virtual-forwardings.cf,
+                     mysql:/etc/postfix/mysql-virtual-catchall.cf
+```
+1. **Precedence Sequence:**
+   - **Step 1:** Explicit virtual aliases (`email_aliases`) without mailboxes are resolved first via `mysql-virtual-aliases.cf`.
+   - **Step 2:** Physical mailbox forwarding rules (`mailboxes.is_forwarding_enabled = 1`) are resolved via `mysql-virtual-forwardings.cf`.
+   - **Step 3:** Physical mailbox delivery (`virtual_mailbox_maps`) receives messages if no forwarding maps rewrite the address or if local delivery is kept.
+   - **Step 4:** Inbound messages to unknown recipients fall back to catch-all via `mysql-virtual-catchall.cf`.
+
+2. **Postfix Multiple Recipient Expansion (`mysql-virtual-forwardings.cf`):**
+   ```sql
+   query = SELECT CASE WHEN mailboxes.forwarding_keep_copy = 1 THEN CONCAT(mailboxes.email, ', ', mailboxes.forwarding_destinations) ELSE mailboxes.forwarding_destinations END AS destination FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%s' AND mailboxes.is_active = 1 AND mailboxes.is_forwarding_enabled = 1 AND mailboxes.forwarding_destinations IS NOT NULL AND mailboxes.forwarding_destinations != '' AND domains.status = 'active' AND domains.deleted_at IS NULL AND mailboxes.deleted_at IS NULL LIMIT 1;
+   ```
+   Postfix natively splits comma-separated strings into individual recipient envelopes.
+   - If `forwarding_keep_copy = 1`, Postfix delivers one copy to the local mailbox via `virtual_mailbox_maps` and relays one copy to each forwarding destination.
+   - If `forwarding_keep_copy = 0`, Postfix rewrites the recipient to external destinations only, skipping local mailbox storage.
+
+### 2. Dovecot Sieve Pigeonhole Vacation Auto-Reply Architecture
+For mailboxes with auto-reply enabled, `MailboxRuleService` compiles a standard RFC 5228 and RFC 5230 Sieve script and synchronizes it to the mailbox home directory as `.dovecot.sieve`:
+
+1. **Anti-Loop Suppression & Header Inspection:**
+   To prevent mail forwarding loops and auto-responder storms, the compiled Sieve script checks standard headers before dispatching a vacation response:
+   - Rejects bulk and mailing list traffic (`Precedence: bulk|list|junk`).
+   - Rejects automated responses (`Auto-Submitted: auto-generated|auto-replied`).
+   - Rejects list messages (`List-Id: *`).
+   - Rejects bounces (`Return-Path: <>`).
+2. **Rate Limiting:**
+   Applies Sieve `:days 1` rate limiting to respond at most once per day to any distinct sender address.
+3. **Time-Window Execution:**
+   Supports active date windows using Dovecot's Sieve date extension (`date :value "currentdate" :zone "+0000" "iso8601"`).
+
+### 3. Three-Level Mailbox Rules Verification Matrix
+
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `MailboxRuleService`, `MailboxRuleApiController`, `MailboxPolicy` | `VERIFIED` | Full test coverage for forwarding updates, destination validation (up to 10), keep copy toggling, direct self-forwarding validation, 30-hop cycle detection, vacation scheduling, HTML sanitization, and audit logging via `TenantMailboxForwardingAndAutoReplyTest.php` (20/20 passing). |
+| **Level B: Configuration & SQL Query Layer** | `mysql-virtual-forwardings.cf`, `virtual_alias_maps`, `.dovecot.sieve` generation, CLI tool | `VERIFIED` | Exact SQL map query tested directly against MySQL with single, multiple, and keep-copy permutations. Sieve script compilation and syntax verified. CLI tool `php artisan mail:verify-mailbox-rules` verified. |
+| **Level C: Live End-to-End Mail Flow & Sieve Execution** | Live Linux Postfix MTA, Dovecot LMTP delivery agent, Sieve Pigeonhole daemon | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks Linux Postfix MTA, Dovecot Pigeonhole LMTP daemon, and mounted `/var/vmail` storage. Live delivery testing requires a dedicated Linux VPS staging environment. |
+
+
 

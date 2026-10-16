@@ -671,5 +671,45 @@
   - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
   - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.
 
+---
+
+## Step 33 — Tenant Email Forwarding Rules & Auto-Reply Management (`IMPLEMENTED — VERIFIED`)
+- `[x]` Database Schema & Mailbox Entity Integration:
+  - `[x]` Added 8 columns to `mailboxes`: `is_forwarding_enabled` (boolean), `forwarding_destinations` (text), `forwarding_keep_copy` (boolean), `auto_reply_enabled` (boolean), `auto_reply_subject` (varchar 255), `auto_reply_body` (text), `auto_reply_start_at` (timestamp), `auto_reply_end_at` (timestamp) via migration `2026_10_17_000002_add_forwarding_and_auto_reply_to_mailboxes_table.php`.
+  - `[x]` Updated `Mailbox` model with `$fillable`, `$casts`, `getForwardingDestinationsList()`, `setForwardingDestinationsList()`, `isAutoReplyActive()`, and `autoReplyScheduleStatus()`.
+  - `[x]` Updated `MailboxResource` exposing `is_forwarding_enabled` and `auto_reply_enabled`.
+- `[x]` MailboxRuleService & Dovecot Sieve Pigeonhole Compiler:
+  - `[x]` `MailboxRuleService.php` implements RFC 5228 and RFC 5230 compliant Sieve vacation script generation with `:days 1` rate limiting.
+  - `[x]` Sieve anti-loop suppression: filters automated messages matching `Precedence: bulk|list|junk`, `Auto-Submitted`, `List-Id`, and empty `Return-Path: <>`.
+  - `[x]` Date window evaluation using Dovecot date extension (`date :value "currentdate" :zone "+0000" "iso8601"`).
+  - `[x]` Multi-hop forwarding loop and cycle detection traversing both mailbox forwardings and virtual aliases up to 30 hops.
+  - `[x]` Direct self-forwarding validation (source address cannot be in destinations).
+  - `[x]` Safe Dovecot `.dovecot.sieve` synchronization with fallback simulation when mail storage is unmounted.
+- `[x]` Postfix Forwarding Integration & SQL Maps:
+  - `[x]` Created `postfix-config/mysql-virtual-forwardings.cf` and `server-configs/mysql-virtual-forwardings-maps.cf`.
+  - `[x]` Integrated into `virtual_alias_maps` in `postfix-config/main.cf` and `server-configs/main-cf-snippet.txt` with evaluation precedence: `aliases -> forwardings -> catchall`.
+  - `[x]` Postfix expansion: returns `CONCAT(email, ', ', forwarding_destinations)` when `forwarding_keep_copy = true` (delivering both locally and externally) or `forwarding_destinations` when `forwarding_keep_copy = false`.
+- `[x]` RESTful API & Security Authorization:
+  - `[x]` Created `MailboxRuleApiController.php` (`GET /mailboxes/{mailbox}/rules`, `PUT /mailboxes/{mailbox}/forwarding`, `PUT /mailboxes/{mailbox}/auto-reply`).
+  - `[x]` Gated by `auth:sanctum`, `MailboxPolicy` (`view`/`update`), and `EnsureActiveSubscription`.
+  - `[x]` Input sanitization (`strip_tags` on subject and body for XSS protection).
+  - `[x]` Persistent audit logging: Records `mailbox.forwarding_update` and `mailbox.auto_reply_update` via `AuditService`.
+- `[x]` Operator CLI Diagnostic Tool:
+  - `[x]` `php artisan mail:verify-mailbox-rules {mailbox?} {--all}` with detailed tabular diagnostics.
+- `[x]` Next.js Tenant UI:
+  - `[x]` Added types in `types/index.ts` and hooks in `hooks/useMailboxes.ts`.
+  - `[x]` Created `MailboxRulesModal.tsx` with Forwarding, Auto-Reply, and Sieve & MTA Diagnostics tabs.
+  - `[x]` Updated `MailboxRow.tsx` with status badges (`Fwd`, `Auto-Reply`) and rules modal launcher.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `TenantMailboxForwardingAndAutoReplyTest.php` passes with 20 tests (67 assertions).
+  - `[x]` **Level B (Configuration & SQL Maps):** `VERIFIED`. Exact `.cf` queries and CLI command verified against database.
+  - `[x]` **Level C (End-to-End Live Mail Flow):** `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services; requires dedicated Linux VPS).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Feature test suite (`tests/Feature/TenantMailboxForwardingAndAutoReplyTest.php`): **20 tests, 67 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **424 tests, 1,974 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.
+
+
 
 

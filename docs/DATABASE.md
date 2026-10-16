@@ -38,11 +38,13 @@ EmailSaaS utilizes a single, shared MariaDB relational database (`email_saas_db`
 ### `mailboxes` (Virtual Users)
 - **Primary Key:** `id`
 - **Foreign Key:** `domain_id` (Belongs to `Domain`)
-- **Fields:** `local_part`, `email` (UNIQUE), `password` (SHA512-CRYPT), `quota_mb`, `is_active`, `is_catchall` (boolean, default false - reflects whether mailbox is the current designated catch-all recipient)
+- **Fields:** `local_part`, `email` (UNIQUE), `password` (SHA512-CRYPT), `quota_mb`, `is_active`, `is_catchall` (boolean, default false), `is_forwarding_enabled` (boolean, default false), `forwarding_destinations` (text, nullable, comma-separated normalized emails), `forwarding_keep_copy` (boolean, default true), `auto_reply_enabled` (boolean, default false), `auto_reply_subject` (varchar(255), nullable), `auto_reply_body` (text, nullable), `auto_reply_start_at` (timestamp, nullable), `auto_reply_end_at` (timestamp, nullable)
 - **Integration:** 
     - Dovecot (`dovecot-sql.conf.ext`) authenticates IMAP/POP3 logins directly against the `password` column using `SHA512-CRYPT`.
     - Postfix (`mysql-virtual-mailbox-maps.cf`) queries this table to resolve the physical `/var/vmail/` delivery path.
-- **Tenant Security:** Mutated exclusively through Laravel controllers using `DB::transaction`. Bash scripts do NOT insert records here.
+    - Postfix (`mysql-virtual-forwardings.cf` / `mysql-virtual-forwardings-maps.cf`) queries this table where `is_forwarding_enabled = 1`, `is_active = 1`, and `domains.status = 'active'`, dynamically expanding recipients to the forwarding destinations (and preserving local mailbox recipient when `forwarding_keep_copy = 1`).
+    - Dovecot Sieve (`.dovecot.sieve`) compiles auto-reply rules into RFC 5230 vacation actions with rate limiting and automated message exclusion headers.
+- **Tenant Security:** Mutated exclusively through Laravel controllers using `DB::transaction`. Direct self-forwarding and multi-hop circular forwarding loops are rejected at the application layer.
 
 ### `email_aliases` (Virtual Aliases - Step 29)
 - **Primary Key:** `id` (bigint unsigned, auto-increment)
@@ -217,7 +219,7 @@ EmailSaaS enforces a clean, deterministic, and idempotent local development data
 - **PHP Runtime:** PHP 8.3 / 8.2 with `pdo_mysql`, `mysqli`, `openssl`, `sodium`, `pdo_sqlite`, `mbstring`, `intl`, `curl`.
 
 ### 2. Migration Inventory & Ordering
-All 18 core migrations are applied in strict dependency order:
+All 19 core migrations are applied in strict dependency order:
 1. `0001_01_01_000001_create_cache_table.php` (Cache lock and cache stores)
 2. `0001_01_01_000002_create_jobs_table.php` (Queue jobs, failed jobs, batches)
 3. `2024_01_01_000001_create_plans_table.php` (Subscription plan definitions)
@@ -236,6 +238,7 @@ All 18 core migrations are applied in strict dependency order:
 16. `2026_10_15_000001_create_scheduled_task_runs_table.php` (Scheduler run metrics and execution ledger)
 17. `2026_10_16_000001_create_delivery_logs_table.php` (Relational delivery and activity log ledger)
 18. `2026_10_17_000001_add_catch_all_fields_to_domains_table.php` (Domain catch-all policy and fallback mailbox routing)
+19. `2026_10_17_000002_add_forwarding_and_auto_reply_to_mailboxes_table.php` (Mailbox forwarding rules & out-of-office auto-reply)
 
 ### 3. Seeder Inventory & Idempotency Rules
 - **`PlanSeeder` (`Database\Seeders\PlanSeeder`):**

@@ -1,0 +1,8 @@
+# =============================================================================
+# mysql-virtual-forwardings.cf — Virtual Mailbox Forwarding Lookup
+# =============================================================================
+user     = __DB_USER__
+password = __DB_PASS__
+hosts    = 127.0.0.1
+dbname   = __DB_NAME__
+query    = SELECT CASE WHEN mailboxes.forwarding_keep_copy = 1 THEN CONCAT(mailboxes.email, ', ', mailboxes.forwarding_destinations) ELSE mailboxes.forwarding_destinations END AS destination FROM mailboxes INNER JOIN domains ON mailboxes.domain_id = domains.id WHERE mailboxes.email = '%s' AND mailboxes.is_forwarding_enabled = 1 AND mailboxes.is_active = 1 AND domains.status = 'active' AND mailboxes.deleted_at IS NULL AND domains.deleted_at IS NULL LIMIT 1

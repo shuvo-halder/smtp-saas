@@ -20,6 +20,8 @@ class MailboxResource extends JsonResource
             'quota_formatted' => $this->quotaFormatted(),
             'is_active' => $this->is_active,
             'is_catchall' => $this->is_catchall,
+            'is_forwarding_enabled' => (bool) $this->is_forwarding_enabled,
+            'auto_reply_enabled' => (bool) $this->auto_reply_enabled,
             'webmail_url' => $this->webmailUrl(),
             'last_login_at' => $this->last_login_at,
             'storage' => app(\App\Services\MailboxStorageService::class)->getMailboxStorage($this->resource),

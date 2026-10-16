@@ -177,10 +177,71 @@ export interface Mailbox {
   quota_formatted: string;
   is_active: boolean;
   is_catchall: boolean;
+  is_forwarding_enabled?: boolean;
+  auto_reply_enabled?: boolean;
   webmail_url: string;
   last_login_at: string | null;
   storage?: MailboxStorageDetails;
   created_at: string;
+}
+
+export interface MailboxForwardingSettings {
+  is_enabled: boolean;
+  destinations: string[];
+  keep_copy: boolean;
+  is_routable: boolean;
+  cycle_detected: boolean;
+  cycle_path: string | null;
+  status: 'synchronized' | 'operational' | 'configured' | 'failed' | 'unknown';
+  warning: string | null;
+}
+
+export interface MailboxAutoReplySettings {
+  is_enabled: boolean;
+  subject: string | null;
+  body: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  schedule_status: 'active' | 'scheduled' | 'expired' | 'disabled';
+  is_currently_active: boolean;
+}
+
+export interface MailboxSieveSettings {
+  script_preview: string;
+  syntax_valid: boolean;
+  driver: string;
+  delivery_transport: string;
+  environment_mode: 'production' | 'local_simulation';
+}
+
+export interface MailboxMtaSettings {
+  postfix_operational: boolean;
+  map_query: string;
+  status: 'synchronized' | 'operational';
+}
+
+export interface MailboxRulesDetails {
+  mailbox_id: number;
+  email: string;
+  domain_name: string;
+  forwarding: MailboxForwardingSettings;
+  auto_reply: MailboxAutoReplySettings;
+  sieve: MailboxSieveSettings;
+  mta: MailboxMtaSettings;
+}
+
+export interface ForwardingUpdateRequest {
+  is_forwarding_enabled: boolean;
+  destinations: string[];
+  keep_copy?: boolean;
+}
+
+export interface AutoReplyUpdateRequest {
+  auto_reply_enabled: boolean;
+  subject?: string | null;
+  body?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
 }
 
 export interface EmailAliasRoutingDetails {

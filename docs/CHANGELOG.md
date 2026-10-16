@@ -1,5 +1,42 @@
 # Changelog
 
+### Tenant Email Forwarding Rules & Auto-Reply Management (Step 33)
+- **Implemented:** Database Schema & Mailbox Entity Integration:
+  - Created migration `2026_10_17_000002_add_forwarding_and_auto_reply_to_mailboxes_table.php` adding 8 columns to `mailboxes`: `is_forwarding_enabled` (boolean), `forwarding_destinations` (text), `forwarding_keep_copy` (boolean), `auto_reply_enabled` (boolean), `auto_reply_subject` (varchar 255), `auto_reply_body` (text), `auto_reply_start_at` (timestamp), `auto_reply_end_at` (timestamp).
+  - Updated `Mailbox` model with `$fillable`, `$casts`, `getForwardingDestinationsList()`, `setForwardingDestinationsList()`, `isAutoReplyActive()`, and `autoReplyScheduleStatus()`.
+  - Updated `MailboxResource` exposing `is_forwarding_enabled` and `auto_reply_enabled`.
+- **Implemented:** Mailbox Rule Service & Dovecot Sieve Pigeonhole Script Generation (`app/Services/MailboxRuleService.php`):
+  - Compliant RFC 5228 and RFC 5230 Sieve vacation script generation with `:days 1` rate limiting per sender.
+  - Sieve loop suppression: automatically skips automated responses for headers matching `Precedence: bulk|list|junk`, `Auto-Submitted`, `List-Id`, and empty `Return-Path: <>`.
+  - Date window evaluation using Dovecot date extension (`date :value "currentdate" :zone "+0000" "iso8601"`).
+  - Direct self-forwarding validation and recursive cycle detection traversing both mailbox forwardings and virtual aliases up to 30 hops.
+  - Safe `.dovecot.sieve` script synchronization to mail storage with local simulation fallback.
+- **Implemented:** Postfix Forwarding Integration & SQL Mapping:
+  - Created `postfix-config/mysql-virtual-forwardings.cf` and `server-configs/mysql-virtual-forwardings-maps.cf`.
+  - Registered `mysql-virtual-forwardings.cf` in `virtual_alias_maps` inside `postfix-config/main.cf` and `server-configs/main-cf-snippet.txt` with precedence order: `mysql-virtual-aliases.cf` -> `mysql-virtual-forwardings.cf` -> `mysql-virtual-catchall.cf`.
+  - Query dynamically expands comma-separated destinations and prepends local address when `forwarding_keep_copy = 1`.
+- **Implemented:** RESTful Mailbox Rules API (`app/Http/Controllers/Api/MailboxRuleApiController.php`):
+  - `GET /api/mailboxes/{mailbox}/rules`: Retrieves forwarding settings, auto-reply settings, compiled Sieve preview, and MTA routing telemetry.
+  - `PUT /api/mailboxes/{mailbox}/forwarding`: Updates forwarding state, destinations (up to 10), and keep-copy option with self-forwarding and loop validation.
+  - `PUT /api/mailboxes/{mailbox}/auto-reply`: Updates vacation auto-responder with HTML sanitization (`strip_tags`) and recompiles Sieve script.
+  - Protected by `auth:sanctum`, `MailboxPolicy` (`view`/`update`), active parent domain checks, and `EnsureActiveSubscription`.
+  - Persistent audit logging: Records `mailbox.forwarding_update` and `mailbox.auto_reply_update` via `AuditService::record()`.
+- **Implemented:** Operator CLI Command (`app/Console/Commands/VerifyMailboxRulesCommand.php`):
+  - `php artisan mail:verify-mailbox-rules {mailbox?} {--all}` with detailed tabular diagnostics on forwarding, auto-reply, Sieve, and MTA status.
+- **Implemented:** Next.js Tenant Dashboard UI (`frontend/`):
+  - Added TypeScript definitions in `types/index.ts` (`MailboxForwardingSettings`, `MailboxAutoReplySettings`, `MailboxSieveSettings`, `MailboxMtaSettings`, `MailboxRulesDetails`, `ForwardingUpdateRequest`, `AutoReplyUpdateRequest`).
+  - Added `useMailboxRules`, `updateMailboxForwarding`, and `updateMailboxAutoReply` hooks in `hooks/useMailboxes.ts`.
+  - Created `MailboxRulesModal.tsx` with Forwarding tab, Auto-Reply tab, and Sieve & MTA Diagnostics tab.
+  - Enhanced `MailboxRow.tsx` with `Fwd` and `Auto-Reply` status badges and settings trigger button (`SlidersHorizontal`).
+- **Automated Verification & Three-Level Matrix:**
+  - Created `tests/Feature/TenantMailboxForwardingAndAutoReplyTest.php` with 20 tests (67 assertions) covering authorization, validation, loop detection, keep copy, Sieve compilation, schedule states, XSS sanitization, and audit logs.
+  - Level A (Application & API Layer): `VERIFIED`.
+  - Level B (Configuration & SQL Maps): `VERIFIED`.
+  - Level C (End-to-End Live Mail Flow): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services; requires dedicated Linux VPS).
+  - Full backend test suite passing: **424 tests, 1,974 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+  - Frontend production build: **Next.js 14 compiles and optimizes all 27 static pages cleanly with zero errors**.
+
 ### Tenant Catch-All Mailbox & Inbound Email Routing Rules (Step 32)
 - **Implemented:** Database Schema & Domain Entity Integration:
   - Created migration `2026_10_17_000001_add_catch_all_fields_to_domains_table.php` adding `catch_all_policy` (varchar(32), default `'disabled'`) and `catch_all_mailbox_id` (foreignId to `mailboxes`, nullable, `nullOnDelete()`) to `domains` table.

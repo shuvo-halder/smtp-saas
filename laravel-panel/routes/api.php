@@ -63,6 +63,11 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             Route::post('/mailboxes/{mailbox}/change-password', [MailboxApiController::class, 'changePassword']);
             Route::post('/mailboxes/{mailbox}/toggle', [MailboxApiController::class, 'toggle']);
 
+            // Mailbox Forwarding Rules & Auto-Reply (Step 33)
+            Route::get('/mailboxes/{mailbox}/rules', [\App\Http\Controllers\Api\MailboxRuleApiController::class, 'show']);
+            Route::put('/mailboxes/{mailbox}/forwarding', [\App\Http\Controllers\Api\MailboxRuleApiController::class, 'updateForwarding']);
+            Route::put('/mailboxes/{mailbox}/auto-reply', [\App\Http\Controllers\Api\MailboxRuleApiController::class, 'updateAutoReply']);
+
             // Email Aliases & Forwarding (Step 29)
             Route::get('/aliases', [AliasApiController::class, 'index']);
             Route::post('/aliases', [AliasApiController::class, 'store']);

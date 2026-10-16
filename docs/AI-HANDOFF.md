@@ -458,8 +458,47 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 33 — Tenant Email Forwarding Rules & Auto-Reply Management (IMPLEMENTED & VERIFIED):**
+  - **Database Migration & Mailbox Model:**
+    - Migration `2026_10_17_000002_add_forwarding_and_auto_reply_to_mailboxes_table.php` added 8 columns: `is_forwarding_enabled` (bool), `forwarding_destinations` (text), `forwarding_keep_copy` (bool), `auto_reply_enabled` (bool), `auto_reply_subject` (varchar 255), `auto_reply_body` (text), `auto_reply_start_at` (timestamp), `auto_reply_end_at` (timestamp).
+    - Added helper methods on `Mailbox`: `getForwardingDestinationsList()`, `setForwardingDestinationsList()`, `isAutoReplyActive()`, `autoReplyScheduleStatus()`.
+    - Exposed `is_forwarding_enabled` and `auto_reply_enabled` in `MailboxResource`.
+  - **MailboxRuleService & Dovecot Sieve Pigeonhole Compiler:**
+    - `MailboxRuleService.php` generates RFC 5228 and RFC 5230 compliant Sieve vacation scripts with `:days 1` rate limiting.
+    - Sieve loop suppression: automatically suppresses vacation replies for messages with headers matching `Precedence: bulk|list|junk`, `Auto-Submitted`, `List-Id`, and empty `Return-Path: <>`.
+    - Date window evaluation using Dovecot date extension (`date :value "currentdate" :zone "+0000" "iso8601"`).
+    - Multi-hop forwarding loop and cycle detection traversing both mailbox forwardings and virtual aliases up to 30 hops.
+    - Direct self-forwarding validation.
+    - Safe Dovecot `.dovecot.sieve` synchronization with fallback simulation when mail storage is unmounted.
+  - **Postfix Multi-Recipient Expansion & SQL Maps:**
+    - Created `postfix-config/mysql-virtual-forwardings.cf` and `server-configs/mysql-virtual-forwardings-maps.cf`.
+    - Integrated into `virtual_alias_maps` in `postfix-config/main.cf` and `server-configs/main-cf-snippet.txt` with evaluation precedence: `aliases -> forwardings -> catchall`.
+    - Postfix expansion: returns `CONCAT(email, ', ', forwarding_destinations)` when `forwarding_keep_copy = true` (delivering both locally and externally) or `forwarding_destinations` when `forwarding_keep_copy = false`.
+  - **RESTful API & Security Boundaries:**
+    - `GET /api/mailboxes/{mailbox}/rules`: Inspects forwarding rules, auto-reply settings, compiled Sieve script preview, and MTA routing telemetry.
+    - `PUT /api/mailboxes/{mailbox}/forwarding`: Updates forwarding state, destinations (up to 10), and keep copy option. Detects loops and self-forwarding.
+    - `PUT /api/mailboxes/{mailbox}/auto-reply`: Updates vacation auto-responder with HTML sanitization (`strip_tags`) and recompiles Sieve script.
+    - Gated by `auth:sanctum`, `MailboxPolicy` (`view`/`update`), active parent domain checks, and `EnsureActiveSubscription`.
+    - Persistent audit logging: Records `mailbox.forwarding_update` and `mailbox.auto_reply_update` via `AuditService::record()`.
+  - **Operator CLI Diagnostic Tool:**
+    - `php artisan mail:verify-mailbox-rules {mailbox?} {--all}` with detailed tabular diagnostics on forwarding, auto-reply, Sieve, and MTA status.
+  - **Next.js Frontend Experience:**
+    - Added TypeScript definitions in `types/index.ts` and hooks in `hooks/useMailboxes.ts`.
+    - Created `MailboxRulesModal.tsx` with Forwarding, Auto-Reply, and Sieve & MTA Diagnostics tabs.
+    - Updated `MailboxRow.tsx` with status badges (`Fwd`, `Auto-Reply`) and rules modal launcher button.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `TenantMailboxForwardingAndAutoReplyTest.php` passes (20/20 tests, 67 assertions).
+    - Level B (Configuration & SQL Maps): `VERIFIED`. Exact `.cf` queries and CLI command verified against database.
+    - Level C (End-to-End Live Mail Flow): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services; requires dedicated Linux VPS).
+  - **Automated Verification & Test Coverage:**
+    - Feature test suite: **20 tests, 67 assertions passing (100%)**.
+    - Full backend regression test suite: **424 tests, 1,974 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 33 — Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics:**
+- **Step 34 — Domain DNS Records Wizard, Inbound Authentication & Deliverability Diagnostics:**
   - Automated DNS record generator & copyable snippets (MX, SPF, DKIM public key, DMARC policy, CNAME autodiscover).
   - One-click DNS diagnostic probe querying public nameservers with propagation feedback and alignment badges.
   - Inbound authentication telemetry and health scorecards per domain.
@@ -468,6 +507,7 @@ This document is the operational starting point for any AI coding agent working 
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

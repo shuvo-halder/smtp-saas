@@ -8,8 +8,9 @@ import { Badge } from '@/components/ui/badge';
 import ChangePasswordModal from './ChangePasswordModal';
 import EditMailboxModal from './EditMailboxModal';
 import MailboxStorageModal from './MailboxStorageModal';
+import MailboxRulesModal from './MailboxRulesModal';
 import { Mailbox } from '@/types';
-import { ExternalLink, Edit2, Key, Power, Trash2, HardDrive } from 'lucide-react';
+import { ExternalLink, Edit2, Key, Power, Trash2, HardDrive, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface MailboxRowProps {
@@ -22,6 +23,7 @@ export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: M
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isViewingStorage, setIsViewingStorage] = useState(false);
+  const [isViewingRules, setIsViewingRules] = useState(false);
   const [isToggling, setIsToggling] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -59,7 +61,19 @@ export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: M
     <>
       <tr className="border-b border-gray-200 hover:bg-gray-50/50 transition-colors">
         <td className="py-3 px-4 whitespace-nowrap">
-          <div className="font-medium text-gray-900">{mailbox.email}</div>
+          <div className="flex items-center gap-2">
+            <div className="font-medium text-gray-900">{mailbox.email}</div>
+            {mailbox.is_forwarding_enabled && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200 font-normal">
+                Fwd
+              </Badge>
+            )}
+            {mailbox.auto_reply_enabled && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200 font-normal">
+                Auto-Reply
+              </Badge>
+            )}
+          </div>
           {mailbox.display_name && (
             <div className="text-xs text-gray-500">{mailbox.display_name}</div>
           )}
@@ -177,6 +191,16 @@ export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: M
           <Button
             variant="ghost"
             size="sm"
+            onClick={() => setIsViewingRules(true)}
+            title="Forwarding & Auto-Reply Rules"
+            className="h-8 px-2 text-gray-500 hover:text-indigo-600"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setIsEditing(true)}
             title="Edit display name"
             className="h-8 px-2"
@@ -218,6 +242,18 @@ export default function MailboxRow({ mailbox, showDomain = false, onRefresh }: M
           </Button>
         </td>
       </tr>
+
+      {isViewingRules && (
+        <MailboxRulesModal
+          mailboxId={mailbox.id}
+          email={mailbox.email}
+          onClose={() => setIsViewingRules(false)}
+          onSuccess={() => {
+            setIsViewingRules(false);
+            onRefresh();
+          }}
+        />
+      )}
 
       {isEditing && (
         <EditMailboxModal

@@ -220,5 +220,36 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
   - Added `useDomainCatchAll` and `updateCatchAll` SWR hooks in `hooks/useDomains.ts`.
   - Embedded `CatchAllSettingsCard.tsx` on the domain management page (`/domains/[id]`), providing policy radio selectors (`disabled`, `reject`, `mailbox`, `discard`), active mailbox dropdown picker, high-risk discard warning, spam flood advisory, and routing status badges (`operational`, `synchronized`, `configured`, `failed`).
 
+## 22. Tenant Email Forwarding Rules & Auto-Reply Management (Step 33)
+**Status:** IMPLEMENTED & VERIFIED (Step 33)
+**Purpose:** Provide tenant self-service email forwarding rules (with multi-destination support, loop detection, and preserve local delivery option) and out-of-office vacation auto-reply management with Dovecot Sieve Pigeonhole script compilation.
+**Components:**
+- **Database Schema & Mailbox Entity:**
+  - Added `is_forwarding_enabled`, `forwarding_destinations`, `forwarding_keep_copy`, `auto_reply_enabled`, `auto_reply_subject`, `auto_reply_body`, `auto_reply_start_at`, `auto_reply_end_at` to `mailboxes` table via migration `2026_10_17_000002_add_forwarding_and_auto_reply_to_mailboxes_table.php`.
+  - Added helpers to `Mailbox`: `getForwardingDestinationsList()`, `setForwardingDestinationsList()`, `isAutoReplyActive()`, `autoReplyScheduleStatus()`.
+  - Added `is_forwarding_enabled` and `auto_reply_enabled` flags to `MailboxResource`.
+- **Postfix MySQL Configuration Alignment:**
+  - Created `postfix-config/mysql-virtual-forwardings.cf` and `server-configs/mysql-virtual-forwardings-maps.cf`.
+  - Registered `mysql-virtual-forwardings.cf` in `virtual_alias_maps` inside `postfix-config/main.cf` and `server-configs/main-cf-snippet.txt` after `mysql-virtual-aliases.cf`.
+  - Expands recipients dynamically; prepends local mailbox address when `forwarding_keep_copy = 1`.
+- **Sieve Script Compilation & Rule Service (`app/Services/MailboxRuleService.php`):**
+  - RFC 5228, RFC 5230, and RFC 3894 compliant Sieve script generation.
+  - Sieve vacation action with rate limiting (:days 1) and automated message exclusion headers (`Precedence: bulk|list|junk`, `Auto-Submitted`, `List-Id`, `Return-Path: <>`).
+  - Dynamic calendar date checks (`currentdate :value "ge"|"le"`).
+  - Multi-hop circular forwarding cycle detection across mailboxes and `email_aliases` up to 30 hops.
+  - Operator CLI command `php artisan mail:verify-mailbox-rules {mailbox?} {--all}`.
+- **RESTful API & Security Boundaries:**
+  - `GET /api/mailboxes/{mailbox}/rules`: Retrieve forwarding, auto-reply, Sieve script preview, and MTA routing telemetry.
+  - `PUT /api/mailboxes/{mailbox}/forwarding`: Update forwarding settings with strict validation (self-forwarding rejection, circular chain rejection, array of up to 10 emails, preserve local delivery flag).
+  - `PUT /api/mailboxes/{mailbox}/auto-reply`: Update auto-reply settings with HTML sanitization (`strip_tags`), length limits, and date validation (`end_at > start_at`).
+  - Protected by `auth:sanctum`, `MailboxPolicy`, and `EnsureActiveSubscription`.
+  - Immutable audit trail: Emits `mailbox.forwarding_update` and `mailbox.auto_reply_update` events via `AuditService`.
+- **Next.js Frontend Integration (`frontend/`):**
+  - Added TypeScript interfaces in `types/index.ts` (`MailboxForwardingSettings`, `MailboxAutoReplySettings`, `MailboxRulesDetails`, `ForwardingUpdateRequest`, `AutoReplyUpdateRequest`).
+  - Added `useMailboxRules`, `updateMailboxForwarding`, and `updateMailboxAutoReply` SWR hooks in `hooks/useMailboxes.ts`.
+  - Created `MailboxRulesModal.tsx` providing a multi-tab interface for Forwarding, Out of Office Auto-Reply, and Sieve & MTA Diagnostics.
+  - Updated `MailboxRow.tsx` with `Fwd` and `Auto-Reply` status badges and a dedicated settings button (`SlidersHorizontal`) to open the rules modal.
+
+
 
 

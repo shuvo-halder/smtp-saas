@@ -34,6 +34,9 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | POST | `/mailboxes/{id}/change-password`| Change mailbox password (min 8 chars). Hashes with SHA512-CRYPT. Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 | POST | `/mailboxes/{id}/toggle` | Toggle active/disabled status. Disabling is always allowed for security/quarantine. Enabling strictly checks parent domain is active and tenant subscription is active (HTTP 422 if violated). Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 | DELETE| `/mailboxes/{id}` | Soft delete mailbox and remove virtual config. Governed by `MailboxPolicy::delete`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| GET | `/mailboxes/{mailbox}/rules` | Retrieve mailbox forwarding rules, auto-reply vacation configuration, compiled Sieve script preview, and MTA routing telemetry. Governed by `MailboxPolicy::view`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| PUT | `/mailboxes/{mailbox}/forwarding` | Update mailbox forwarding state, multi-destination list (up to 10), and local delivery copy retention (`forwarding_keep_copy`). Strictly detects self-forwarding and multi-hop forwarding loops (HTTP 422). Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
+| PUT | `/mailboxes/{mailbox}/auto-reply` | Update mailbox vacation out-of-office auto-reply settings, date range schedule, subject, and body. Sanitizes HTML tags for XSS protection. Automatically compiles and syncs Dovecot Sieve Pigeonhole script with loop-suppression headers. Governed by `MailboxPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 
 ## Tenant Email Aliases & Forwarding API (Step 29, Requires active subscription)
 | Method | Endpoint | Description | Middleware |
@@ -624,6 +627,88 @@ All catch-all endpoints require an authenticated Sanctum session and an active t
   - Requires `mailbox_id` pointing to an active, non-deleted mailbox belonging to the same domain and tenant.
 - **`discard`**: Acknowledges delivery with SMTP 250 OK and silently drops messages to `devnull@localhost` without generating a bounce.
   - Requires explicit confirmation in the UI; displays destructive discard warning alert.
+
+---
+
+## Step 33 — Tenant Mailbox Forwarding Rules & Auto-Reply Management Contracts
+
+All mailbox forwarding and auto-reply endpoints require an authenticated Sanctum session, an active tenant subscription (`EnsureActiveSubscription`), and an active verified parent domain. Authorization is strictly governed per-tenant via `MailboxPolicy`.
+
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/api/mailboxes/{mailbox}/rules` | Inspect mailbox forwarding rules, auto-reply vacation response settings, Sieve script preview, and Postfix MTA forwarding diagnostics. | `auth:sanctum`, `EnsureActiveSubscription` |
+| PUT | `/api/mailboxes/{mailbox}/forwarding` | Update mailbox forwarding configuration, multi-destination list, and local copy retention. Validates against self-forwarding and multi-hop forwarding cycles. | `auth:sanctum`, `EnsureActiveSubscription` |
+| PUT | `/api/mailboxes/{mailbox}/auto-reply` | Update mailbox auto-reply (vacation responder) settings, active window, subject, and body. Sanitizes HTML tags and recompiles Dovecot Sieve script. | `auth:sanctum`, `EnsureActiveSubscription` |
+
+### Mailbox Rules Details Resource (`GET /api/mailboxes/{mailbox}/rules`)
+```json
+{
+  "data": {
+    "mailbox_id": 12,
+    "email": "user@example.com",
+    "domain_name": "example.com",
+    "is_active": true,
+    "forwarding": {
+      "is_enabled": true,
+      "destinations": [
+        "external@gmail.com",
+        "backup@otherdomain.com"
+      ],
+      "keep_copy": true,
+      "destinations_count": 2
+    },
+    "auto_reply": {
+      "is_enabled": true,
+      "subject": "Out of Office: Annual Leave",
+      "body": "Hello, I am out of the office until next Monday. For urgent matters, contact support@example.com.",
+      "start_at": "2026-10-18T00:00:00.000000Z",
+      "end_at": "2026-10-25T23:59:59.000000Z",
+      "is_active_now": false,
+      "schedule_status": "scheduled"
+    },
+    "sieve": {
+      "compiled_script": "require [\"vacation\"];\n\n# Dovecot Sieve Vacation Script\n...",
+      "is_compiled": true,
+      "storage_driver": "dovecot_sieve_pigeonhole",
+      "rate_limit_days": 1
+    },
+    "mta": {
+      "is_routable": true,
+      "forwarding_action": "forward_and_deliver_local",
+      "effective_destinations": [
+        "user@example.com",
+        "external@gmail.com",
+        "backup@otherdomain.com"
+      ],
+      "driver": "postfix_mysql_forwarding_map"
+    }
+  }
+}
+```
+
+### Forwarding Update Request (`PUT /api/mailboxes/{mailbox}/forwarding`)
+```json
+{
+  "is_forwarding_enabled": true,
+  "forwarding_destinations": [
+    "manager@externalcorp.com",
+    "personal@gmail.com"
+  ],
+  "forwarding_keep_copy": true
+}
+```
+
+### Auto-Reply Update Request (`PUT /api/mailboxes/{mailbox}/auto-reply`)
+```json
+{
+  "auto_reply_enabled": true,
+  "auto_reply_subject": "Out of Office: Vacation",
+  "auto_reply_body": "I am traveling with limited email access. Please contact support for urgent issues.",
+  "auto_reply_start_at": "2026-10-20T00:00:00Z",
+  "auto_reply_end_at": "2026-10-27T23:59:59Z"
+}
+```
+
 
 
 

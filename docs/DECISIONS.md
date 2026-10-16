@@ -433,3 +433,20 @@ ACCEPTED & IMPLEMENTED
 5. **Printable Invoice Inspection:** Created `InvoiceDetailModal.tsx` providing a standalone printable modal layout and direct PDF downloads.
 ### DO NOT CHANGE WITHOUT APPROVAL
 Yes
+
+---
+
+## Decision: Tenant Mailbox Forwarding & Auto-Reply Architecture (Step 33)
+### Status
+ACCEPTED & IMPLEMENTED
+### Date
+2026-10-17 (Step 33)
+### Decision
+1. **Architectural Separation of Aliases vs Mailbox Forwarding:** Virtual aliases (`email_aliases`) are standalone email routing records without associated physical storage. In contrast, mailbox forwarding rules (`mailboxes.is_forwarding_enabled`) belong directly to physical mailboxes and support local delivery preservation (`forwarding_keep_copy = true`).
+2. **Postfix Multiple Recipient Expansion:** In `mysql-virtual-forwardings.cf`, when `forwarding_keep_copy = 1`, the query returns `CONCAT(mailboxes.email, ', ', mailboxes.forwarding_destinations)`. Postfix natively splits comma-separated strings to deliver one copy to the local mailbox via `virtual_mailbox_maps` and relays one copy to each forwarding destination. If `keep_copy = 0`, only external destinations are returned.
+3. **Resolution Precedence:** Virtual alias maps in `/etc/postfix/main.cf` evaluate in strict sequence: `mysql-virtual-aliases.cf` -> `mysql-virtual-forwardings.cf` -> `mysql-virtual-catchall.cf`.
+4. **Dovecot Sieve Vacation Pigeonhole Integration:** Auto-replies are compiled to RFC 5228 and RFC 5230 compliant `.dovecot.sieve` scripts with `:days 1` rate limiting per sender and anti-loop headers (`Precedence: bulk|list|junk`, `Auto-Submitted`, `List-Id`, `Return-Path: <>`).
+5. **Cycle Detection & Input Sanitization:** Forwarding destinations undergo graph traversal up to 30 hops across mailboxes and aliases to prevent self-forwarding and circular forwarding loops. Auto-reply subjects and bodies are stripped of HTML tags to prevent stored XSS attacks.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes
+

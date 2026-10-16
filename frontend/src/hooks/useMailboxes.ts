@@ -90,3 +90,34 @@ export function useMailboxStorage(mailboxId?: number | string) {
   };
 }
 
+export function useMailboxRules(mailboxId?: number | string) {
+  const { data, error, mutate, isLoading } = useSWR<{ data: import('@/types').MailboxRulesDetails }>(
+    mailboxId ? `/mailboxes/${mailboxId}/rules` : null,
+    fetcher
+  );
+
+  return {
+    rules: data?.data,
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
+export async function updateMailboxForwarding(
+  mailboxId: number | string,
+  payload: import('@/types').ForwardingUpdateRequest
+) {
+  const res = await api.put(`/mailboxes/${mailboxId}/forwarding`, payload);
+  return res.data;
+}
+
+export async function updateMailboxAutoReply(
+  mailboxId: number | string,
+  payload: import('@/types').AutoReplyUpdateRequest
+) {
+  const res = await api.put(`/mailboxes/${mailboxId}/auto-reply`, payload);
+  return res.data;
+}
+
+
