@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   Terminal,
   AlertCircle,
+  Bell,
   X
 } from 'lucide-react';
 
@@ -460,6 +461,42 @@ export default function AdminSystemHealthPage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* 8. Tenant Notification Reliability & Pruning Posture */}
+        {components.notifications && (
+          <Card className="shadow-sm border sm:col-span-2 lg:col-span-2 xl:col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <Bell className="w-4 h-4 text-indigo-600" />
+                {t('components.notifications.title')}
+              </CardTitle>
+              {getStatusBadge(components.notifications.status)}
+            </CardHeader>
+            <CardContent className="space-y-2 pt-2 text-xs">
+              <p className="text-gray-500">{t('components.notifications.desc')}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t">
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.total_alerts')}:</span>
+                  <p className="font-mono font-medium text-gray-900">{components.notifications.details.total_notifications ?? 0}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.active_unread')}:</span>
+                  <p className="font-mono font-medium text-blue-600">{components.notifications.details.unread_notifications ?? 0}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.critical_unresolved')}:</span>
+                  <p className={`font-mono font-medium ${components.notifications.details.unresolved_critical_alerts > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600'}`}>
+                    {components.notifications.details.unresolved_critical_alerts ?? 0}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.prune_status')}:</span>
+                  <p className="font-mono text-gray-700 capitalize">{components.notifications.details.last_prune_status ?? 'pending'}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Recent Scheduled Task Executions Table */}

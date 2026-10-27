@@ -697,8 +697,46 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 39 — Tenant Notification Delivery Reliability & Operational Monitoring (IMPLEMENTED & VERIFIED):**
+  - **Concurrency-Safe Deduplication & Delivery Reliability:**
+    - Neutralized duplicate unread alert race conditions in `TenantNotificationService::notify()` via atomic mutex lock (`Cache::lock("tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey), 5)->block(3)`).
+    - Verified under concurrency that duplicate unread alerts are never created; identical events return the existing active notification.
+    - Operational metrics tracking: records deduplication outcomes, creation successes, and structured failure diagnostics with 24-hour cache counters.
+  - **Complex & Malformed Metadata Sanitization:**
+    - Enhanced `TenantNotificationService::scrubSensitiveData()` with recursion depth guard ($depth \le 10$) preventing stack exhaustion or circular reference panics.
+    - Stream and file resources safely converted to `'[Resource: type]'` preventing JSON serialization exceptions.
+    - Objects converted via `toArray()`, `JsonSerializable`, `__toString()`, or class descriptor.
+    - Strings normalized to valid UTF-8 via `mb_convert_encoding()`.
+  - **Pruning Command Hardening & Boundary Validation:**
+    - Validated input boundaries in `PruneNotificationsCommand`: `--read-days >= 1`, `--dismissed-days >= 1`, `--stale-days >= 1`, `1 <= --batch-size <= 5000`. Exits with `Command::INVALID` (code 2) on failure.
+    - Caches execution telemetry in `notifications:prune:last_execution` (executed_at, status, counts, duration_ms, options).
+    - Overlap protection verified: scheduler `withoutOverlapping(15)` plus command-level `Cache::lock('notifications_prune_lock', 300)`.
+    - Stale 180-day unread non-critical rule verified while unresolved critical alerts remain 100% immune from deletion.
+  - **Operational Status & Admin Diagnostics:**
+    - Added `getOperationalStatus()` to `TenantNotificationService` reporting aggregate metrics, unread counts, unresolved critical alerts, 24-hour counters, retention settings, and scheduler registration posture.
+    - Strict privacy: completely excludes tenant notification content, titles, messages, and email addresses.
+    - Integrated `checkNotifications()` into `SystemHealthService::getHealth()`, incorporating notification delivery posture into overall system health.
+    - Registered dedicated route `GET /api/admin/system/notifications` protected under `EnsureAdmin` and `admin.permission:admin.stats.read`.
+  - **API Query Validation Hardening:**
+    - Hardened `TenantNotificationApiController::index` query validation: `category` validated against `VALID_CATEGORIES` and `severity` against `VALID_SEVERITIES`. Invalid queries return HTTP 422.
+  - **Next.js Admin UI Integration:**
+    - Updated TypeScript interfaces in `frontend/src/types/index.ts` with `notifications?: ComponentHealth` and `NotificationOperationalStatus`.
+    - Added localization keys in `frontend/messages/en.json`.
+    - Rendered 8th component card in `frontend/src/app/(admin)/admin/system-health/page.tsx` with `Bell` icon displaying total alerts, active unread, unresolved critical count, and pruning posture.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `TenantNotificationReliabilityTest.php` passes with 17 tests (94 assertions).
+    - Level B (Concurrency, Telemetry, Metadata & Invariants): `VERIFIED`. Concurrency locking, failure tracking, resource/object sanitization, strict query validation, pruning boundaries, overlap prevention, and admin privacy verified.
+    - Level C (End-to-End Live Multi-Channel Push / Webhooks): `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - **Automated Verification & Test Coverage:**
+    - Reliability feature test suite (`tests/Feature/TenantNotificationReliabilityTest.php`): **17 tests, 94 assertions passing (100%)**.
+    - All 3 notification feature test suites: **48 tests, 261 assertions passing (100%)**.
+    - Full backend regression test suite: **538 tests, 2,695 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 39 — Tenant Security & Audit Webhooks / Multi-Channel Alert Delivery:**
+- **Step 40 — Tenant Webhooks & Multi-Channel Alert Delivery Infrastructure Acceptance:**
   - Configurable tenant webhook endpoints with HMAC-SHA256 signature verification.
   - Granular event subscriptions (security incidents, quota exhaustion, DNS drift).
   - Webhook delivery retry queue with exponential backoff and dead-letter handling.
@@ -707,6 +745,7 @@ This document is the operational starting point for any AI coding agent working 
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

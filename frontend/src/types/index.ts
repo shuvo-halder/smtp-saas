@@ -831,8 +831,36 @@ export interface SystemHealthResponse {
     task_failures: ComponentHealth;
     queue: ComponentHealth;
     backup: ComponentHealth;
+    notifications?: ComponentHealth;
   };
   recent_tasks: ScheduledTaskRunItem[];
+}
+
+export interface NotificationOperationalStatus {
+  status: 'HEALTHY' | 'DEGRADED';
+  timestamp: string;
+  summary: {
+    total_notifications: number;
+    unread_notifications: number;
+    unresolved_critical_alerts: number;
+    recent_24h_created: number;
+    recent_24h_deduplicated: number;
+    recent_24h_failures: number;
+    last_failure: any | null;
+  };
+  pruning: {
+    last_run: any | null;
+    read_retention_days: number;
+    dismissed_retention_days: number;
+    stale_unread_retention_days: number;
+    critical_alerts_protected: boolean;
+    audit_abuse_protected: boolean;
+  };
+  scheduler: {
+    task_registered: boolean;
+    expression: string;
+    overlapping_lock_active: boolean;
+  };
 }
 
 export interface TenantSubscriptionSummary {

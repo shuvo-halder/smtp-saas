@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ScheduledTaskRun;
 use App\Services\Health\SystemHealthService;
+use App\Services\TenantNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -54,5 +55,15 @@ class AdminSystemHealthApiController extends Controller
         $paginated = $query->paginate($perPage);
 
         return response()->json($paginated, 200);
+    }
+
+    /**
+     * Authenticated administrative endpoint for tenant notification delivery reliability & operational monitoring.
+     * Guarded by EnsureAdmin and RequireAdminPermission:admin.stats.read.
+     * Exposes ZERO tenant notification content, titles, messages, or emails.
+     */
+    public function notifications(TenantNotificationService $notificationService): JsonResponse
+    {
+        return response()->json($notificationService->getOperationalStatus(), 200);
     }
 }

@@ -525,9 +525,18 @@
         "backup": {
           "title": "Disaster Recovery Posture",
           "desc": "Local backup archives and cryptographic verification."
+        },
+        "notifications": {
+          "title": "Tenant Notifications & Pruning",
+          "desc": "Alert delivery reliability, deduplication, and retention pruning posture."
         }
       },
       "labels": {
+        "total_alerts": "Total Alerts",
+        "active_unread": "Active Unread",
+        "critical_unresolved": "Unresolved Critical",
+        "pruned_at": "Last Pruned",
+        "prune_status": "Prune Status",
         "environment": "Environment",
         "php_version": "PHP Version",
         "framework": "Framework",

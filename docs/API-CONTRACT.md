@@ -1510,6 +1510,56 @@ Returns aggregated metrics for notification drawer badges and tab filters.
 }
 ```
 
+---
+
+#### 10. Admin Notification Operational Telemetry (`GET /api/admin/system/notifications`)
+Returns real-time operational status, delivery reliability, deduplication metrics, and retention pruning posture for authorized administrators.
+
+**Authorization:** Strictly guarded by `EnsureAdmin` and `RequireAdminPermission:admin.stats.read`.  
+**Privacy Invariant:** Exposes zero tenant content, zero notification titles, zero message bodies, and zero tenant email addresses.
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "status": "HEALTHY",
+  "timestamp": "2026-10-28T02:30:00Z",
+  "summary": {
+    "total_notifications": 124,
+    "unread_notifications": 8,
+    "unresolved_critical_alerts": 1,
+    "recent_24h_created": 15,
+    "recent_24h_deduplicated": 4,
+    "recent_24h_failures": 0,
+    "last_failure": null
+  },
+  "pruning": {
+    "last_run": {
+      "executed_at": "2026-10-28T04:30:00Z",
+      "status": "success",
+      "read_days": 90,
+      "dismissed_days": 30,
+      "stale_days": 180,
+      "batch_size": 500,
+      "dry_run": false,
+      "total_eligible": 5,
+      "pruned_count": 5,
+      "duration_ms": 38
+    },
+    "read_retention_days": 90,
+    "dismissed_retention_days": 30,
+    "stale_unread_retention_days": 180,
+    "critical_alerts_protected": true,
+    "audit_abuse_protected": true
+  },
+  "scheduler": {
+    "task_registered": true,
+    "expression": "30 4 * * *",
+    "overlapping_lock_active": false
+  }
+}
+```
+
+
 
 
 

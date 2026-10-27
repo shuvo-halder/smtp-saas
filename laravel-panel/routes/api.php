@@ -114,10 +114,11 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
                 Route::get('/charts', [AdminApiController::class, 'chartData']);
                 Route::get('/server-stats', [AdminApiController::class, 'serverStats']);
 
-                // System Health & Scheduled Task Reliability (Step 19)
+                // System Health & Scheduled Task Reliability (Step 19 & 39)
                 Route::prefix('system')->group(function () {
                     Route::get('/health', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'index']);
                     Route::get('/tasks', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'tasks']);
+                    Route::get('/notifications', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'notifications']);
                 });
             });
             

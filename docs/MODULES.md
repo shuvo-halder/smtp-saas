@@ -406,6 +406,30 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
   - Notification Preferences management card: category toggle switches, description copy, immutable locked category badges, and security guidance callouts.
   - Settings page integration: Notification Preferences discovery card added to `/settings`.
 
+## 28. Tenant Notification Delivery Reliability & Operational Monitoring (Step 39)
+**Status:** IMPLEMENTED & VERIFIED (Step 39)
+**Purpose:** Improve application-level delivery reliability, concurrency safety, complex metadata sanitization, and administrative operational observability across the tenant notification subsystem.
+**Components:**
+- **Concurrency-Safe Deduplication & Service Telemetry (`TenantNotificationService`):**
+  - Concurrency serialization via atomic mutex lock (`Cache::lock("tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey), 5)->block(3)`) neutralizing duplicate insert race conditions.
+  - Operational metrics tracking: `recordDeduplicationOutcome()`, `recordCreationOutcome()`, and `recordFailureOutcome()` recording 24-hour counters and last failure diagnostics in cache.
+  - Complex metadata sanitization (`scrubSensitiveData()`): recursion guard ($depth \le 10$), resource handle conversion, object-to-array serialization, and UTF-8 byte normalization.
+  - Operational status telemetry engine: `getOperationalStatus()` computing system posture, unread counts, unresolved critical alerts, 24-hour deduplication and failure counters, and retention pruning health.
+- **Hardened Retention Pruning (`PruneNotificationsCommand`):**
+  - Bound validation: strictly validates `--read-days >= 1`, `--dismissed-days >= 1`, `--stale-days >= 1`, and `1 <= --batch-size <= 5000`, rejecting invalid options with `Command::INVALID`.
+  - Execution summary caching: records duration in milliseconds, deleted record counts, eligible counts, and exit status in `notifications:prune:last_execution`.
+  - Double overlap protection: scheduler `withoutOverlapping(15)` combined with command-level atomic `Cache::lock('notifications_prune_lock', 300)`.
+- **System Health & Admin Diagnostics (`SystemHealthService` & `AdminSystemHealthApiController`):**
+  - Integrated `checkNotifications()` into core `SystemHealthService::getHealth()`, assessing notification health alongside database, app, redis, and scheduler components.
+  - Dedicated admin diagnostic route: `GET /api/admin/system/notifications` protected under `EnsureAdmin` and `admin.permission:admin.stats.read`.
+  - Zero-leakage privacy guarantee: reports only aggregate numerical metrics and subsystem states; completely excludes private tenant notification content, titles, messages, or email addresses.
+- **Predictable API Query Validation (`TenantNotificationApiController`):**
+  - Validates `category` and `severity` query parameters strictly against enumerated sets (`VALID_CATEGORIES`, `VALID_SEVERITIES`), returning HTTP 422 on invalid input rather than silently ignoring filters.
+- **Admin System Health UI Component (`frontend/src/app/(admin)/admin/system-health/page.tsx`):**
+  - 8th component posture card rendered with `Bell` icon displaying total alerts, active unread, unresolved critical count, and last pruning execution posture.
+  - Complete `next-intl` localization with zero hardcoded strings.
+
+
 
 
 

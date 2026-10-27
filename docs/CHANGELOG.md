@@ -1,5 +1,33 @@
 # Changelog
 
+### Tenant Notification Delivery Reliability & Operational Monitoring (Step 39)
+- **Implemented:** Concurrency-Safe Deduplication & Service Telemetry:
+  - Neutralized duplicate unread alert race conditions in `TenantNotificationService::notify()` via atomic mutex lock (`Cache::lock("tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey), 5)->block(3)`).
+  - Added operational tracking methods `recordDeduplicationOutcome()`, `recordCreationOutcome()`, and `recordFailureOutcome()`.
+  - Added `notifications:deduplicated_24h_count`, `notifications:created_24h_count`, and `notifications:failures_24h_count` cache counters.
+  - Enhanced `scrubSensitiveData()` with recursion depth limit ($depth \le 10$), safe stream/file resource transformation (`'[Resource: type]'`), object-to-array serialization, and UTF-8 byte normalization.
+  - Added `getOperationalStatus()` returning aggregated numerical counters, unread counts, unresolved critical alerts, 24-hour counters, retention settings, and scheduler registration status. Exposes zero tenant content, titles, messages, or emails.
+- **Implemented:** Retention Pruning Hardening & Input Validation:
+  - Added `--stale-days=180` option to `PruneNotificationsCommand` and `TenantNotificationService::pruneExpiredNotifications()`.
+  - Implemented boundary validation for `--read-days >= 1`, `--dismissed-days >= 1`, `--stale-days >= 1`, and `1 <= --batch-size <= 5000`, rejecting invalid options with `Command::INVALID` (code 2).
+  - Captured execution telemetry in `notifications:prune:last_execution` with duration, pruned counts, eligible counts, and exit status.
+  - Verified double overlap protection: scheduler `withoutOverlapping(15)` plus command-level `Cache::lock('notifications_prune_lock', 300)`.
+- **Implemented:** System Health & Administrative Monitoring:
+  - Integrated `checkNotifications(): array` into core `SystemHealthService::getHealth()`, incorporating notification delivery posture into overall system health.
+  - Registered dedicated route `GET /api/admin/system/notifications` protected under `EnsureAdmin` and `admin.permission:admin.stats.read`.
+  - Hardened `TenantNotificationApiController::index` query validation: `category` validated against `VALID_CATEGORIES` and `severity` against `VALID_SEVERITIES`. Invalid queries return HTTP 422.
+- **Implemented:** Next.js Admin UI Integration:
+  - Updated TypeScript interfaces in `frontend/src/types/index.ts` with `notifications?: ComponentHealth` and `NotificationOperationalStatus`.
+  - Added localization keys in `frontend/messages/en.json`.
+  - Rendered 8th component posture card in `frontend/src/app/(admin)/admin/system-health/page.tsx` with `Bell` icon displaying total alerts, active unread, unresolved critical count, and pruning posture.
+- **Automated Verification & Three-Level Matrix:**
+  - Created `tests/Feature/TenantNotificationReliabilityTest.php` with 17 tests (94 assertions) covering concurrency deduplication, failure tracking, resource/object sanitization, strict query validation, pruning boundaries, overlap prevention, and admin privacy.
+  - All 3 notification test suites passing: **48 tests, 261 assertions passing (100%)**.
+  - Full backend regression suite: **538 tests, 2,695 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+  - Frontend production build: **Next.js 14 compiles and optimizes all 28 static pages cleanly with zero errors**.
+
+
 ### Tenant Notification Preferences & Alert Lifecycle Management (Step 38)
 - **Implemented:** Database Migration & User Preferences:
   - Created and applied `2026_10_28_000002_add_notification_preferences_to_users_table.php` on MySQL 8.4.3.

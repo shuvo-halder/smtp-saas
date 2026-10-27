@@ -323,5 +323,41 @@ This document describes the current implementation state of the EmailSaaS projec
   - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
   - Next.js production build: `npm run build` (28/28 static pages compiled cleanly with 0 errors).
 
+## 19. Tenant Notification Delivery Reliability & Operational Monitoring (Step 39)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **Concurrency-Safe Deduplication & Service Telemetry (`TenantNotificationService`):**
+  - Concurrency serialization via atomic mutex lock (`Cache::lock("tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey), 5)->block(3)`). Prevents concurrent race conditions when two simultaneous processes attempt to emit identical unread alerts.
+  - Fail-safe non-blocking execution with structured telemetry:
+    - On deduplication: logs info with structured metadata (`deduplicated: true`) and increments `Cache::increment('notifications:deduplicated_24h_count')`.
+    - On creation: increments `Cache::increment('notifications:created_24h_count')`.
+    - On failure: increments `Cache::increment('notifications:failures_24h_count')`, caches error details in `notifications:last_failure`, and logs structured error.
+  - Complex metadata sanitization (`scrubSensitiveData()`):
+    - Caps recursion depth at 10 levels, returning `['_truncated' => 'Max metadata nesting depth exceeded']`.
+    - Sanitizes PHP stream/file resources (`is_resource`) to `'[Resource: type]'` preventing JSON serialization crashes.
+    - Serializes objects via `toArray()`, `JsonSerializable`, `__toString()`, or class descriptor.
+    - Normalizes strings to valid UTF-8 via `mb_convert_encoding()`.
+  - Operational status engine (`getOperationalStatus()`): returns numerical summary of total notifications, unread count, unresolved critical alerts, 24-hour counters, retention settings, and scheduler registration status. Exposes zero tenant private content or credentials.
+- **Hardened Retention Pruning (`PruneNotificationsCommand`):**
+  - Added `--stale-days=180` option to signature and service method.
+  - Strict input validation: `--read-days >= 1`, `--dismissed-days >= 1`, `--stale-days >= 1`, `1 <= --batch-size <= 5000`. Exits with `Command::INVALID` (code 2) on violation.
+  - Caches execution summary in `notifications:prune:last_execution` with duration, pruned counts, eligible counts, and exit status.
+  - Double overlap protection: scheduler `withoutOverlapping(15)` plus command-level `Cache::lock('notifications_prune_lock', 300)`.
+- **System Health & Admin Monitoring Integration:**
+  - Added `checkNotifications(): array` to `SystemHealthService::getHealth()`, incorporating notification delivery posture into overall system health.
+  - Added `GET /api/admin/system/notifications` route in `routes/api.php` routed to `AdminSystemHealthApiController::notifications`, guarded by `EnsureAdmin` and `admin.permission:admin.stats.read`.
+- **API Query Validation Hardening:**
+  - `TenantNotificationApiController::index` strictly validates `category` against `VALID_CATEGORIES` and `severity` against `VALID_SEVERITIES`, returning HTTP 422 on invalid values.
+- **Next.js Admin UI Integration:**
+  - Added `notifications?: ComponentHealth` and `NotificationOperationalStatus` to `frontend/src/types/index.ts`.
+  - Added localization keys in `frontend/messages/en.json` under `Admin.system_health.components` and `labels`.
+  - Rendered 8th component posture card with `Bell` icon in `frontend/src/app/(admin)/admin/system-health/page.tsx`.
+- **Verification & Testing Results:**
+  - Dedicated reliability test suite: `TenantNotificationReliabilityTest.php` (17/17 tests passing, 94 assertions, 100%).
+  - Notification feature suites: 48/48 tests passing (261 assertions, 100%).
+  - Full PHPUnit regression suite: 538/538 tests passing (2,695 assertions, 100%).
+  - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
+  - Next.js production build: `npm run build` (28/28 static pages compiled cleanly with 0 errors).
+
+
 
 

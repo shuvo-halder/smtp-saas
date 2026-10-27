@@ -935,5 +935,45 @@
   - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
   - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 28 static pages cleanly with zero errors (100%)**.
 
+---
+
+## Step 39 — Tenant Notification Delivery Reliability & Operational Monitoring (`IMPLEMENTED — VERIFIED`)
+- `[x]` Concurrency-Safe Deduplication & Delivery Reliability:
+  - `[x]` Neutralized race conditions in `TenantNotificationService::notify()` via atomic mutex lock (`Cache::lock("tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey), 5)->block(3)`).
+  - `[x]` Verified under concurrency that duplicate unread alerts are never created; identical events return the existing active notification.
+  - `[x]` Operational metrics tracking: records deduplication outcomes, creation successes, and structured failure diagnostics with 24-hour cache counters.
+- `[x]` Complex & Malformed Metadata Sanitization:
+  - `[x]` Enhanced `TenantNotificationService::scrubSensitiveData()` with recursion depth guard ($depth \le 10$) preventing stack exhaustion or circular reference panics.
+  - `[x]` Stream and file resources safely converted to `'[Resource: type]'` preventing JSON serialization exceptions.
+  - `[x]` Objects converted via `toArray()`, `JsonSerializable`, `__toString()`, or class descriptor.
+  - `[x]` Strings normalized to valid UTF-8 via `mb_convert_encoding()`.
+- `[x]` Pruning Command Hardening & Boundary Validation:
+  - `[x]` Validated input boundaries in `PruneNotificationsCommand`: `--read-days >= 1`, `--dismissed-days >= 1`, `--stale-days >= 1`, `1 <= --batch-size <= 5000`. Exits with `Command::INVALID` (code 2) on failure.
+  - `[x]` Caches execution telemetry in `notifications:prune:last_execution` (executed_at, status, counts, duration_ms, options).
+  - `[x]` Overlap protection verified: scheduler `withoutOverlapping(15)` plus command-level `Cache::lock('notifications_prune_lock', 300)`.
+  - `[x]` Stale 180-day unread non-critical rule verified while unresolved critical alerts remain 100% immune from deletion.
+- `[x]` Operational Status & Admin Diagnostics:
+  - `[x]` Added `getOperationalStatus()` to `TenantNotificationService` reporting aggregate metrics, unread counts, unresolved critical alerts, 24-hour counters, retention settings, and scheduler registration posture.
+  - `[x]` Strict privacy: completely excludes tenant notification content, titles, messages, and email addresses.
+  - `[x]` Integrated `checkNotifications()` into `SystemHealthService::getHealth()`, incorporating notification delivery posture into overall system health.
+  - `[x]` Registered dedicated route `GET /api/admin/system/notifications` protected under `EnsureAdmin` and `admin.permission:admin.stats.read`.
+- `[x]` API Query Validation Hardening:
+  - `[x]` Hardened `TenantNotificationApiController::index` query validation: `category` validated against `VALID_CATEGORIES` and `severity` validated against `VALID_SEVERITIES`. Invalid queries return HTTP 422.
+- `[x]` Next.js Admin UI Integration:
+  - `[x]` Updated TypeScript interfaces in `frontend/src/types/index.ts` with `notifications?: ComponentHealth` and `NotificationOperationalStatus`.
+  - `[x]` Added localization keys in `frontend/messages/en.json`.
+  - `[x]` Rendered 8th component card in `frontend/src/app/(admin)/admin/system-health/page.tsx` with `Bell` icon displaying total alerts, active unread, unresolved critical count, and pruning posture.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `TenantNotificationReliabilityTest.php` passes with 17 tests (94 assertions).
+  - `[x]` **Level B (Concurrency, Telemetry, Metadata & Invariants):** `VERIFIED`. Concurrency locking, failure tracking, resource/object sanitization, strict query validation, pruning boundaries, overlap prevention, and admin privacy verified.
+  - `[x]` **Level C (End-to-End Live Multi-Channel Push / Webhooks):** `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL` (external push / email digest / SMS delivery requires third-party delivery infrastructure).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Reliability feature test suite (`tests/Feature/TenantNotificationReliabilityTest.php`): **17 tests, 94 assertions passing (100%)**.
+  - `[x]` All notification feature test suites (3 suites): **48 tests, 261 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **538 tests, 2,695 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 28 static pages cleanly with zero errors (100%)**.
+
+
 
 

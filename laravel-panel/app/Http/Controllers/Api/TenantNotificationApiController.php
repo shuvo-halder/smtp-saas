@@ -23,8 +23,8 @@ class TenantNotificationApiController extends Controller
         $validated = $request->validate([
             'per_page' => 'nullable|integer|min:1|max:50',
             'status'   => 'nullable|string|in:unread,read,dismissed,all',
-            'category' => 'nullable|string|max:50',
-            'severity' => 'nullable|string|max:20',
+            'category' => 'nullable|string|in:' . implode(',', TenantNotificationService::VALID_CATEGORIES),
+            'severity' => 'nullable|string|in:' . implode(',', TenantNotificationService::VALID_SEVERITIES),
         ]);
 
         $perPage = (int) ($validated['per_page'] ?? 15);

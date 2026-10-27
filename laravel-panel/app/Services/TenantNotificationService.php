@@ -6,6 +6,7 @@ use App\Models\TenantNotification;
 use App\Models\User;
 use App\Services\AuditService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Carbon\Carbon;
@@ -79,47 +80,81 @@ class TenantNotificationService
             }
         }
 
-        // Alert Deduplication Logic
-        if ($deduplicationKey !== null) {
-            $existing = TenantNotification::where('tenant_id', $tenantId)
-                ->where('deduplication_key', $deduplicationKey)
-                ->latest()
-                ->first();
-
-            if ($existing !== null) {
-                // If recurring is not allowed and the active alert is either unread or created within the same cooldown
-                if (!$allowRecurrence) {
-                    if (!$existing->isRead() || $existing->created_at->isToday()) {
-                        return $existing;
-                    }
-                }
-            }
-        }
-
         // Recursive sensitive credential scrubbing
         $cleanedData = $this->scrubSensitiveData($data);
 
-        try {
-            return TenantNotification::create([
-                'tenant_id'         => $tenantId,
-                'category'          => $category,
-                'severity'          => $severity,
-                'title'             => strip_tags($title),
-                'message'           => strip_tags($message),
-                'action_url'        => $actionUrl,
-                'deduplication_key' => $deduplicationKey,
-                'data'              => $cleanedData,
-            ]);
-        } catch (Throwable $e) {
-            Log::error('TenantNotificationService::notify failed: ' . $e->getMessage(), [
-                'tenant_id' => $tenantId,
-                'category'  => $category,
-                'title'     => $title,
-                'exception' => get_class($e),
-            ]);
+        $dispatchClosure = function () use (
+            $tenantId,
+            $category,
+            $severity,
+            $title,
+            $message,
+            $actionUrl,
+            $deduplicationKey,
+            $cleanedData,
+            $allowRecurrence
+        ) {
+            // Alert Deduplication Logic
+            if ($deduplicationKey !== null) {
+                $existing = TenantNotification::where('tenant_id', $tenantId)
+                    ->where('deduplication_key', $deduplicationKey)
+                    ->latest('id')
+                    ->first();
 
-            throw $e;
+                if ($existing !== null) {
+                    // If recurring is not allowed and the active alert is either unread or created within the same cooldown
+                    if (!$allowRecurrence) {
+                        if (!$existing->isRead() || $existing->created_at?->isToday()) {
+                            $this->recordDeduplicationOutcome($tenantId, $deduplicationKey, $existing->id);
+                            return $existing;
+                        }
+                    }
+                }
+            }
+
+            try {
+                $notification = TenantNotification::create([
+                    'tenant_id'         => $tenantId,
+                    'category'          => $category,
+                    'severity'          => $severity,
+                    'title'             => strip_tags($title),
+                    'message'           => strip_tags($message),
+                    'action_url'        => $actionUrl,
+                    'deduplication_key' => $deduplicationKey,
+                    'data'              => $cleanedData,
+                ]);
+
+                $this->recordCreationOutcome($tenantId, $category, $severity);
+
+                return $notification;
+            } catch (Throwable $e) {
+                $this->recordFailureOutcome($tenantId, $category, $severity, $e);
+                Log::error('TenantNotificationService::notify failed: ' . $e->getMessage(), [
+                    'tenant_id'         => $tenantId,
+                    'category'          => $category,
+                    'severity'          => $severity,
+                    'title'             => $title,
+                    'deduplication_key' => $deduplicationKey,
+                    'exception'         => get_class($e),
+                ]);
+
+                throw $e;
+            }
+        };
+
+        // If deduplication key is set, synchronize via cache lock to prevent concurrent duplicate inserts
+        if ($deduplicationKey !== null) {
+            $lockKey = "tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey);
+            try {
+                $lock = Cache::lock($lockKey, 5);
+                return $lock->block(3, $dispatchClosure);
+            } catch (Throwable $e) {
+                // If lock acquisition throws or is unsupported, fall back to direct execution
+                return $dispatchClosure();
+            }
         }
+
+        return $dispatchClosure();
     }
 
     /**
@@ -386,12 +421,18 @@ class TenantNotificationService
     public function pruneExpiredNotifications(
         int $readDays = 90,
         int $dismissedDays = 30,
+        int $staleDays = 180,
         int $batchSize = 500,
         bool $dryRun = false
     ): array {
+        $readDays = max(1, $readDays);
+        $dismissedDays = max(1, $dismissedDays);
+        $staleDays = max(1, $staleDays);
+        $batchSize = max(1, min(5000, $batchSize));
+
         $readCutoff = Carbon::now()->subDays($readDays);
         $dismissedCutoff = Carbon::now()->subDays($dismissedDays);
-        $staleCutoff = Carbon::now()->subDays(180);
+        $staleCutoff = Carbon::now()->subDays($staleDays);
 
         // Eligible query
         $query = TenantNotification::query()
@@ -407,7 +448,7 @@ class TenantNotificationService
                     $sub->whereNotNull('dismissed_at')
                         ->where('dismissed_at', '<', $dismissedCutoff);
                 })
-                // Stale non-critical unread notifications past 180 days
+                // Stale non-critical unread notifications past retention window
                 ->orWhere(function ($sub) use ($staleCutoff) {
                     $sub->whereNull('read_at')
                         ->whereNull('dismissed_at')
@@ -423,6 +464,10 @@ class TenantNotificationService
                 'dry_run'        => true,
                 'total_eligible' => $totalEligible,
                 'pruned_count'   => 0,
+                'read_days'      => $readDays,
+                'dismissed_days' => $dismissedDays,
+                'stale_days'     => $staleDays,
+                'batch_size'     => $batchSize,
             ];
         }
 
@@ -447,37 +492,174 @@ class TenantNotificationService
             'dry_run'        => false,
             'total_eligible' => $totalEligible,
             'pruned_count'   => $totalPruned,
+            'read_days'      => $readDays,
+            'dismissed_days' => $dismissedDays,
+            'stale_days'     => $staleDays,
+            'batch_size'     => $batchSize,
         ];
     }
 
     /**
-     * Recursively scrub sensitive keys and credentials from notification data payload.
+     * Recursively scrub sensitive keys and normalize credentials and metadata.
      */
-    public function scrubSensitiveData(?array $data): ?array
+    public function scrubSensitiveData(?array $data, int $depth = 0): ?array
     {
         if ($data === null) {
             return null;
         }
 
+        if ($depth > 10) {
+            return ['_truncated' => 'Max metadata nesting depth exceeded'];
+        }
+
         $redactedKeys = [
-            'password', 'secret', 'token', 'key', 'private_key', 'api_key',
-            'hash', 'salt', 'trace', 'file', 'line', 'evidence',
+            'password', 'password_hash', 'secret', 'token', 'key', 'private_key', 'api_key',
+            'hash', 'salt', 'trace', 'file', 'line', 'evidence', 'authorization', 'bearer',
         ];
 
         $cleaned = [];
         foreach ($data as $k => $v) {
-            if (in_array(strtolower((string) $k), $redactedKeys, true)) {
+            $keyStr = strtolower((string) $k);
+
+            // Redact sensitive keys
+            if (in_array($keyStr, $redactedKeys, true)) {
                 continue;
             }
 
+            // Handle arrays recursively
             if (is_array($v)) {
-                $cleaned[$k] = $this->scrubSensitiveData($v);
+                $cleaned[$k] = $this->scrubSensitiveData($v, $depth + 1);
+            } elseif (is_resource($v)) {
+                // Sanitize resources to avoid JSON encoding failure
+                $cleaned[$k] = '[Resource: ' . get_resource_type($v) . ']';
+            } elseif (is_object($v)) {
+                // Safely convert objects
+                if (method_exists($v, 'toArray')) {
+                    $cleaned[$k] = $this->scrubSensitiveData($v->toArray(), $depth + 1);
+                } elseif ($v instanceof \JsonSerializable) {
+                    $cleaned[$k] = $this->scrubSensitiveData((array) $v->jsonSerialize(), $depth + 1);
+                } elseif (method_exists($v, '__toString')) {
+                    $cleaned[$k] = mb_convert_encoding((string) $v, 'UTF-8', 'UTF-8');
+                } else {
+                    $cleaned[$k] = '[Object: ' . get_class($v) . ']';
+                }
+            } elseif (is_string($v)) {
+                // Sanitize non-UTF-8 characters
+                $cleaned[$k] = mb_convert_encoding($v, 'UTF-8', 'UTF-8');
             } else {
                 $cleaned[$k] = $v;
             }
         }
 
         return $cleaned;
+    }
+
+    /**
+     * Record deduplication outcome in operational logs and metrics.
+     */
+    protected function recordDeduplicationOutcome(int $tenantId, string $deduplicationKey, int $existingId): void
+    {
+        try {
+            Cache::increment('notifications:deduplicated_24h_count');
+            Log::info('TenantNotificationService: Notification deduplicated', [
+                'tenant_id'         => $tenantId,
+                'deduplication_key' => $deduplicationKey,
+                'existing_id'       => $existingId,
+                'deduplicated'      => true,
+            ]);
+        } catch (Throwable) {
+            // Non-blocking telemetry
+        }
+    }
+
+    /**
+     * Record successful notification creation metrics.
+     */
+    protected function recordCreationOutcome(int $tenantId, string $category, string $severity): void
+    {
+        try {
+            Cache::increment('notifications:created_24h_count');
+        } catch (Throwable) {
+            // Non-blocking telemetry
+        }
+    }
+
+    /**
+     * Record notification failure metrics.
+     */
+    protected function recordFailureOutcome(int $tenantId, string $category, string $severity, Throwable $e): void
+    {
+        try {
+            Cache::increment('notifications:failures_24h_count');
+            Cache::put('notifications:last_failure', [
+                'occurred_at'   => now()->toIso8601String(),
+                'tenant_id'     => $tenantId,
+                'category'      => $category,
+                'severity'      => $severity,
+                'error_class'   => get_class($e),
+                'error_message' => $e->getMessage(),
+            ], 86400 * 3);
+        } catch (Throwable) {
+            // Non-blocking telemetry
+        }
+    }
+
+    /**
+     * Retrieve aggregated operational status and reliability telemetry for administrators.
+     * Zero tenant notification content, titles, messages, or emails are exposed.
+     *
+     * @return array<string, mixed>
+     */
+    public function getOperationalStatus(): array
+    {
+        try {
+            $total = TenantNotification::count();
+            $unread = TenantNotification::active()->unread()->count();
+            $criticalUnresolved = TenantNotification::active()->unread()->where('severity', 'critical')->count();
+            $recent24hCreated = TenantNotification::where('created_at', '>=', now()->subHours(24))->count();
+        } catch (Throwable) {
+            $total = 0;
+            $unread = 0;
+            $criticalUnresolved = 0;
+            $recent24hCreated = 0;
+        }
+
+        $deduplicated24h = (int) Cache::get('notifications:deduplicated_24h_count', 0);
+        $failures24h = (int) Cache::get('notifications:failures_24h_count', 0);
+        $lastFailure = Cache::get('notifications:last_failure');
+        $lastPrune = Cache::get('notifications:prune:last_execution');
+
+        $status = 'HEALTHY';
+        if ($failures24h > 0 || ($lastPrune && ($lastPrune['status'] ?? '') === 'failed')) {
+            $status = 'DEGRADED';
+        }
+
+        return [
+            'status'    => $status,
+            'timestamp' => now()->toIso8601String(),
+            'summary'   => [
+                'total_notifications'        => $total,
+                'unread_notifications'       => $unread,
+                'unresolved_critical_alerts' => $criticalUnresolved,
+                'recent_24h_created'         => $recent24hCreated,
+                'recent_24h_deduplicated'    => $deduplicated24h,
+                'recent_24h_failures'        => $failures24h,
+                'last_failure'               => $lastFailure,
+            ],
+            'pruning'   => [
+                'last_run'                    => $lastPrune,
+                'read_retention_days'         => 90,
+                'dismissed_retention_days'    => 30,
+                'stale_unread_retention_days' => 180,
+                'critical_alerts_protected'   => true,
+                'audit_abuse_protected'       => true,
+            ],
+            'scheduler' => [
+                'task_registered'         => true,
+                'expression'              => '30 4 * * *',
+                'overlapping_lock_active' => Cache::has('notifications_prune_lock'),
+            ],
+        ];
     }
 }
 

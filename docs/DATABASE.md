@@ -466,5 +466,19 @@ ALTER TABLE `users` ADD COLUMN `notification_preferences` JSON NULL AFTER `remem
    - **Unresolved critical alerts (`severity === 'critical' AND read_at IS NULL AND dismissed_at IS NULL`) are NEVER automatically deleted.**
    - Pruning strictly targets `tenant_notifications` only; `audit_logs` and `abuse_incidents` are completely isolated and immune to automated deletion.
 
+## 22. Tenant Notification Concurrency Locking & Metadata Invariants (Step 39)
+
+### Concurrency-Safe Atomic Deduplication
+- **Race Condition Neutralization:** When notifications are dispatched with a `deduplication_key`, `TenantNotificationService` acquires an atomic mutex lock (`Cache::lock("tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey), 5)->block(3)`).
+- Concurrent processes (e.g. concurrent DNS verification checks, log parser and policy daemon events) serialize cleanly: the first thread creates the notification, and subsequent threads query the committed row and return the existing instance without duplicate creation.
+- If the cache lock driver is unavailable or unsupported, the service safely executes directly.
+
+### Metadata Sanitization & Payload Invariants
+- **Resource Handle Redaction:** PHP stream or file resources (`is_resource`) are transformed to `'[Resource: type]'` to prevent JSON serialization exceptions.
+- **Recursion Guard:** Arrays exceeding 10 nesting levels are automatically capped with `['_truncated' => 'Max metadata nesting depth exceeded']`, protecting against stack exhaustion and circular reference panics.
+- **UTF-8 Normalization:** String values are normalized using `mb_convert_encoding($v, 'UTF-8', 'UTF-8')` to prevent invalid byte sequence failures in MySQL JSON parsers.
+- **Zero Schema Alterations:** Step 39 required zero DDL modifications; all guarantees are enforced through application-level atomic locks, recursive serialization guards, and query-level retention bounds.
+
+
 
 

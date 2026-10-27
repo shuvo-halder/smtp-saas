@@ -398,6 +398,24 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - **Audit & Abuse Ledger Immunity:** Pruning commands operate strictly on `tenant_notifications`. Under no circumstances does the pruning process touch, modify, or delete records from `audit_logs` or `abuse_incidents`.
   - **Chunk-Bounded Deletion & Atomic Concurrency Lock:** Deletions are processed in bounded batches (`--batch-size=500`) to prevent MySQL table locking, transaction log bloat, or database replication lag. Pruning execution is protected by an atomic cache lock (`notifications_prune_lock`) with automatic 300-second expiration to prevent overlapping concurrent runs.
 
+## 29. Tenant Notification Delivery Reliability, Concurrency & Operational Privacy Invariants (Step 39)
+- **Concurrency Race Condition Neutralization:**
+  - Concurrent notification dispatches sharing a `deduplication_key` are serialized via `Cache::lock("tenant_notif_lock:{$tenantId}:" . md5($deduplicationKey), 5)->block(3)`.
+  - Guaranteed invariant: Multiple concurrent threads attempting to emit an identical unread alert for a tenant will create exactly ONE notification record in the database.
+- **Fail-Safe Delivery Isolation with Guaranteed Observability:**
+  - Notification dispatch failures never interrupt primary domain verification, billing, mailbox rule, or abuse incident transactions.
+  - Failures are strictly recorded in operational error logs and increment the `notifications:failures_24h_count` metric, ensuring system health diagnostics immediately reflect delivery degradation.
+- **Malformed & Complex Metadata Sanitization:**
+  - Notification payload sanitization strictly guards against stream/file resources (`is_resource`), objects, and invalid UTF-8 byte sequences.
+  - Recursion depth is capped at 10 levels, eliminating stack exhaustion and circular reference panics.
+- **Zero Tenant Privacy Leakage in Operational Monitoring:**
+  - The administrative monitoring endpoint (`GET /api/admin/system/notifications`) and `SystemHealthService::checkNotifications()` report ONLY aggregate numerical counters, pruning execution timestamps, and subsystem postures.
+  - Private tenant notification titles, message bodies, payload keys, and tenant email addresses are strictly excluded from operational diagnostics.
+- **Input Validation & Bound Clamping:**
+  - API listing endpoint strictly validates `category` and `severity` against enumerated allowed sets, rejecting malformed query parameters with HTTP 422.
+  - Artisan pruning options (`--read-days`, `--dismissed-days`, `--stale-days`, `--batch-size`) are validated against positive boundaries, rejecting invalid flags with `Command::INVALID`.
+
+
 
 
 

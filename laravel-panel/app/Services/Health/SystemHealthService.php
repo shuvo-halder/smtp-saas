@@ -29,6 +29,7 @@ class SystemHealthService
         $taskFailures = $this->checkTaskFailures();
         $queue = $this->checkQueue();
         $backup = $this->checkBackup();
+        $notifications = $this->checkNotifications();
 
         $components = [
             'app'           => $app,
@@ -38,6 +39,7 @@ class SystemHealthService
             'task_failures' => $taskFailures,
             'queue'         => $queue,
             'backup'        => $backup,
+            'notifications' => $notifications,
         ];
 
         $overallStatus = $this->resolveOverallStatus($components);
@@ -315,6 +317,38 @@ class SystemHealthService
                 'status'  => 'UNKNOWN',
                 'details' => [
                     'note' => 'Could not inspect local backup manifests',
+                ],
+            ];
+        }
+    }
+
+    /**
+     * Inspect Tenant Notification Subsystem and Retention Pruning health.
+     *
+     * @return array{status: string, details: array<string, mixed>}
+     */
+    public function checkNotifications(): array
+    {
+        try {
+            $service = app(\App\Services\TenantNotificationService::class);
+            $op = $service->getOperationalStatus();
+
+            return [
+                'status'  => $op['status'],
+                'details' => [
+                    'total_notifications'        => $op['summary']['total_notifications'],
+                    'unread_notifications'       => $op['summary']['unread_notifications'],
+                    'unresolved_critical_alerts' => $op['summary']['unresolved_critical_alerts'],
+                    'last_prune_status'          => $op['pruning']['last_run']['status'] ?? 'pending_first_run',
+                    'last_pruned_at'             => $op['pruning']['last_run']['executed_at'] ?? null,
+                    'recent_failures_24h'        => $op['summary']['recent_24h_failures'],
+                ],
+            ];
+        } catch (Throwable $e) {
+            return [
+                'status'  => 'UNKNOWN',
+                'details' => [
+                    'error' => 'Unable to inspect notification subsystem health',
                 ],
             ];
         }
