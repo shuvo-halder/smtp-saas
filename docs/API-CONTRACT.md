@@ -16,7 +16,8 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 ## Tenant API (Requires active subscription)
 | Method | Endpoint | Description | Middleware |
 |---|---|---|---|
-| GET | `/dashboard` | Tenant statistics (domains, mailboxes). | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/dashboard` | Unified Tenant Security & Deliverability Dashboard (Domain auth overview, deliverability scoring, DNS drift flags, real-time SMTP quota & 14-day history, delivery event counters, sanitized abuse incidents, DMARC reporting posture). | `auth:sanctum`, `EnsureActiveSubscription` |
+| GET | `/security/incidents` | Paginated tenant security and abuse incident ledger (scoped to tenant, bounded 1-50, sanitized). | `auth:sanctum`, `EnsureActiveSubscription` |
 | GET | `/domains` | Paginated domains list. Supports `per_page` (clamped 1-50), `search` (domain name search), and `status` filter (`active`, `pending`). | `auth:sanctum`, `EnsureActiveSubscription` |
 | POST | `/domains` | Add a new domain. Normalizes input to lowercase and trimmed before validation. Enforces plan `max_domains` cap. Triggers DKIM key generation. | `auth:sanctum`, `EnsureActiveSubscription` |
 | GET | `/domains/{id}` | Domain details, DNS records, aliases. Governed by `DomainPolicy::view`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
@@ -1034,6 +1035,212 @@ All Step 35 endpoints require an authenticated Sanctum session and an active ten
   }
 }
 ```
+
+## 30. Tenant Security & Deliverability Monitoring Dashboard (Step 36)
+
+### Unified Tenant Dashboard (`GET /api/dashboard`)
+Retrieves the consolidated security, deliverability, quota, and operational status for the authenticated tenant.
+- **Middleware:** `auth:sanctum`, `EnsureActiveSubscription`
+- **Zero DNS Query Invariant:** All domain verification statuses and deliverability scores are computed strictly from stored database columns (`mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dns_drift_detected_at`). Zero live DNS queries are dispatched during dashboard render.
+- **Fault-Tolerant Status Contract:** Each major section returns an explicit `status` (`operational`, `warning`, `degraded`, `clean`, `empty`, `error`) and nullable `error` field so partial upstream failure (e.g. Redis downtime) isolates gracefully without cascading.
+
+#### Response Schema (`GET /api/dashboard`)
+```json
+{
+  "user": {
+    "id": 1,
+    "name": "Jane Tenant",
+    "email": "jane@example.com",
+    "role": "tenant"
+  },
+  "domains_count": 2,
+  "domain_count": 2,
+  "mailboxes_count": 5,
+  "mailbox_count": 5,
+  "plan_info": {
+    "name": "Professional",
+    "slug": "pro",
+    "max_domains": 10,
+    "max_mailboxes": 50,
+    "max_storage_mb": 51200,
+    "daily_send_limit": 1000
+  },
+  "domain_security": {
+    "status": "warning",
+    "error": null,
+    "summary": {
+      "total_domains": 2,
+      "authenticated_domains": 1,
+      "drift_domains": 1,
+      "average_score": 75
+    },
+    "domains": [
+      {
+        "id": 1,
+        "domain": "example.com",
+        "status": "active",
+        "deliverability_score": 100,
+        "deliverability_rating": "Optimal",
+        "mx_verified": true,
+        "spf_verified": true,
+        "dkim_verified": true,
+        "dmarc_verified": true,
+        "dns_drift_detected": false,
+        "dns_drift_detected_at": null,
+        "last_verified_at": "2026-10-27T12:00:00Z"
+      },
+      {
+        "id": 2,
+        "domain": "acme.com",
+        "status": "pending",
+        "deliverability_score": 50,
+        "deliverability_rating": "Poor",
+        "mx_verified": true,
+        "spf_verified": true,
+        "dkim_verified": false,
+        "dmarc_verified": false,
+        "dns_drift_detected": true,
+        "dns_drift_detected_at": "2026-10-27T14:30:00Z",
+        "last_verified_at": "2026-10-27T10:00:00Z"
+      }
+    ]
+  },
+  "smtp_usage": {
+    "status": "operational",
+    "error": null,
+    "source": "Redis (real-time UTC daily) + MariaDB tenant_outbound_usage (14-day history)",
+    "today": {
+      "sent_today": 850,
+      "daily_limit": 1000,
+      "remaining_today": 150,
+      "percent_used": 85.0,
+      "is_exhausted": false,
+      "is_near_limit": true
+    },
+    "delivery_summary": {
+      "time_window": "Last 30 Days",
+      "delivered": 1420,
+      "deferred": 15,
+      "bounced": 8,
+      "rejected": 2
+    },
+    "history": [
+      {
+        "date": "2026-10-26",
+        "sent_count": 820,
+        "delivered_count": 810,
+        "bounced_count": 4,
+        "rejected_count": 1
+      }
+    ]
+  },
+  "recent_activity": {
+    "status": "operational",
+    "error": null,
+    "events": [
+      {
+        "id": 101,
+        "sender": "noreply@example.com",
+        "recipient": "customer@gmail.com",
+        "status": "delivered",
+        "bounce_type": null,
+        "bounce_reason": null,
+        "created_at": "2026-10-27T16:00:00Z"
+      }
+    ]
+  },
+  "abuse_and_security": {
+    "status": "warning",
+    "error": null,
+    "open_incidents_count": 1,
+    "incidents": [
+      {
+        "id": 12,
+        "uuid": "4c8c728e-5b1e-450e-b08e-8a1a36746ef1",
+        "incident_type": "high_hard_bounce_rate",
+        "severity": "high",
+        "status": "open",
+        "summary": "Hard bounce rate exceeded threshold: 12%",
+        "domain_name": "acme.com",
+        "mailbox_email": "marketing@acme.com",
+        "occurred_at": "2026-10-27T15:00:00Z",
+        "resolved_at": null,
+        "suggested_remediation": "Audit recipient list quality; remove unverified or stale addresses."
+      }
+    ],
+    "warnings": [
+      {
+        "code": "OPEN_ABUSE_INCIDENT",
+        "message": "You have 1 unresolved security or abuse incident(s).",
+        "severity": "high"
+      }
+    ]
+  },
+  "dmarc_reporting": {
+    "status": "operational",
+    "error": null,
+    "xml_parser_available": true,
+    "parser_endpoint": "/api/domains/{domain}/parse-dmarc-report",
+    "automated_ingestion": {
+      "enabled": false,
+      "status": "PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL",
+      "reason": "Automated inbound IMAP report inbox ingestion requires dedicated architectural approval."
+    }
+  },
+  "recent_domains": [],
+  "recent_invoices": []
+}
+```
+
+### Dedicated Tenant Security Incidents Endpoint (`GET /api/security/incidents`)
+Retrieves bounded, paginated security and abuse incidents belonging strictly to the authenticated tenant.
+- **Middleware:** `auth:sanctum`, `EnsureActiveSubscription`
+- **Query Parameters:**
+  - `status`: Filter by incident status (`open`, `resolved`, `dismissed`, `all`). Default: `open`.
+  - `severity`: Filter by severity (`critical`, `high`, `medium`, `low`). Optional.
+  - `per_page`: Clamped integer between 1 and 50. Default: 15.
+  - `page`: Page index (1-based).
+- **Security & Data Redaction Contract:**
+  - Strictly filtered by `tenant_id = auth.user.tenant_id`. Zero cross-tenant data leakage.
+  - Formatted exclusively via `TenantAbuseIncidentResource`.
+  - Internal server traces, exception messages, local file paths, and administrative user IDs (`resolved_by`) are strictly redacted.
+  - Each item includes tenant-actionable `suggested_remediation`.
+
+#### Response Schema (`GET /api/security/incidents`)
+```json
+{
+  "data": [
+    {
+      "id": 12,
+      "uuid": "4c8c728e-5b1e-450e-b08e-8a1a36746ef1",
+      "incident_type": "high_hard_bounce_rate",
+      "severity": "high",
+      "status": "open",
+      "summary": "Hard bounce rate exceeded threshold: 12%",
+      "domain_name": "acme.com",
+      "mailbox_email": "marketing@acme.com",
+      "occurred_at": "2026-10-27T15:00:00Z",
+      "resolved_at": null,
+      "suggested_remediation": "Audit recipient list quality and remove inactive or invalid addresses."
+    }
+  ],
+  "links": {
+    "first": "https://emailsaas.test/api/security/incidents?page=1",
+    "last": "https://emailsaas.test/api/security/incidents?page=1",
+    "prev": null,
+    "next": null
+  },
+  "meta": {
+    "current_page": 1,
+    "from": 1,
+    "last_page": 1,
+    "per_page": 15,
+    "to": 1,
+    "total": 1
+  }
+}
+```
+
 
 
 

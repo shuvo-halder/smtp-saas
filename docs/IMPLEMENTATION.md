@@ -198,3 +198,38 @@ This document describes the current implementation state of the EmailSaaS projec
   - Verification History audit table showing previous check timestamps, scores, and per-record statuses.
   - DMARC Aggregate Report Inspector allowing tenants to upload or paste XML feedback reports and view detailed message counts, pass/fail rates, and source IP authenticity.
   - All verified with `npx tsc --noEmit` (0 errors) and Next.js production build `npm run build` (27/27 pages compiled cleanly).
+
+## 16. Tenant Email Security & Deliverability Monitoring Dashboard (Step 36)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **API & Service Layer:**
+  - `TenantSecurityDashboardService` (`app/Services/TenantSecurityDashboardService.php`):
+    - Single entrypoint `getDashboardData(User $user, ?Request $request = null)` returning an unified payload.
+    - `buildDomainSecuritySection`: Computes deliverability scores and detects DNS drift strictly from persisted database flags (`mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dns_drift_detected_at`). Zero live DNS queries dispatched on render.
+    - `buildSmtpUsageSection`: Integrates with `TenantSmtpService::getUsage()`, fetches daily quota from Redis (UTC daily key), calculates remaining allowance and percent used, generates quota exhaustion (`>= 100%`) and near-limit (`>= 80%`) warnings, retrieves 14-day history trend from `TenantOutboundUsage`, and tallies 30-day delivery event summary (delivered, deferred, bounced, rejected) from `DeliveryLog`.
+    - `buildRecentActivitySection`: Bounded retrieval of latest 10 `DeliveryLog` records via `DeliveryLogResource` with strict tenant isolation.
+    - `buildAbuseAndSecuritySection`: Queries tenant-scoped `AbuseIncident` records, counts open incidents, formats records via `TenantAbuseIncidentResource`, and synthesizes actionable warnings.
+    - `buildDmarcReportingSection`: Exposes RFC 7489 XML parser status and truthfully reports automated inbox ingestion posture as `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+    - `getTenantIncidents`: Bounded pagination (1..50) with status and severity filters.
+    - Resilient partial-failure isolation: Each section wraps in an independent try-catch block and returns explicit status (`operational`, `warning`, `degraded`, `clean`, `empty`, `error`) and sanitized error messages.
+  - `TenantAbuseIncidentResource` (`app/Http/Resources/TenantAbuseIncidentResource.php`):
+    - Redacts administrative ID (`resolved_by`), internal server file paths, raw traces, and system evidence payloads.
+    - Provides context-aware `suggested_remediation` per incident type (`consecutive_hard_bounces`, `daily_hard_bounce_threshold`, `high_hard_bounce_rate`, `quota_exhaustion`, `dns_drift`).
+  - `DashboardApiController` (`app/Http/Controllers/Api/DashboardApiController.php`):
+    - Refactored `index()` to inject `TenantSecurityDashboardService` and return the unified payload while preserving 100% backwards compatibility (`user`, `domains_count`, `domain_count`, `mailboxes_count`, `mailbox_count`, `plan_info`, `recent_domains`, `recent_invoices`).
+    - Added `securityIncidents()` (`GET /api/security/incidents`) under `auth:sanctum` and `EnsureActiveSubscription`.
+- **Frontend Dashboard (`frontend/src/app/(dashboard)/dashboard/page.tsx`):**
+  - Responsive, enterprise-grade Next.js monitoring dashboard matching existing design system.
+  - Prominent alert banners for DNS drift, active abuse incidents, and quota warnings.
+  - KPI Stat Cards: Deliverability Health average, Sent Today / Quota, Authenticated Domains count, Open Incidents count.
+  - Domain Authentication Table: MX, SPF, DKIM, and DMARC verification pills, deliverability health score progress bars, DNS drift badges, and direct links to `/domains/[id]/setup`.
+  - SMTP Daily Sending Quota & 14-Day Outbound Volume Trend: Quota progress bar, delivery event breakdown (30-day window), and historical sending table.
+  - Recent Outbound Activity: Delivery log event ledger showing sender, recipient, status, and bounce classification.
+  - Security Incidents Ledger: Tenant-specific incident table with severity badges, status chips, and expandable suggested remediation steps.
+  - DMARC Reporting Posture Card: Highlights XML report parser availability and transparently discloses pending automated inbox ingestion.
+  - Preserved recent invoices billing section.
+- **Verification & Testing:**
+  - Dedicated feature test suite: `TenantSecurityDeliverabilityDashboardTest.php` (18/18 tests passing, 144 assertions, 100%).
+  - Full PHPUnit regression suite: 490/490 tests passing (2434 assertions, 100%).
+  - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
+  - Next.js production build: `npm run build` (27/27 pages compiled cleanly with 0 errors).
+

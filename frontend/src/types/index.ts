@@ -466,10 +466,143 @@ export interface PaginatedResponse<T> {
   links: { first: string; last: string; prev: string | null; next: string | null; };
 }
 
+export interface DomainSecuritySummary {
+  total_domains: number;
+  active_domains: number;
+  pending_domains: number;
+  fully_authenticated_domains: number;
+  domains_with_drift: number;
+  average_deliverability_score: number;
+}
+
+export interface DomainSecurityItem {
+  id: number;
+  domain_name: string;
+  status: string;
+  mailboxes_count: number;
+  mx_verified: boolean;
+  spf_verified: boolean;
+  dkim_verified: boolean;
+  dmarc_verified: boolean;
+  score: number;
+  score_status: string;
+  score_status_label: string;
+  dns_drift_detected: boolean;
+  missing_records: string[];
+  last_dns_check_at: string | null;
+  setup_url: string;
+}
+
+export interface DomainSecuritySection {
+  status: 'operational' | 'warning' | 'empty' | 'error';
+  error: string | null;
+  summary: DomainSecuritySummary;
+  domains: DomainSecurityItem[];
+  recommendations: string[];
+}
+
+export interface SmtpDeliverySummary {
+  timeframe: string;
+  total_logged: number;
+  delivered: number;
+  deferred: number;
+  bounced: number;
+  rejected: number;
+}
+
+export interface SmtpUsageHistoryItem {
+  date: string;
+  recipient_count: number;
+  is_today: boolean;
+}
+
+export interface SmtpUsageSection {
+  status: 'operational' | 'degraded' | 'warning' | 'error';
+  error: string | null;
+  data_source: string;
+  used_today: number;
+  daily_limit: number;
+  remaining_today: number | null;
+  percent_used: number;
+  is_unlimited: boolean;
+  quota_status: 'normal' | 'warning' | 'exhausted' | 'disabled' | 'unlimited';
+  quota_warning: string | null;
+  history: SmtpUsageHistoryItem[];
+  delivery_summary: SmtpDeliverySummary;
+}
+
+export interface DeliveryLogEvent {
+  id: number;
+  domain_id: number;
+  mailbox_id: number;
+  sender_email: string;
+  recipient_email: string;
+  queue_id: string;
+  status: 'delivered' | 'deferred' | 'bounced' | 'rejected' | string;
+  dsn_code: string | null;
+  smtp_code: number | null;
+  response_text: string | null;
+  occurred_at: string | null;
+  created_at: string | null;
+}
+
+export interface RecentActivitySection {
+  status: 'operational' | 'empty' | 'error';
+  error: string | null;
+  events: DeliveryLogEvent[];
+}
+
+export interface TenantAbuseIncident {
+  id: number;
+  uuid: string;
+  incident_type: string;
+  severity: 'low' | 'medium' | 'high' | 'critical' | string;
+  status: 'open' | 'resolved' | string;
+  summary: string;
+  domain_name: string | null;
+  mailbox_email: string | null;
+  occurred_at: string | null;
+  resolved_at: string | null;
+  suggested_remediation: string;
+  created_at: string | null;
+}
+
+export interface AbuseAndSecuritySection {
+  status: 'operational' | 'warning' | 'clean' | 'empty' | 'error';
+  error: string | null;
+  open_incidents_count: number;
+  incidents: TenantAbuseIncident[];
+  security_warnings: string[];
+}
+
+export interface DmarcReportingSection {
+  status: 'manual_inspection_only' | 'error';
+  parser_available: boolean;
+  parser_format: string;
+  automated_collection: boolean;
+  automated_collection_status: string;
+  automated_collection_note: string;
+  inspected_reports_count: number;
+  supported_actions: string[];
+}
+
 export interface DashboardStats {
   user: User;
   domains_count: number;
+  domain_count?: number;
   mailboxes_count: number;
+  mailbox_count?: number;
+  plan_info?: {
+    name: string;
+    expires_at: string | null;
+    max_domains: number;
+    max_mailboxes_per_domain: number;
+  } | null;
+  domain_security?: DomainSecuritySection;
+  smtp_usage?: SmtpUsageSection;
+  recent_activity?: RecentActivitySection;
+  abuse_and_security?: AbuseAndSecuritySection;
+  dmarc_reporting?: DmarcReportingSection;
   recent_domains: Domain[];
   recent_invoices: Invoice[];
 }

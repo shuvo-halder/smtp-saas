@@ -340,4 +340,25 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Clear Legal & Diagnostic Disclaimer:**
   - Deliverability reports explicitly include a disclaimer that DNS verification reflects published DNS records and does NOT guarantee external inbox placement, third-party spam filter exemption, or sender reputation.
 
+## 26. Tenant Email Security & Deliverability Monitoring Dashboard Security (Step 36)
+- **Strict Multi-Tenant Isolation & Zero Leakage:**
+  - All dashboard queries (`Domain`, `DeliveryLog`, `TenantOutboundUsage`, `AbuseIncident`) are strictly filtered by `tenant_id = auth.user.tenant_id`.
+  - Comprehensive feature tests explicitly verify that tenant A cannot see or access tenant B's domains, delivery events, or abuse incidents.
+- **Sanitized Abuse Incident Presentation (`TenantAbuseIncidentResource`):**
+  - Tenant-facing security incidents endpoint (`GET /api/security/incidents`) and dashboard payload format incidents through `TenantAbuseIncidentResource`.
+  - Sensitive internal data — including server stack traces, database IDs of resolving staff (`resolved_by`), internal file system paths, and raw system evidence blobs — are strictly redacted before output.
+  - Actionable remediation advice (`suggested_remediation`) is synthesized for tenants based on incident type (e.g. list hygiene, SPF/DKIM verification, quota management) without exposing internal heuristics.
+- **Zero Live DNS Lookups on Dashboard Render:**
+  - Dashboard render calculates domain deliverability scores and detects drift purely from persisted database columns (`mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dns_drift_detected_at`).
+  - No live network DNS queries (`dns_get_record`) are triggered during `GET /api/dashboard`, eliminating DNS amplification vulnerabilities, denial-of-service risks, and external resolver latency on dashboard loads.
+- **Resilient Partial-Failure Fault Isolation:**
+  - Each major dashboard section (`domain_security`, `smtp_usage`, `recent_activity`, `abuse_and_security`, `dmarc_reporting`) executes within its own isolated boundary.
+  - If an upstream service (such as Redis) is unreachable, the system catches the exception and marks `smtp_usage.status = 'degraded'` with a sanitized error message, allowing other sections (domains, abuse incidents, billing) to render normally without a cascading 500 server crash.
+- **Administrative Control Plane Integrity Maintained:**
+  - Tenant endpoints are strictly read-only. Tenant access cannot mutate, resolve, dismiss, or delete abuse incident records.
+  - Incident mutation remains strictly locked to `POST /api/admin/smtp/incidents/{incident}/resolve` under the `RequireAdminPermission:admin.smtp.mailbox.toggle` middleware.
+- **Truthful DMARC Posture Reporting:**
+  - The dashboard truthfully reports that while the RFC 7489 XML report parser is operational (`POST /api/domains/{domain}/parse-dmarc-report`), automated inbound mailbox ingestion remains `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`. The application makes zero false claims of automated aggregate telemetry collection.
+
+
 

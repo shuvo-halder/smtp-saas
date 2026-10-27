@@ -283,6 +283,61 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
     - Upgraded `DnsRecordTable.tsx` with copy buttons, record purpose, priority columns, status badges (`VERIFIED`, `MISMATCH`, `MISSING`, `CHECK_FAILED`, `NOT_CONFIGURED`, `EXPECTED`), and expandable troubleshooting drawer showing expected vs current values.
   - Updated `/domains/[id]` domain details page with "DNS Wizard & Diagnostics" button.
 
+## 24. Domain Authentication Hardening, Deliverability Reports & DMARC Parser (Step 35)
+**Status:** IMPLEMENTED & VERIFIED (Step 35)
+**Purpose:** Provide deep domain deliverability reports, DNS drift detection, SPF mechanism inspection, DMARC aggregate XML report parsing (RFC 7489) with XXE & payload protections, and verification audit history.
+**Components:**
+- **Deliverability Report & Diagnostics Engine (`DnsVerificationService.php`):**
+  - Generates comprehensive deliverability reports via `generateDeliverabilityReport(Domain $domain)`.
+  - DNS drift detection: flags `dns_drift_detected: true` when verified active domains lose essential DNS records.
+  - SPF mechanism analysis: counts DNS lookup mechanisms (against RFC 7208 10-lookup limit) and warns against `+all` open relay policies.
+  - DMARC PermError detection: detects multiple TXT records at `_dmarc.<domain>` per RFC 7489 section 6.6.3.
+  - MX host inspection: identifies bare IP configurations violating RFC 5321 section 5.1.
+- **RFC 7489 DMARC Aggregate Report Parser (`DmarcReportParserService.php`):**
+  - High-security XML parser disabling external network entity resolution (`LIBXML_NONET`) and rejecting `<!DOCTYPE` / `<!ENTITY` definitions.
+  - Payload bounding to 5MB (`max:5120`) and rate-limiting (`throttle:10,1`).
+  - Cross-domain report spoofing protection: enforces matching published domain.
+  - Computes SHA-256 deduplication digest and aggregates per-source-IP pass/fail statistics.
+  - Truthfully exposes automated ingestion state as `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+- **API Endpoints & Policy Authorization:**
+  - `GET /api/domains/{domain}/deliverability-report`: Deliverability score, DNS drift status, mechanism breakdown, verification history, and disclaimer.
+  - `POST /api/domains/{domain}/parse-dmarc-report`: Tenant XML report parsing and structured analysis.
+- **Next.js Frontend Deliverability Experience:**
+  - Deliverability scorecard, verification history timeline, and interactive DMARC report parser upload modal at `/domains/[id]/setup`.
+
+## 25. Tenant Email Security & Deliverability Monitoring Dashboard (Step 36)
+**Status:** IMPLEMENTED & VERIFIED (Step 36)
+**Purpose:** Provide a unified tenant-facing security, deliverability, SMTP activity, quota tracking, and abuse incident monitoring dashboard, extending the existing tenant dashboard without creating competing routes.
+**Components:**
+- **TenantSecurityDashboardService (`app/Services/TenantSecurityDashboardService.php`):**
+  - Centralized dashboard orchestrator implementing `getDashboardData(User $user, ?Request $request = null)`.
+  - `buildDomainSecuritySection()`: Computes deliverability scores and evaluates DNS drift strictly from stored domain flags (`mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dns_drift_detected_at`). Zero live DNS queries dispatched on render.
+  - `buildSmtpUsageSection()`: Aggregates real-time UTC daily quota from Redis via `TenantSmtpService::getUsage()`, fetches 14-day outbound history from `TenantOutboundUsage`, computes 30-day delivery event aggregates from `DeliveryLog`, and assesses quota thresholds (near-limit >= 80%, exhausted >= 100%).
+  - `buildRecentActivitySection()`: Retrieves latest 10 `DeliveryLog` records via `DeliveryLogResource` with strict tenant isolation.
+  - `buildAbuseAndSecuritySection()`: Queries tenant-scoped `AbuseIncident` records, calculates open incident count, formats incidents via `TenantAbuseIncidentResource`, and synthesizes actionable warnings.
+  - `buildDmarcReportingSection()`: Reports RFC 7489 XML parser availability and truthfully records automated ingestion posture as `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - `getTenantIncidents()`: Dedicated pagination and filtering engine for tenant abuse incidents.
+  - Resilient Partial-Failure Fault Isolation: Encapsulates each section within try-catch blocks returning explicit status contracts (`operational`, `warning`, `degraded`, `clean`, `empty`, `error`) and sanitized error messages.
+- **TenantAbuseIncidentResource (`app/Http/Resources/TenantAbuseIncidentResource.php`):**
+  - Safe API resource for tenant-facing incident presentation.
+  - Strict data redaction: strips administrative staff IDs (`resolved_by`), internal server file paths, raw exception traces, and evidence payloads.
+  - Synthesizes user-actionable `suggested_remediation` based on incident type (`consecutive_hard_bounces`, `daily_hard_bounce_threshold`, `high_hard_bounce_rate`, `quota_exhaustion`, `dns_drift`).
+- **RESTful API Routes & Governance:**
+  - `GET /api/dashboard`: Unified dashboard endpoint with full backward compatibility (exposes legacy counts, user, plan info, recent invoices alongside new security sections).
+  - `GET /api/security/incidents`: Dedicated tenant incident ledger with bounded pagination (1..50), status, and severity filters.
+  - Protected by `auth:sanctum` and `EnsureActiveSubscription`.
+- **Next.js Frontend Monitoring Dashboard (`frontend/src/app/(dashboard)/dashboard/page.tsx`):**
+  - Responsive, cohesive dashboard layout consistent with application design system.
+  - High-priority security warning banners: DNS drift detected, open abuse incidents, quota exhaustion / near-limit warnings.
+  - KPI Stat Cards: Deliverability Health, Sent Today / Quota, Authenticated Domains, Open Incidents.
+  - Domain Authentication Table: Real-time verification badges (MX, SPF, DKIM, DMARC), health score progress bars, DNS drift warnings, and direct links to `/domains/[id]/setup`.
+  - SMTP Daily Quota & 14-Day Outbound Volume Trend: Quota progress bar with percentage used, breakdown of 30-day delivery events (delivered, deferred, bounced, rejected), and 14-day history table.
+  - Recent Outbound Activity: Event log showing sender, recipient, timestamp, delivery status, and bounce classification.
+  - Security Incidents Ledger: Tenant-specific incident table with severity badges, status chips, and expandable suggested remediation.
+  - DMARC Reporting Posture Card: Educational card clarifying parser availability and pending automated inbox ingestion.
+  - Recent Billing Invoices: Preserved billing history card for complete tenant overview.
+
+
 
 
 

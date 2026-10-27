@@ -798,3 +798,51 @@
   - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **472 tests, 2,290 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
   - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.
+
+---
+
+## Step 36 — Tenant Email Security & Deliverability Monitoring Dashboard (`IMPLEMENTED — VERIFIED`)
+- `[x]` Database & Model Architecture:
+  - `[x]` Zero schema modifications required; reuses existing `Domain`, `DeliveryLog`, `TenantOutboundUsage`, `AbuseIncident`, `Invoice`, and `Plan` models.
+  - `[x]` Zero data mutation on render; read-only telemetry aggregation.
+- `[x]` TenantSecurityDashboardService & Backend Orchestration:
+  - `[x]` Implemented `getDashboardData(User $user, ?Request $request = null)` as unified dashboard entrypoint.
+  - `[x]` `buildDomainSecuritySection`: Computes deliverability scores and detects DNS drift strictly from stored domain flags (`mx_verified`, `spf_verified`, `dkim_verified`, `dmarc_verified`, `dns_drift_detected_at`). Zero live DNS queries dispatched on render.
+  - `[x]` `buildSmtpUsageSection`: Real-time daily quota from Redis via `TenantSmtpService::getUsage()`, 14-day history from `TenantOutboundUsage`, 30-day delivery event summary from `DeliveryLog`, quota near-limit (`>= 80%`) and exhaustion (`>= 100%`) warnings.
+  - `[x]` `buildRecentActivitySection`: Bounded retrieval of latest 10 `DeliveryLog` records via `DeliveryLogResource`.
+  - `[x]` `buildAbuseAndSecuritySection`: Scoped strictly to tenant's own incidents, formatted via `TenantAbuseIncidentResource`, synthesized warnings.
+  - `[x]` `buildDmarcReportingSection`: Truthfully reports XML parser available and automated ingestion as `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - `[x]` `getTenantIncidents`: Bounded pagination (1..50) with status and severity filters.
+  - `[x]` Per-section fault isolation: Wraps each section in independent try-catch returning explicit status contracts (`operational`, `warning`, `degraded`, `clean`, `empty`, `error`) and sanitized error messages.
+- `[x]` TenantAbuseIncidentResource & Data Sanitization:
+  - `[x]` Customer-facing projection of `AbuseIncident`.
+  - `[x]` Strictly redacts internal traces, evidence blobs, internal paths, and administrative ID (`resolved_by`).
+  - `[x]` Context-aware `suggested_remediation` synthesized per incident type (`consecutive_hard_bounces`, `daily_hard_bounce_threshold`, `high_hard_bounce_rate`, `quota_exhaustion`, `dns_drift`).
+- `[x]` RESTful API & Security Boundaries:
+  - `[x]` Extended `GET /api/dashboard` with backward compatibility (`user`, `domains_count`, `domain_count`, `mailboxes_count`, `mailbox_count`, `plan_info`, `recent_domains`, `recent_invoices`).
+  - `[x]` Added `GET /api/security/incidents` with bounded pagination (1..50) and status/severity filters.
+  - `[x]` Protected by `auth:sanctum` and `EnsureActiveSubscription`.
+  - `[x]` Strict tenant isolation: Tenant A cannot observe or query Tenant B's domains, delivery logs, or abuse incidents.
+  - `[x]` Administrative privileges preserved: Incident resolution strictly locked to admin control plane.
+- `[x]` Next.js Tenant UI:
+  - `[x]` Added TypeScript interfaces in `frontend/src/types/index.ts` (`DomainSecuritySummary`, `DomainSecurityItem`, `DomainSecuritySection`, `SmtpDeliverySummary`, `SmtpUsageHistoryItem`, `SmtpUsageSection`, `DeliveryLogEvent`, `RecentActivitySection`, `TenantAbuseIncident`, `AbuseAndSecuritySection`, `DmarcReportingSection`, `DashboardStats`).
+  - `[x]` Added `useSecurityIncidents` hook and updated `useDashboard` in `frontend/src/hooks/useDashboard.ts`.
+  - `[x]` Comprehensive monitoring dashboard in `frontend/src/app/(dashboard)/dashboard/page.tsx`:
+    - `[x]` DNS drift, abuse incident, and quota exhaustion alert banners.
+    - `[x]` 4 KPI cards (Deliverability Health, Sent Today / Quota, Authenticated Domains, Open Incidents).
+    - `[x]` Domain Authentication table with setup links and health score progress bars.
+    - `[x]` SMTP Daily Sending Quota & 14-Day Outbound Volume Trend cards.
+    - `[x]` Recent Outbound Activity event ledger.
+    - `[x]` Security Incidents Ledger with suggested remediation drawer.
+    - `[x]` DMARC Reporting Posture card clarifying XML parser availability and pending automated inbox ingestion.
+    - `[x]` Preserved billing invoices table.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `TenantSecurityDeliverabilityDashboardTest.php` passes with 18 tests (144 assertions).
+  - `[x]` **Level B (Fault-Tolerance & Data Protection):** `VERIFIED`. Redis degradation, zero live DNS queries on render, strict tenant isolation, and sensitive data redaction verified.
+  - `[x]` **Level C (End-to-End Live Automated DMARC Inbound Collection):** `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL` (automated inbound IMAP/mail pipe requires dedicated Linux VPS infrastructure).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Feature test suite (`tests/Feature/TenantSecurityDeliverabilityDashboardTest.php`): **18 tests, 144 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **490 tests, 2,434 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.
+

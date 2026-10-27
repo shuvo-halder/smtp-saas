@@ -48,6 +48,7 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
         // Active Subscription Required
         Route::middleware(EnsureActiveSubscription::class)->group(function () {
             Route::get('/dashboard', [DashboardApiController::class, 'index']);
+            Route::get('/security/incidents', [DashboardApiController::class, 'securityIncidents']);
 
             // Domains CRUD, DNS Setup Wizard & Deliverability Reports (Steps 34 & 35)
             Route::apiResource('domains', DomainApiController::class)->except(['update']);
