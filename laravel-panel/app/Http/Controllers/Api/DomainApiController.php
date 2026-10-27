@@ -217,6 +217,45 @@ class DomainApiController extends Controller
             request: $request
         );
 
+        // Dispatch notifications for DNS drift detection or recovery
+        try {
+            $notificationService = app(\App\Services\TenantNotificationService::class);
+            if ($dnsDrift) {
+                $notificationService->notify(
+                    tenantId: $freshDomain->user_id,
+                    category: 'domain_dns',
+                    severity: 'critical',
+                    title: "DNS Drift Detected: {$freshDomain->domain}",
+                    message: "Essential DNS records for {$freshDomain->domain} are missing or invalid. Inbound mail or outbound deliverability may be affected.",
+                    actionUrl: "/domains/{$freshDomain->id}/setup",
+                    deduplicationKey: "dns_drift:{$freshDomain->id}:active",
+                    data: ['domain' => $freshDomain->domain, 'domain_id' => $freshDomain->id]
+                );
+            } elseif ($freshDomain->status === 'active' && ($results['mx']['verified'] ?? false) && ($results['spf']['verified'] ?? false) && ($results['dkim']['verified'] ?? false)) {
+                // If there was an active unread drift notification, mark it as read and emit recovery notice
+                $activeDrift = \App\Models\TenantNotification::where('tenant_id', $freshDomain->user_id)
+                    ->where('deduplication_key', "dns_drift:{$freshDomain->id}:active")
+                    ->whereNull('read_at')
+                    ->first();
+
+                if ($activeDrift) {
+                    $activeDrift->markAsRead();
+                    $notificationService->notify(
+                        tenantId: $freshDomain->user_id,
+                        category: 'domain_dns',
+                        severity: 'success',
+                        title: "DNS Authentication Restored: {$freshDomain->domain}",
+                        message: "All required DNS records for {$freshDomain->domain} have been verified and restored successfully.",
+                        actionUrl: "/domains/{$freshDomain->id}/setup",
+                        deduplicationKey: "dns_recovered:{$freshDomain->id}:" . date('Y-m-d'),
+                        data: ['domain' => $freshDomain->domain, 'domain_id' => $freshDomain->id]
+                    );
+                }
+            }
+        } catch (\Throwable $e) {
+            // Fail-safe notification dispatch
+        }
+
         return response()->json([
             'verified' => $isVerified,
             'message'  => $isVerified ? __('messages.domain_verified') : 'Domain DNS verification incomplete. Please ensure required records have propagated.',

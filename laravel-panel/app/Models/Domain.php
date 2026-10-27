@@ -65,6 +65,11 @@ class Domain extends Model
         return $this->mx_verified && $this->spf_verified && $this->dkim_verified;
     }
 
+    public function getDomainAttribute(): string
+    {
+        return $this->domain_name ?? '';
+    }
+
     public function verificationStatus(): array
     {
         return [

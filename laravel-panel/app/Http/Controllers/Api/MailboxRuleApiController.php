@@ -132,6 +132,20 @@ class MailboxRuleApiController extends Controller
             request: $request
         );
 
+        try {
+            $destinations = (string) ($mailbox->forwarding_destinations ?? '');
+            app(\App\Services\TenantNotificationService::class)->notify(
+                tenantId: $mailbox->domain->user_id ?? $user->id,
+                category: 'mailbox_rule',
+                severity: 'info',
+                title: "Mail Forwarding Updated: {$mailbox->email}",
+                message: $isEnabled ? "Forwarding enabled with destination(s): {$destinations}." : "Forwarding has been disabled.",
+                actionUrl: '/mailboxes',
+                deduplicationKey: "mailbox_fwd:{$mailbox->id}:" . now()->format('Y-m-d-H-i'),
+                data: ['mailbox_email' => $mailbox->email, 'mailbox_id' => $mailbox->id]
+            );
+        } catch (\Throwable $e) {}
+
         $rules = $this->ruleService->verifyMailboxRules($mailbox->fresh('domain'));
 
         return response()->json([
@@ -249,6 +263,19 @@ class MailboxRuleApiController extends Controller
             reason: 'Mailbox out-of-office auto-reply rules updated by tenant',
             request: $request
         );
+
+        try {
+            app(\App\Services\TenantNotificationService::class)->notify(
+                tenantId: $mailbox->domain->user_id ?? $user->id,
+                category: 'mailbox_rule',
+                severity: 'info',
+                title: "Auto-Reply Configured: {$mailbox->email}",
+                message: $isEnabled ? "Out-of-office auto-reply has been activated." : "Out-of-office auto-reply has been disabled.",
+                actionUrl: '/mailboxes',
+                deduplicationKey: "mailbox_autoreply:{$mailbox->id}:" . now()->format('Y-m-d-H-i'),
+                data: ['mailbox_email' => $mailbox->email, 'mailbox_id' => $mailbox->id]
+            );
+        } catch (\Throwable $e) {}
 
         $rules = $this->ruleService->verifyMailboxRules($mailbox->fresh('domain'));
 

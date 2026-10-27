@@ -1,8 +1,9 @@
 'use client';
 
-import { Menu, Bell } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
+import { NotificationBellDropdown } from '@/components/notifications/NotificationDrawer';
 
 interface TopBarProps {
   onMenuClick: () => void;
@@ -29,9 +30,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
             {user.plan.name} Plan
           </Badge>
         )}
-        <button className="text-gray-500 hover:text-gray-700 focus:outline-none">
-          <Bell className="h-5 w-5" />
-        </button>
+        <NotificationBellDropdown />
       </div>
     </header>
   );

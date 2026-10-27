@@ -233,3 +233,52 @@ This document describes the current implementation state of the EmailSaaS projec
   - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
   - Next.js production build: `npm run build` (27/27 pages compiled cleanly with 0 errors).
 
+## 17. Tenant Notifications & Security Alert Center (Step 37)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **Database Architecture & Migration:**
+  - Non-destructive migration `2026_10_28_000001_create_tenant_notifications_table.php` applied to `emailsaas_local` (MySQL 8.4.3).
+  - Schema: `id`, `tenant_id` (FK -> `users.id` cascade on delete), `category` (varchar 50), `severity` (varchar 20 default 'info'), `title` (varchar 255), `message` (text), `action_url` (varchar 255 nullable), `deduplication_key` (varchar 255 nullable), `data` (json nullable), `read_at` (timestamp nullable), `dismissed_at` (timestamp nullable), `created_at`, `updated_at`.
+  - Composite indexes: `idx_tenant_read_created` (`tenant_id`, `read_at`, `created_at`), `idx_tenant_cat_created` (`tenant_id`, `category`, `created_at`), `idx_tenant_dedup` (`tenant_id`, `deduplication_key`).
+- **Backend Architecture & Service Layer:**
+  - `TenantNotification` Model (`app/Models/TenantNotification.php`):
+    - Scopes: `forTenant()`, `unread()`, `read()`, `active()`, `dismissed()`, `category()`, `severity()`.
+    - Helper methods: `isRead()`, `isDismissed()`, `markAsRead()`, `markAsUnread()`, `dismiss()`.
+    - Relationships: `tenant(): BelongsTo` with `User`, and `User::tenantNotifications(): HasMany`.
+  - `TenantNotificationPolicy` (`app/Policies/TenantNotificationPolicy.php`):
+    - Registered in `AuthServiceProvider`. Enforces strict tenant ownership (`$user->id === $notification->tenant_id`) across `view()`, `update()`, and `delete()`.
+  - `TenantNotificationService` (`app/Services/TenantNotificationService.php`):
+    - Centralized entrypoint `notify()` with atomic deduplication (`deduplication_key`), preventing duplicate active alerts.
+    - Fail-safe non-blocking error handling: catches and logs database exceptions so primary operations never abort.
+    - Recursive sensitive data scrubbing (`scrubSensitiveData`): strips passwords, secrets, tokens, api keys, private keys, hashes, salts, and system traces.
+    - Bounded querying `getNotifications()` (1..50 per page) with status, category, and severity filtering.
+    - Lifecycle operations: `getUnreadCount()`, `markAsRead()`, `markAllAsRead()`, and `dismiss()`.
+  - `TenantNotificationResource` (`app/Http/Resources/TenantNotificationResource.php`):
+    - Standardized API payload formatting with stored XSS prevention via `strip_tags()` and recursive data scrubbing.
+  - `TenantNotificationApiController` (`app/Http/Controllers/Api/TenantNotificationApiController.php`):
+    - RESTful API endpoints under `auth:sanctum` (exempt from subscription gating so expired/suspended tenants can inspect critical notices):
+      - `GET /api/notifications`: paginated list.
+      - `GET /api/notifications/unread-count`: live unread count.
+      - `POST /api/notifications/{id}/read`: idempotent mark read.
+      - `POST /api/notifications/mark-all-read`: idempotent bulk mark read.
+      - `POST /api/notifications/{id}/dismiss`: idempotent archive/dismiss.
+- **Event Trigger Integrations Across Codebase:**
+  - Domain DNS Drift & Recovery: `DomainApiController::verifyDns()` emits critical alert on drift (`dns_drift:{id}:active`) and automatically marks drift read with success notice on recovery (`dns_recovered:{id}:{date}`).
+  - Mailbox Forwarding & Auto-Reply: `MailboxRuleApiController::updateForwarding()` and `updateAutoReply()` emit informative configuration audit notices.
+  - Mailbox Active/Disabled Toggle: `MailboxApiController::toggle()` emits notifications when mailboxes are enabled or quarantined.
+  - Abuse Incidents & Resolutions: `AbuseIncidentService::record()` and `resolve()` dispatch security alerts on detection and resolution notices on remediation.
+  - Billing & Invoices: `BillingService::markInvoicePaid()` dispatches payment confirmation notice (`invoice_paid:{id}`).
+  - Subscription Expiration: `SuspendExpiredTenants.php` dispatches critical plan expiration alert (`subscription_expired:{id}:{date}`).
+  - SMTP Quota Thresholds: `OutboundUsageSyncService.php` dispatches warning (>=80%) and critical exhaustion (>=100%) alerts during usage synchronization.
+- **Next.js Frontend Architecture:**
+  - TypeScript types (`frontend/src/types/index.ts`): full type definitions for notification categories, severities, responses, and unread counts.
+  - SWR Hooks (`frontend/src/hooks/useNotifications.ts`): reactive notifications fetcher, live polling unread counter, and optimistic mutation helpers.
+  - TopBar Notification Bell & Drawer (`frontend/src/components/notifications/NotificationDrawer.tsx` & `TopBar.tsx`): interactive slide-out drawer with unread counter badge, category icons, severity badges, relative timestamps, and one-click action links.
+  - Sidebar Navigation (`frontend/src/components/layouts/Sidebar.tsx`): dedicated `Notifications` nav item with live unread badge.
+  - Notification Center Page (`frontend/src/app/(dashboard)/notifications/page.tsx`): responsive, filterable alert center with category selector, status tabs (All, Unread, Read), bulk mark-all-read, pagination, and dismissal controls.
+- **Verification & Testing Results:**
+  - Dedicated feature test suite: `TenantNotificationTest.php` (16/16 tests passing, 92 assertions, 100%).
+  - Full PHPUnit regression suite: 506/506 tests passing (2526 assertions, 100%).
+  - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
+  - Next.js production build: `npm run build` (28/28 static pages compiled cleanly with 0 errors).
+
+

@@ -959,3 +959,51 @@ export interface SmtpDiagnosticsResponse {
   common_errors: SmtpCommonError[];
 }
 
+export type TenantNotificationCategory =
+  | 'domain_dns'
+  | 'security_abuse'
+  | 'smtp_quota'
+  | 'billing_subscription'
+  | 'mailbox_rule'
+  | 'system';
+
+export type TenantNotificationSeverity = 'info' | 'warning' | 'critical' | 'success';
+
+export interface TenantNotification {
+  id: number;
+  category: TenantNotificationCategory;
+  severity: TenantNotificationSeverity;
+  title: string;
+  message: string;
+  action_url: string | null;
+  data: Record<string, any> | null;
+  is_read: boolean;
+  read_at: string | null;
+  is_dismissed: boolean;
+  dismissed_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationListResponse {
+  data: TenantNotification[];
+  meta: {
+    current_page: number;
+    from: number | null;
+    last_page: number;
+    per_page: number;
+    to: number | null;
+    total: number;
+  };
+  links: {
+    first: string;
+    last: string;
+    prev: string | null;
+    next: string | null;
+  };
+}
+
+export interface UnreadCountResponse {
+  unread_count: number;
+}
+
+

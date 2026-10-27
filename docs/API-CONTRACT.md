@@ -50,6 +50,15 @@ The EmailSaaS backend utilizes a RESTful API powered by Laravel 11. All API rout
 | POST | `/aliases/{alias}/toggle` | Toggle active/disabled status. Disabling is always permitted. Enabling strictly requires active domain and active subscription (HTTP 422 if violated). Governed by `EmailAliasPolicy::update`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 | DELETE| `/aliases/{alias}` | Permanently delete alias. Inbound forwarding stops immediately. Governed by `EmailAliasPolicy::delete`. | `auth:sanctum`, `EnsureActiveSubscription` (Scoped) |
 
+## Tenant Notifications & Security Alert API (Step 37)
+| Method | Endpoint | Description | Middleware |
+|---|---|---|---|
+| GET | `/notifications` | Bounded, paginated list of tenant notifications and security alerts. Supports `per_page` (clamped 1-50), `status` (`unread`, `read`, `all`), `category`, and `severity`. | `auth:sanctum` |
+| GET | `/notifications/unread-count` | Real-time unread notification count for the authenticated tenant. | `auth:sanctum` |
+| POST | `/notifications/{id}/read` | Mark an individual notification as read. Idempotent. Strictly scoped to tenant owner. | `auth:sanctum` |
+| POST | `/notifications/mark-all-read` | Mark all unread notifications as read for the authenticated tenant. Idempotent bulk operation. | `auth:sanctum` |
+| POST | `/notifications/{id}/dismiss` | Dismiss/archive an individual notification. Idempotent. Strictly scoped to tenant owner. | `auth:sanctum` |
+
 ## Billing & SSO API
 | Method | Endpoint | Description | Middleware |
 |---|---|---|---|
@@ -1240,6 +1249,154 @@ Retrieves bounded, paginated security and abuse incidents belonging strictly to 
   }
 }
 ```
+
+## 31. Tenant Notifications & Security Alert Center API (Step 37)
+
+Provides real-time event alerts, security warnings, quota exhaustion notices, DNS drift warnings, and configuration telemetry for the authenticated tenant.
+
+### Security Invariants & Access Control
+- **Authentication:** All routes require `auth:sanctum`.
+- **Subscription Exemption:** Unlike feature-specific endpoints, `/api/notifications/*` does **not** enforce `EnsureActiveSubscription`. This ensures suspended or expired tenants can still inspect billing renewal alerts, suspension reasons, and payment confirmations.
+- **Strict Tenant Scoping:** All queries are strictly scoped to `tenant_id === auth()->user()->id`. Cross-tenant record lookups return HTTP 404 (or HTTP 403 via `TenantNotificationPolicy`).
+- **Sensitive Data Redaction:** All responses pass through `TenantNotificationResource`, which recursively redacts credential keys (`password`, `secret`, `token`, `key`, `private_key`, `api_key`, `hash`, `salt`, `trace`, `file`, `line`, `evidence`).
+- **Atomic Deduplication:** Ongoing conditions (such as persistent DNS drift or repeated daily quota rejections) use atomic deduplication keys (`dns_drift:{id}:active`, `quota_exhaustion:{id}:{date}`) to prevent notification spam.
+
+---
+
+### Endpoints
+
+#### 1. List Notifications (`GET /api/notifications`)
+Retrieves bounded, paginated notifications for the authenticated tenant.
+
+**Query Parameters:**
+- `status`: Filter by read/dismiss state:
+  - `unread` (default for drawer): Active unread notifications (`read_at IS NULL AND dismissed_at IS NULL`).
+  - `read`: Active read notifications (`read_at IS NOT NULL AND dismissed_at IS NULL`).
+  - `all` (default for center): All non-dismissed notifications (`dismissed_at IS NULL`).
+- `category`: Filter by category (`security`, `domain`, `mailbox`, `billing`, `system`). Optional.
+- `severity`: Filter by severity (`info`, `warning`, `critical`). Optional.
+- `per_page`: Bounded integer between 1 and 50. Default: 15.
+- `page`: Bounded positive integer page index. Default: 1.
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "category": "security",
+      "severity": "critical",
+      "title": "Security Incident: High Hard Bounce Rate",
+      "message": "Outbound sending paused due to abnormal bounce activity on domain acme.com.",
+      "action_url": "/security/incidents",
+      "data": {
+        "incident_id": 42,
+        "domain_name": "acme.com"
+      },
+      "read_at": null,
+      "dismissed_at": null,
+      "created_at": "2026-10-28T00:30:00Z"
+    }
+  ],
+  "links": {
+    "first": "https://emailsaas.test/api/notifications?page=1",
+    "last": "https://emailsaas.test/api/notifications?page=1",
+    "prev": null,
+    "next": null
+  },
+  "meta": {
+    "current_page": 1,
+    "from": 1,
+    "last_page": 1,
+    "per_page": 15,
+    "to": 1,
+    "total": 1
+  }
+}
+```
+
+---
+
+#### 2. Get Unread Count (`GET /api/notifications/unread-count`)
+Retrieves the real-time unread count for badge counters in the top bar and sidebar navigation.
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "unread_count": 3
+}
+```
+
+---
+
+#### 3. Mark Single Notification as Read (`POST /api/notifications/{id}/read`)
+Marks an individual notification as read. Idempotent: re-invoking on an already-read notification returns the existing record without error.
+
+**Authorization:** Strictly scoped to tenant owner (`TenantNotificationPolicy::update`).
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "data": {
+    "id": 1,
+    "category": "security",
+    "severity": "critical",
+    "title": "Security Incident: High Hard Bounce Rate",
+    "message": "Outbound sending paused due to abnormal bounce activity on domain acme.com.",
+    "action_url": "/security/incidents",
+    "data": {
+      "incident_id": 42,
+      "domain_name": "acme.com"
+    },
+    "read_at": "2026-10-28T00:35:12Z",
+    "dismissed_at": null,
+    "created_at": "2026-10-28T00:30:00Z"
+  }
+}
+```
+
+---
+
+#### 4. Mark All Notifications as Read (`POST /api/notifications/mark-all-read`)
+Idempotent bulk update marking all unread notifications for the authenticated tenant as read.
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "success": true,
+  "updated_count": 3,
+  "message": "All notifications marked as read."
+}
+```
+
+---
+
+#### 5. Dismiss / Archive Notification (`POST /api/notifications/{id}/dismiss`)
+Archives an individual notification by setting `dismissed_at = now()`. The notification is removed from the active drawer and notification center view while preserving database audit logs.
+
+**Authorization:** Strictly scoped to tenant owner (`TenantNotificationPolicy::update`).
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "data": {
+    "id": 1,
+    "category": "security",
+    "severity": "critical",
+    "title": "Security Incident: High Hard Bounce Rate",
+    "message": "Outbound sending paused due to abnormal bounce activity on domain acme.com.",
+    "action_url": "/security/incidents",
+    "data": {
+      "incident_id": 42,
+      "domain_name": "acme.com"
+    },
+    "read_at": "2026-10-28T00:35:12Z",
+    "dismissed_at": "2026-10-28T00:36:00Z",
+    "created_at": "2026-10-28T00:30:00Z"
+  }
+}
+```
+
 
 
 

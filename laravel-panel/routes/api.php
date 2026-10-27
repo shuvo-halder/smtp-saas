@@ -45,6 +45,15 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
         Route::get('/billing/invoices/{invoice}', [BillingApiController::class, 'show']);
         Route::get('/billing/invoices/{invoice}/download', [BillingApiController::class, 'downloadInvoice']);
 
+        // Tenant Notifications (Step 37)
+        Route::prefix('notifications')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'index']);
+            Route::get('/unread-count', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'unreadCount']);
+            Route::post('/{id}/read', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'markAsRead'])->whereNumber('id');
+            Route::post('/mark-all-read', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'markAllAsRead']);
+            Route::post('/{id}/dismiss', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'dismiss'])->whereNumber('id');
+        });
+
         // Active Subscription Required
         Route::middleware(EnsureActiveSubscription::class)->group(function () {
             Route::get('/dashboard', [DashboardApiController::class, 'index']);

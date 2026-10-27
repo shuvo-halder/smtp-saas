@@ -256,6 +256,24 @@ class BillingService
                 reason: "Payment verified for invoice {$lockedInvoice->invoice_number} ({$lockedInvoice->billing_cycle})"
             );
 
+            try {
+                $planName = $lockedInvoice->plan?->name ?? 'Subscription';
+                app(\App\Services\TenantNotificationService::class)->notify(
+                    tenantId: $user->id,
+                    category: 'billing_subscription',
+                    severity: 'success',
+                    title: "Payment Received: Invoice #{$lockedInvoice->invoice_number}",
+                    message: "Payment verified for {$planName}. Subscription active through " . $newExpires->format('M d, Y') . '.',
+                    actionUrl: '/billing',
+                    deduplicationKey: "invoice_paid:{$lockedInvoice->id}",
+                    data: [
+                        'invoice_id'     => $lockedInvoice->id,
+                        'invoice_number' => $lockedInvoice->invoice_number,
+                        'total'          => (string) $lockedInvoice->total,
+                    ]
+                );
+            } catch (\Throwable $e) {}
+
             Log::info('Invoice paid and subscription activated', [
                 'invoice_id' => $lockedInvoice->id,
                 'user_id'    => $user->id,

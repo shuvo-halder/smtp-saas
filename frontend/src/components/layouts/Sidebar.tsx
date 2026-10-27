@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
+import { useUnreadCount } from '@/hooks/useNotifications';
 import { cn } from '@/lib/utils';
 import {
   LayoutDashboard,
+  Bell,
   Globe,
   CreditCard,
   Settings,
@@ -18,7 +20,7 @@ import {
   Mail,
   Send,
   ArrowRightLeft,
-  X
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -30,9 +32,11 @@ interface SidebarProps {
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
+  const { unreadCount } = useUnreadCount();
 
   const navItems = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    { name: 'Notifications', href: '/notifications', icon: Bell },
     { name: 'Domains', href: '/domains', icon: Globe },
     { name: 'Mailboxes', href: '/mailboxes', icon: Mail },
     { name: 'Email Aliases', href: '/aliases', icon: ArrowRightLeft },
@@ -70,8 +74,11 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           <Link href="/dashboard" className="text-xl font-bold text-indigo-600">
             EmailSaaS
           </Link>
-          <button className="md:hidden" onClick={() => setIsOpen(false)}>
-            <X className="h-5 w-5 text-gray-500" />
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-gray-500 hover:text-gray-700 md:hidden"
+          >
+            <X className="h-6 w-6" />
           </button>
         </div>
 
@@ -80,19 +87,27 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+              const showBadge = item.href === '/notifications' && unreadCount > 0;
               return (
                 <Link
                   key={item.name}
                   href={item.href}
                   className={cn(
-                    "flex items-center rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                    "flex items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors",
                     isActive
                       ? "bg-indigo-50 text-indigo-700"
                       : "text-gray-700 hover:bg-gray-100"
                   )}
                 >
-                  <Icon className={cn("mr-3 h-5 w-5", isActive ? "text-indigo-700" : "text-gray-400")} />
-                  {item.name}
+                  <div className="flex items-center">
+                    <Icon className={cn("mr-3 h-5 w-5", isActive ? "text-indigo-700" : "text-gray-400")} />
+                    {item.name}
+                  </div>
+                  {showBadge && (
+                    <span className="flex h-5 min-w-[20px] px-1.5 items-center justify-center rounded-full bg-red-600 text-[11px] font-bold text-white shadow-sm">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

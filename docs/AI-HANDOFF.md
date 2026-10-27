@@ -617,10 +617,54 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 37 — Tenant Notifications & Security Alert Center (IMPLEMENTED & VERIFIED):**
+  - **Database Schema & Relational Storage:**
+    - Non-destructive migration `2026_10_28_000001_create_tenant_notifications_table.php` applied to `emailsaas_local` (MySQL 8.4.3).
+    - Provisions `tenant_notifications` with `tenant_id` foreign key (`users.id` cascade delete), `category`, `severity`, `title`, `message`, `action_url`, `deduplication_key`, `data`, `read_at`, `dismissed_at`, timestamps.
+    - Composite indexes: `idx_tenant_read_created`, `idx_tenant_cat_created`, and `idx_tenant_dedup`.
+  - **Service Layer & Business Orchestration (`TenantNotificationService`):**
+    - Centralized entrypoint `notify()` with atomic deduplication via `deduplication_key` preventing alert fatigue for ongoing conditions (persistent DNS drift, unresolved abuse incidents, repeated daily quota events).
+    - Fail-safe non-blocking execution: database exceptions during notification creation are trapped and logged without failing primary workflows.
+    - Recursive sensitive data scrubbing (`scrubSensitiveData`): strips passwords, secrets, tokens, api keys, private keys, hashes, salts, and system traces.
+    - Bounded querying `getNotifications()` (1..50 per page) with status, category, and severity filtering.
+    - Lifecycle management: `getUnreadCount()`, `markAsRead()`, `markAllAsRead()`, and `dismiss()`.
+  - **Model & Policy Security:**
+    - `TenantNotification` Eloquent model with scopes (`forTenant`, `unread`, `read`, `active`, `dismissed`, `category`, `severity`), helper methods, and `tenant()` / `User::tenantNotifications()` relationships.
+    - `TenantNotificationPolicy` registered in `AuthServiceProvider` enforcing strict tenant ownership (`$user->id === $notification->tenant_id`).
+    - `TenantNotificationResource` enforcing stored XSS sanitization (`strip_tags`) and recursive data scrubbing.
+  - **RESTful API & Subscription Accessibility:**
+    - `TenantNotificationApiController` exposing `/api/notifications`, `/api/notifications/unread-count`, `/api/notifications/{id}/read`, `/api/notifications/mark-all-read`, `/api/notifications/{id}/dismiss`.
+    - Protected by `auth:sanctum` without `EnsureActiveSubscription` so expired or suspended tenants can access critical subscription expiration and renewal notices.
+  - **Application Event Trigger Integrations:**
+    - Domain DNS drift alert (`dns_drift:{id}:active`) and drift recovery auto-resolution (`dns_recovered:{id}:{date}`) in `DomainApiController::verifyDns()`.
+    - Mailbox forwarding and auto-reply configuration audit notifications in `MailboxRuleApiController::updateForwarding()` & `updateAutoReply()`.
+    - Mailbox active/quarantine toggle notifications in `MailboxApiController::toggle()`.
+    - Abuse incident detection alerts and admin resolution notices in `AbuseIncidentService::record()` & `resolve()`.
+    - Invoice payment confirmation notice (`invoice_paid:{id}`) in `BillingService::markInvoicePaid()`.
+    - Subscription expiration alert (`subscription_expired:{id}:{date}`) in `SuspendExpiredTenants.php`.
+    - Daily SMTP quota warning (>=80%) and exhaustion (>=100%) alerts in `OutboundUsageSyncService.php`.
+  - **Next.js Frontend Architecture:**
+    - Added TypeScript interfaces in `frontend/src/types/index.ts` (`TenantNotificationCategory`, `TenantNotificationSeverity`, `TenantNotification`, `NotificationListResponse`, `UnreadCountResponse`).
+    - Implemented SWR hooks and mutations in `frontend/src/hooks/useNotifications.ts` (`useNotifications`, `useUnreadCount`, `markNotificationAsRead`, `markAllNotificationsAsRead`, `dismissNotification`).
+    - Interactive Notification Bell and Drawer in `frontend/src/components/notifications/NotificationDrawer.tsx` connected to `TopBar.tsx`.
+    - Navigation item with live unread counter badge in `frontend/src/components/layouts/Sidebar.tsx`.
+    - Dedicated, filterable Notification Center page at `frontend/src/app/(dashboard)/notifications/page.tsx`.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `TenantNotificationTest.php` passes with 16 tests (92 assertions).
+    - Level B (Isolation, Deduplication & Data Scrubbing): `VERIFIED`. Cross-tenant isolation, idempotent mark-as-read/dismiss, atomic deduplication, issue recurrence, and recursive sensitive data scrubbing verified.
+    - Level C (Multi-Channel Live Push / Webhooks): `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - **Automated Verification & Test Coverage:**
+    - Feature test suite (`tests/Feature/TenantNotificationTest.php`): **16 tests, 92 assertions passing (100%)**.
+    - Full backend regression test suite: **506 tests, 2,526 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 37 — Domain DKIM Key Lifecycle, Multi-Selector Rotation & Cryptographic Health:**
-  - Automated dual-selector overlapping publication (`default` vs `selector2`) ensuring zero delivery disruption during cryptographic rotation.
-  - Key status telemetry, 2048-bit RSA and Ed25519 support, and OpenDKIM keytable/signingtable synchronization.
+- **Step 38 — Tenant Security & Audit Webhooks / Multi-Channel Alert Delivery:**
+  - Configurable tenant webhook endpoints with HMAC-SHA256 signature verification.
+  - Granular event subscriptions (security incidents, quota exhaustion, DNS drift).
+  - Webhook delivery retry queue with exponential backoff and dead-letter handling.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.

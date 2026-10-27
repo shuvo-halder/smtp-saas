@@ -337,6 +337,45 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
   - DMARC Reporting Posture Card: Educational card clarifying parser availability and pending automated inbox ingestion.
   - Recent Billing Invoices: Preserved billing history card for complete tenant overview.
 
+## 26. Tenant Notifications & Security Alert Center (Step 37)
+**Status:** IMPLEMENTED & VERIFIED (Step 37)
+**Purpose:** Provide real-time event notifications and security alerts to tenants across domain authentication, mailbox configuration, quota usage, security incidents, and subscription lifecycle events, integrated seamlessly into the navigation header and a dedicated notification center.
+**Components:**
+- **TenantNotificationService (`app/Services/TenantNotificationService.php`):**
+  - Centralized notification orchestrator providing `notify()`, `getNotifications()`, `getUnreadCount()`, `markAsRead()`, `markAllAsRead()`, and `dismiss()`.
+  - Atomic Deduplication: Evaluates `deduplication_key` per tenant to prevent duplicate alerts for persistent conditions (e.g. active DNS drift or daily quota exhaustion).
+  - Fail-Safe Non-Blocking Execution: Traps database exceptions during notification creation to ensure critical business logic (DNS checks, mailbox updates, billing) is never aborted.
+  - Recursive Secret Redaction: Scrubbing method purges sensitive credential keys (`password`, `secret`, `token`, `key`, `private_key`, `api_key`, `hash`, `salt`, `trace`, `file`, `line`, `evidence`) prior to storage.
+- **TenantNotification Model (`app/Models/TenantNotification.php`):**
+  - First-class Eloquent model mapping to `tenant_notifications` table.
+  - Query scopes: `forTenant()`, `unread()`, `read()`, `active()`, `dismissed()`, `category()`, `severity()`.
+  - Helper methods: `isRead()`, `isDismissed()`, `markAsRead()`, `markAsUnread()`, `dismiss()`.
+  - Belongs-to relationship with `User` (`tenant()`), paired with `hasMany` relation on `User` (`tenantNotifications()`).
+- **TenantNotificationPolicy (`app/Policies/TenantNotificationPolicy.php`):**
+  - Strict tenant ownership authorization: `view()`, `update()`, and `delete()` require `$user->id === $notification->tenant_id`.
+- **TenantNotificationResource (`app/Http/Resources/TenantNotificationResource.php`):**
+  - Transforms notification models into clean API payloads.
+  - Sanitizes `title` and `message` strings using `strip_tags()` for stored XSS prevention.
+  - Enforces recursive credential scrubbing on the `data` JSON blob.
+- **TenantNotificationApiController (`app/Http/Controllers/Api/TenantNotificationApiController.php`):**
+  - RESTful controller exposing endpoints: `GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/{id}/read`, `POST /api/notifications/mark-all-read`, and `POST /api/notifications/{id}/dismiss`.
+  - Validates and clamps query parameters (`per_page` bounded between 1 and 50).
+- **Application Event Trigger Integrations:**
+  - `DomainApiController::verifyDns()`: Emits critical alert on DNS drift (`dns_drift:{id}:active`) and marks drift read with success notice on verification recovery (`dns_recovered:{id}:{date}`).
+  - `MailboxRuleApiController::updateForwarding()` & `updateAutoReply()`: Emits configuration change notifications for mailbox forwarding and vacation auto-replies.
+  - `MailboxApiController::toggle()`: Emits info/warning notification when mailboxes are enabled or disabled.
+  - `AbuseIncidentService::record()` & `resolve()`: Emits security incident alerts on detection and resolution notices when administrative action is taken.
+  - `BillingService::markInvoicePaid()`: Emits payment confirmation notice on successful invoice settlement (`invoice_paid:{id}`).
+  - `SuspendExpiredTenants.php`: Emits critical subscription expiration alert on tenant plan termination (`subscription_expired:{id}:{date}`).
+  - `OutboundUsageSyncService.php`: Dispatches quota warning (>=80%) and critical quota exhaustion (>=100%) notifications during usage synchronization.
+- **Next.js Frontend Notification UI & SWR Integration:**
+  - TypeScript types (`frontend/src/types/index.ts`): Comprehensive typings for categories, severities, notification resources, and unread counts.
+  - SWR Hook (`frontend/src/hooks/useNotifications.ts`): Auto-refreshing unread count badge, notification listing hook with filters, and optimistic mutations for mark-as-read, mark-all-read, and dismiss.
+  - Header Bell & Drawer (`frontend/src/components/notifications/NotificationDrawer.tsx`): Interactive bell button in `TopBar.tsx` with live unread counter badge and slide-out drawer featuring category badges, severity icons, relative timestamps, and one-click action links.
+  - Sidebar Navigation (`frontend/src/components/layouts/Sidebar.tsx`): Dedicated `Notifications` nav item with live unread count badge.
+  - Notification Center Page (`frontend/src/app/(dashboard)/notifications/page.tsx`): Full-featured management view with category filters, status tabs (All, Unread, Read), bulk mark-all-read action, dismiss controls, and bounded pagination.
+
+
 
 
 

@@ -285,6 +285,19 @@ class MailboxApiController extends Controller
             request: $request
         );
 
+        try {
+            app(\App\Services\TenantNotificationService::class)->notify(
+                tenantId: $request->user()->id,
+                category: 'mailbox_rule',
+                severity: $targetState ? 'info' : 'warning',
+                title: "Mailbox Status Changed: {$mailbox->email}",
+                message: $targetState ? "Mailbox {$mailbox->email} has been activated." : "Mailbox {$mailbox->email} has been disabled.",
+                actionUrl: '/mailboxes',
+                deduplicationKey: "mailbox_toggle:{$mailbox->id}:" . now()->format('Y-m-d-H-i'),
+                data: ['mailbox_email' => $mailbox->email, 'is_active' => $targetState]
+            );
+        } catch (\Throwable $e) {}
+
         return new MailboxResource($mailbox->load('domain'));
     }
 

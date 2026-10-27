@@ -112,5 +112,10 @@ class User extends Authenticatable
         if ($this->plan->max_aliases_per_domain === -1) return true;
         return $domain->aliases()->count() < $this->plan->max_aliases_per_domain;
     }
+
+    public function tenantNotifications(): HasMany
+    {
+        return $this->hasMany(TenantNotification::class, 'tenant_id');
+    }
 }
 

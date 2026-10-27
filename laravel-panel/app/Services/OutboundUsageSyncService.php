@@ -132,6 +132,39 @@ class OutboundUsageSyncService
                         } else {
                             $stats['rows_noop']++;
                         }
+
+                        // Check quota limits and trigger notifications if applicable
+                        try {
+                            $tenant = User::with('plan')->find($tenantId);
+                            $limit = $tenant?->plan?->daily_outbound_recipients ?? -1;
+                            if ($limit > 0 && $usageDate === Carbon::now('UTC')->format('Y-m-d')) {
+                                if ($recipientCount >= $limit) {
+                                    app(\App\Services\TenantNotificationService::class)->notify(
+                                        tenantId: $tenantId,
+                                        category: 'smtp_quota',
+                                        severity: 'critical',
+                                        title: 'Daily Outbound Quota Exceeded',
+                                        message: "You have reached your daily outbound quota limit of {$limit} recipients. Further sends will be rejected until 00:00 UTC.",
+                                        actionUrl: '/smtp',
+                                        deduplicationKey: "quota_exceeded:{$tenantId}:{$usageDate}",
+                                        data: ['sent_today' => $recipientCount, 'limit' => $limit]
+                                    );
+                                } elseif ($recipientCount >= (int) ($limit * 0.8)) {
+                                    app(\App\Services\TenantNotificationService::class)->notify(
+                                        tenantId: $tenantId,
+                                        category: 'smtp_quota',
+                                        severity: 'warning',
+                                        title: 'Daily Outbound Quota Warning',
+                                        message: "You have used over 80% of your daily outbound quota ({$recipientCount} of {$limit} recipients).",
+                                        actionUrl: '/smtp',
+                                        deduplicationKey: "quota_warning:{$tenantId}:{$usageDate}",
+                                        data: ['sent_today' => $recipientCount, 'limit' => $limit]
+                                    );
+                                }
+                            }
+                        } catch (Throwable $e) {
+                            // Non-blocking notification failure
+                        }
                     });
                 } else {
                     // Dry run: simulate ledger check without writing

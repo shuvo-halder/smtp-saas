@@ -84,7 +84,7 @@ class AbuseIncidentService
             $sanitizedEvidence = $this->sanitizeEvidence($rawEvidence);
 
             // 4. Create Persistent Incident Record
-            return AbuseIncident::create([
+            $incident = AbuseIncident::create([
                 'uuid'             => (string) Str::uuid(),
                 'tenant_id'        => $tenantId,
                 'tenant_email'     => $tenantEmail,
@@ -103,6 +103,35 @@ class AbuseIncidentService
                 'idempotency_key'  => $idempotencyKey,
                 'occurred_at'      => isset($data['occurred_at']) ? Carbon::parse($data['occurred_at']) : Carbon::now('UTC'),
             ]);
+
+            if ($incident && $tenantId) {
+                try {
+                    $category = match ($incident->incident_type) {
+                        'smtp_quota_exceeded', 'quota_exhaustion' => 'smtp_quota',
+                        'dns_drift' => 'domain_dns',
+                        default => 'security_abuse',
+                    };
+                    $actionUrl = $category === 'smtp_quota' ? '/smtp' : ($category === 'domain_dns' && $domainId ? "/domains/{$domainId}/setup" : '/dashboard');
+
+                    app(\App\Services\TenantNotificationService::class)->notify(
+                        tenantId: (int) $tenantId,
+                        category: $category,
+                        severity: $incident->severity === 'critical' ? 'critical' : 'warning',
+                        title: 'Security Alert: ' . ucfirst(str_replace('_', ' ', $incident->incident_type)),
+                        message: $incident->summary,
+                        actionUrl: $actionUrl,
+                        deduplicationKey: "abuse_incident:{$incident->uuid}",
+                        data: [
+                            'incident_id'   => $incident->id,
+                            'incident_type' => $incident->incident_type,
+                            'domain_name'   => $incident->domain_name,
+                            'mailbox_email' => $incident->mailbox_email,
+                        ]
+                    );
+                } catch (Throwable $e) {}
+            }
+
+            return $incident;
 
         } catch (Throwable $e) {
             // Fail-safe: Log error without halting SMTP flow or log processing
@@ -152,6 +181,21 @@ class AbuseIncidentService
             actor: $actor,
             reason: $notes ?? 'Administrative abuse incident resolution'
         );
+
+        if ($incident->tenant_id) {
+            try {
+                app(\App\Services\TenantNotificationService::class)->notify(
+                    tenantId: (int) $incident->tenant_id,
+                    category: 'security_abuse',
+                    severity: 'success',
+                    title: 'Security Incident Resolved: ' . ucfirst(str_replace('_', ' ', $incident->incident_type)),
+                    message: 'Your reported security incident has been reviewed and resolved.',
+                    actionUrl: '/dashboard',
+                    deduplicationKey: "abuse_resolved:{$incident->uuid}",
+                    data: ['incident_id' => $incident->id]
+                );
+            } catch (\Throwable $e) {}
+        }
 
         return $incident->refresh();
     }

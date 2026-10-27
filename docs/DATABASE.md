@@ -399,3 +399,40 @@ WHERE mailboxes.email = '%u' \
 - Multiplier `1048576` converts `mailboxes.quota_mb` into exact bytes for Dovecot's `quota_rule` parameter `*:bytes=<limit>`.
 - Inbound deliveries exceeding `quota_rule` are deferred or rejected by Dovecot with SMTP 452/552 (Mailbox quota exceeded).
 
+## 20. Tenant Notifications & Security Alert Ledger Schema (Step 37)
+
+### Rationale: Dedicated `tenant_notifications` vs. Generic Polymorphic Table
+1. **Strict Multi-Tenant Isolation:** First-class foreign key `tenant_id` constrained to `users.id` with `cascadeOnDelete` enforces query-level ownership and guarantees zero cross-tenant leakage without relying on polymorphic string lookups (`notifiable_type`, `notifiable_id`).
+2. **First-Class Relational Indexing:** Structured columns (`category`, `severity`, `read_at`, `dismissed_at`, `created_at`) allow instant composite index queries on MySQL 8.4 (`[tenant_id, read_at, created_at]`), ensuring sub-millisecond unread counts and bounded pagination without scanning generic JSON text blobs.
+3. **Atomic Alert Deduplication:** Dedicated `deduplication_key` column indexed per tenant prevents alert storms and suppresses repeated notifications for the same ongoing incident (e.g. repeated DNS checks during ongoing DNS drift or repeated quota rejection events).
+4. **Lifecycle State Support:** First-class support for both read/unread (`read_at`) and dismiss/archive (`dismissed_at`) preserves persistent audit history while allowing clean user archiving.
+
+### Schema Definition (`tenant_notifications`)
+```sql
+CREATE TABLE `tenant_notifications` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `tenant_id` bigint unsigned NOT NULL,
+  `category` varchar(50) NOT NULL,
+  `severity` varchar(20) NOT NULL DEFAULT 'info',
+  `title` varchar(255) NOT NULL,
+  `message` text NOT NULL,
+  `action_url` varchar(255) DEFAULT NULL,
+  `deduplication_key` varchar(255) DEFAULT NULL,
+  `data` json DEFAULT NULL,
+  `read_at` timestamp NULL DEFAULT NULL,
+  `dismissed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `tenant_notifications_category_index` (`category`),
+  KEY `tenant_notifications_severity_index` (`severity`),
+  KEY `tenant_notifications_read_at_index` (`read_at`),
+  KEY `tenant_notifications_dismissed_at_index` (`dismissed_at`),
+  KEY `idx_tenant_read_created` (`tenant_id`, `read_at`, `created_at`),
+  KEY `idx_tenant_cat_created` (`tenant_id`, `category`, `created_at`),
+  KEY `idx_tenant_dedup` (`tenant_id`, `deduplication_key`),
+  CONSTRAINT `tenant_notifications_tenant_id_foreign` FOREIGN KEY (`tenant_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+

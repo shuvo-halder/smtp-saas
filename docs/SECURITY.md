@@ -360,5 +360,26 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Truthful DMARC Posture Reporting:**
   - The dashboard truthfully reports that while the RFC 7489 XML report parser is operational (`POST /api/domains/{domain}/parse-dmarc-report`), automated inbound mailbox ingestion remains `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`. The application makes zero false claims of automated aggregate telemetry collection.
 
+## 27. Tenant Notifications & Security Alert Center Security Invariants (Step 37)
+- **Strict Multi-Tenant Isolation & Ownership Enforcement:**
+  - The `tenant_notifications` table contains a direct, foreign-key constrained `tenant_id` referencing `users.id` with `cascadeOnDelete`.
+  - All tenant notification endpoints (`GET /api/notifications`, `GET /api/notifications/unread-count`, `POST /api/notifications/{id}/read`, `POST /api/notifications/mark-all-read`, `POST /api/notifications/{id}/dismiss`) operate strictly on `tenant_id = auth()->user()->id`.
+  - Individual notification updates and dismissals are authorized via `TenantNotificationPolicy` (`$user->id === $notification->tenant_id`), completely prohibiting cross-tenant reading, marking as read, or dismissal.
+- **Recursive Sensitive Secret Scrubbing & Data Redaction:**
+  - Notification `data` payloads are recursively sanitized via `TenantNotificationResource` and `TenantNotificationService::scrubSensitiveData()`.
+  - Any sensitive or credential keys — including `password`, `secret`, `token`, `key`, `private_key`, `api_key`, `hash`, `salt`, `trace`, `file`, `line`, and `evidence` — are recursively purged before storage and JSON serialization.
+  - Private DKIM keys, mailbox passwords, database credentials, server stack traces, and local filesystem paths are strictly prevented from ever appearing in tenant notification payloads or frontend views.
+- **XSS & Content Sanitization:**
+  - All notification `title` and `message` strings are sanitized using `strip_tags()` before being stored or served to prevent stored Cross-Site Scripting (XSS) attacks in the notification drawer or notification center.
+- **Atomic Deduplication & Alert Storm Prevention:**
+  - Ongoing, persistent conditions (such as persistent DNS drift, unresolved abuse incidents, or repeated daily outbound quota rejection events) utilize structured deduplication keys (`dns_drift:{domain_id}:active`, `quota_exhaustion:{tenant_id}:{date}`).
+  - When an alert condition is already active and unread, new notification dispatches are suppressed, eliminating notification fatigue and preventing denial-of-service or database saturation from alert storms.
+  - When an issue recovers (e.g. DNS verification passes), the active drift notification is automatically resolved and marked read, and a single recovery notice (`dns_recovered:{domain_id}:{date}`) is emitted.
+- **Fail-Safe Non-Blocking Notification Trapping:**
+  - Notification dispatching in `TenantNotificationService::notify()` is wrapped in a fail-safe exception handler.
+  - An error during notification creation will never crash, interrupt, or abort critical primary business workflows (such as DNS verification, mailbox forwarding updates, abuse incident recording, invoice payment, or tenant suspension).
+- **Idempotent Lifecycle State Transitions:**
+  - Read (`POST /api/notifications/{id}/read`, `POST /api/notifications/mark-all-read`) and dismiss (`POST /api/notifications/{id}/dismiss`) actions are strictly idempotent. Re-submitting on an already-read or dismissed notification will not corrupt state, generate duplicate records, or trigger database errors.
+
 
 

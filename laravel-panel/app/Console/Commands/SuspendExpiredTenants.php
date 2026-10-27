@@ -95,6 +95,19 @@ class SuspendExpiredTenants extends Command
                         reason: 'Subscription expired on ' . ($tenant->plan_expires_at?->toIso8601String() ?? 'N/A')
                     );
 
+                    try {
+                        app(\App\Services\TenantNotificationService::class)->notify(
+                            tenantId: $tenant->id,
+                            category: 'billing_subscription',
+                            severity: 'critical',
+                            title: 'Subscription Expired',
+                            message: 'Your subscription plan has expired. Mailbox sending and domain routing are temporarily suspended. Please renew to restore full service.',
+                            actionUrl: '/billing',
+                            deduplicationKey: "subscription_expired:{$tenant->id}:" . date('Y-m-d'),
+                            data: ['plan_expires_at' => $tenant->plan_expires_at?->toIso8601String()]
+                        );
+                    } catch (Throwable $e) {}
+
                     Log::info("Suspended expired tenant ID: {$tenant->id}, Email: {$tenant->email}");
                     $this->info("Suspended tenant: {$tenant->email}");
                     $successCount++;

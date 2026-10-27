@@ -1,5 +1,44 @@
 # Changelog
 
+### Tenant Notifications & Security Alert Center (Step 37)
+- **Implemented:** Database Schema & Non-Destructive Migration:
+  - Created and applied `2026_10_28_000001_create_tenant_notifications_table.php` on MySQL 8.4.3.
+  - Dedicated `tenant_notifications` table with columns: `id`, `tenant_id` (foreign key -> `users.id` cascade on delete), `category`, `severity`, `title`, `message`, `action_url`, `deduplication_key`, `data`, `read_at`, `dismissed_at`, timestamps.
+  - Composite indexes: `idx_tenant_read_created`, `idx_tenant_cat_created`, and `idx_tenant_dedup`.
+- **Implemented:** Backend Models, Policy & Service Layer:
+  - Created `TenantNotification` Eloquent model (`app/Models/TenantNotification.php`) with scopes (`forTenant`, `unread`, `read`, `active`, `dismissed`, `category`, `severity`), helper methods (`isRead`, `isDismissed`, `markAsRead`, `markAsUnread`, `dismiss`), and relations (`tenant()`, `User::tenantNotifications()`).
+  - Implemented `TenantNotificationPolicy` (`app/Policies/TenantNotificationPolicy.php`) registered in `AuthServiceProvider` enforcing strict tenant ownership (`$user->id === $notification->tenant_id`).
+  - Created `TenantNotificationResource` (`app/Http/Resources/TenantNotificationResource.php`) ensuring stored XSS mitigation (`strip_tags`) and recursive data scrubbing.
+  - Implemented `TenantNotificationService` (`app/Services/TenantNotificationService.php`):
+    - `notify()` with atomic deduplication (`deduplication_key`) preventing alert fatigue during persistent conditions.
+    - Fail-safe database exception trapping so primary application workflows never abort on notification errors.
+    - Recursive sensitive credential scrubbing (`password`, `secret`, `token`, `key`, `private_key`, `api_key`, `hash`, `salt`, `trace`, `file`, `line`, `evidence`).
+    - Bounded `getNotifications()` (1..50 per page) with status, category, and severity filtering.
+    - Idempotent lifecycle mutations: `getUnreadCount()`, `markAsRead()`, `markAllAsRead()`, and `dismiss()`.
+  - Created `TenantNotificationApiController` (`app/Http/Controllers/Api/TenantNotificationApiController.php`) under `auth:sanctum` (accessible to expired/suspended tenants for renewal and suspension alerts).
+- **Implemented:** Application Event Trigger Integrations:
+  - Domain DNS drift alert (`dns_drift:{id}:active`) and drift recovery auto-resolution (`dns_recovered:{id}:{date}`) in `DomainApiController::verifyDns()`.
+  - Mailbox forwarding and auto-reply configuration audit notifications in `MailboxRuleApiController::updateForwarding()` & `updateAutoReply()`.
+  - Mailbox active/quarantine toggle notifications in `MailboxApiController::toggle()`.
+  - Abuse incident detection alerts and admin resolution notices in `AbuseIncidentService::record()` & `resolve()`.
+  - Invoice payment confirmation notice (`invoice_paid:{id}`) in `BillingService::markInvoicePaid()`.
+  - Subscription expiration alert (`subscription_expired:{id}:{date}`) in `SuspendExpiredTenants.php`.
+  - Daily SMTP quota warning (>=80%) and exhaustion (>=100%) alerts in `OutboundUsageSyncService.php`.
+- **Implemented:** Responsive Next.js Frontend Notification UI & SWR Integration:
+  - Added TypeScript interfaces in `frontend/src/types/index.ts` (`TenantNotificationCategory`, `TenantNotificationSeverity`, `TenantNotification`, `NotificationListResponse`, `UnreadCountResponse`).
+  - Implemented SWR hooks and mutations in `frontend/src/hooks/useNotifications.ts` (`useNotifications`, `useUnreadCount`, `markNotificationAsRead`, `markAllNotificationsAsRead`, `dismissNotification`).
+  - Interactive Notification Bell and Drawer in `frontend/src/components/notifications/NotificationDrawer.tsx` connected to `TopBar.tsx`.
+  - Navigation item with live unread counter badge in `frontend/src/components/layouts/Sidebar.tsx`.
+  - Dedicated, filterable Notification Center page at `frontend/src/app/(dashboard)/notifications/page.tsx`.
+- **Automated Verification & Three-Level Matrix:**
+  - Created `tests/Feature/TenantNotificationTest.php` with 16 tests (92 assertions) covering authentication gates, listing & unread count, cross-tenant isolation, idempotent mark-as-read, mark-all-read, dismiss/archive, pagination & filter validation, alert deduplication, issue recurrence, sensitive data redaction, billing payment trigger, expired tenant suspension trigger, abuse incident creation trigger, DNS drift & recovery triggers, mailbox rule triggers, and mailbox toggle trigger.
+  - Level A (Application & API Layer): `VERIFIED`.
+  - Level B (Isolation, Deduplication & Data Scrubbing): `VERIFIED`.
+  - Level C (Multi-Channel Live Push / Webhooks): `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - Full backend test suite passing: **506 tests, 2,526 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+  - Frontend production build: **Next.js 14 compiles and optimizes all 28 static pages cleanly with zero errors**.
+
 ### Tenant Email Security & Deliverability Monitoring Dashboard (Step 36)
 - **Implemented:** Unified Tenant Security & Deliverability Dashboard Service (`TenantSecurityDashboardService`):
   - Created centralized dashboard aggregation engine implementing `getDashboardData(User $user, ?Request $request = null)`.
