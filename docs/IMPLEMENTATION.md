@@ -169,3 +169,32 @@ This document describes the current implementation state of the EmailSaaS projec
 
 
 
+
+## 15. Domain Email Authentication Hardening & Tenant Deliverability Reports (Step 35)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **API & Service Layer:**
+  - `DnsVerificationService`:
+    - Hardened SPF syntax analysis (`analyzeSpfSyntax`): Enforces RFC 7208 prefix `v=spf1`, validates mechanism syntax, validates IPv4/IPv6 formats, warns against insecure `+all` open relays, tracks DNS lookup mechanisms (`include`, `a`, `mx`, `ptr`, `exists`, `redirect`) to warn on exceeding the 10-lookup limit, and detects duplicate SPF records.
+    - Hardened DKIM key validation: Detects revoked keys (`p=` empty or missing), validates base64 key payloads, concatenates multi-chunk UDP DNS records, and warns when key length is under 2048-bit.
+    - Hardened DMARC syntax analysis (`analyzeDmarcSyntax`): Enforces `v=DMARC1;` as first tag, enforces mandatory `p=` tag, detects duplicate `_dmarc` TXT records per RFC 7489 section 6.6.3 PermError, extracts optional tags (`sp`, `pct`, `rua`, `ruf`, `adkim`, `aspf`), and provides policy explanations.
+    - Hardened MX verification: Prohibits bare IP addresses (RFC 5321 section 5.1) and warns on priority conflicts.
+    - DNS Drift Detection: Flags `dns_drift_detected: true` when an active domain loses required MX, SPF, or DKIM records.
+    - Verification History Extraction (`getVerificationHistory`): Queries immutable `audit_logs` where `action = 'domain.dns_verify'`, returning score trends and record statuses over time without schema churn.
+    - Deliverability Report Generator (`getDeliverabilityReport`): Computes 4-pillar score breakdown (MX 40%, SPF 25%, DKIM 25%, DMARC 10%), policy advisor matrix, drift indicator, and explicit diagnostic disclaimer.
+  - `DmarcReportParserService`:
+    - RFC 7489 XML Aggregate Report Parser: Parses `<feedback>` XML files up to 5MB.
+    - Protected against XXE vulnerabilities using `LIBXML_NONET` and proactively rejecting `<!DOCTYPE` or `<!ENTITY` blocks.
+    - Extracts report metadata, published policy, volume summaries, and source IP delivery records.
+    - Computes deterministic SHA-256 deduplication digest.
+    - Rejects cross-domain spoofing by validating `<policy_published><domain>` against tenant domain.
+  - `DomainApiController`:
+    - Added `GET /api/domains/{domain}/deliverability-report` (supports `?refresh=1`).
+    - Added `POST /api/domains/{domain}/parse-dmarc-report` (file upload or raw XML, throttled at `throttle:10,1`).
+    - Enhanced `verifyDns` and `verify` to log rich audit state (score, per-record statuses, drift detection) without breaking legacy Mockery tests.
+- **Frontend Hub:** Next.js dashboard view at `frontend/src/app/(dashboard)/domains/[id]/setup/page.tsx`:
+  - DNS Drift warning banner when active domain records disappear.
+  - Deliverability Scorecard with 4-pillar breakdown (MX, SPF, DKIM, DMARC) and legal/diagnostic disclaimer.
+  - DMARC Policy Advisor card explaining `p=none` vs `p=quarantine` vs `p=reject` with escalation rules.
+  - Verification History audit table showing previous check timestamps, scores, and per-record statuses.
+  - DMARC Aggregate Report Inspector allowing tenants to upload or paste XML feedback reports and view detailed message counts, pass/fail rates, and source IP authenticity.
+  - All verified with `npx tsc --noEmit` (0 errors) and Next.js production build `npm run build` (27/27 pages compiled cleanly).

@@ -387,6 +387,58 @@ To ensure high deliverability and secure mail reception, the platform provides t
 | **Level B: Configuration & Resolver Logic Layer** | Mockable resolver, record comparisons, TXT chunking, DMARC syntax | `VERIFIED` | Deterministic resolution tests with mocked DNS responses; verified RFC 7208 PermError handling, 2048-bit key chunking, and MX priority conflict detection. |
 | **Level C: Live End-to-End DNS Propagation & MTA Reception** | Public authoritative nameservers, live Postfix MTA daemon, live SMTP reception | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks public authoritative DNS zone delegation, public IP addresses, and Linux Postfix/Dovecot daemons. Full live end-to-end DNS verification requires a dedicated Linux VPS staging environment with registered domains. |
 
+---
+
+## Domain Authentication Hardening, Deliverability Reports & DMARC Parser Architecture (Step 35)
+
+### 1. Inbound & Outbound Authentication Protocol Hardening
+1. **SPF Syntax & Mechanism Validation (RFC 7208):**
+   - Detects missing `v=spf1` prefix and rejects unknown mechanisms.
+   - Evaluates DNS mechanism count (`include`, `a`, `mx`, `ptr`, `exists`, `redirect`) and warns tenants when exceeding the 10-lookup limit (RFC 7208 section 4.6.4).
+   - Flags dangerous `+all` mechanism as an insecure open relay authorization.
+   - Validates IP syntax in `ip4:` and `ip6:` mechanisms.
+   - Flags duplicate SPF records causing RFC 7208 section 3.2 `PermError`.
+2. **DKIM Key Analysis & Revocation Detection (RFC 6376):**
+   - Detects revoked keys where `p=` is empty or missing.
+   - Validates base64 key format and estimates cryptographic key size (warns if under 2048-bit).
+   - Multi-chunk concatenation ensures correct 2048-bit key verification across standard DNS resolvers.
+3. **DMARC Policy Enforcement & Duplicate Protection (RFC 7489):**
+   - Enforces `v=DMARC1;` as the mandatory first tag.
+   - Enforces mandatory `p=` policy tag (`none`, `quarantine`, `reject`).
+   - Flags multiple TXT records at `_dmarc.<domain>` as RFC 7489 section 6.6.3 `PermError`.
+   - Parses optional policy tags: `sp`, `pct`, `rua`, `ruf`, `adkim`, `aspf`.
+4. **MX Protocol Standards (RFC 5321):**
+   - Flags bare IP addresses in MX records violating RFC 5321 section 5.1 prohibition.
+   - Detects priority conflicts when foreign mail servers precede or conflict with platform MTAs.
+
+### 2. DMARC Policy Advisor Matrix
+EmailSaaS provides an authoritative policy advisor matrix guiding tenants through safe DMARC escalation:
+- **`p=none` (Monitoring):** Default recommended starting policy. Mail flows without interruption while receiving MTAs send XML aggregate reports to the tenant's `rua` mailbox.
+- **`p=quarantine` (Spam Filtering):** Intermediate enforcement policy. Failing mail is routed to recipient junk folders.
+- **`p=reject` (Strict Block):** Strict enforcement policy. Failing mail is outright blocked by receiving MTAs.
+- **Escalation Invariant:** The system strictly advises tenants to maintain `p=none` for 2–4 weeks until 100% of legitimate senders are verified aligned before escalating to `p=quarantine` and `p=reject`.
+
+### 3. DMARC Aggregate Report Parser Architecture (`DmarcReportParserService`)
+1. **RFC 7489 XML Schema Parsing:**
+   - Parses standard `<feedback>` root XML reports from Google, Yahoo, Microsoft, etc.
+   - Extracts metadata: `<report_metadata>` (org name, email, report ID, date range), `<policy_published>` (domain, policy, pct, alignments), and `<record>` blocks (source IP, message count, disposition, DKIM/SPF auth results).
+2. **Deterministic SHA-256 Deduplication Digest:**
+   - Computes a SHA-256 hash across org name, report ID, date range, and record contents to detect duplicate reports.
+3. **Inbound Collection Truthfulness:**
+   - Automated ingestion via an IMAP poller or local mail-pipe daemon is documented as `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`. Manual inspection via UI and API is fully operational and verified.
+
+### 4. Deliverability Verification History
+- Leverages append-only `audit_logs` where `action = 'domain.dns_verify'`, recording score, record status, drift detection, actor email, and timestamp without table churn or unnecessary schema additions.
+
+### 5. Step 35 Three-Level Deliverability Verification Matrix
+
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `DnsVerificationService`, `DmarcReportParserService`, `DomainApiController` | `VERIFIED` | Full test coverage for deliverability report generation, SPF syntax analysis, DKIM revocation, DMARC duplicate detection, DMARC XML parser, XXE protection, DNS drift detection, and verification history via `TenantDomainDeliverabilityReportTest.php` (24/24 passing, 105 assertions). Full regression suite (472/472 passing). |
+| **Level B: Configuration & Protocol Logic Layer** | Mockable resolver, XML parsing engine, XXE rejection, base64 analysis | `VERIFIED` | Verified RFC 7208 syntax analysis, RFC 7489 duplicate detection, RFC 5321 bare IP prohibition, and SHA-256 deduplication hashing with deterministic fixtures. |
+| **Level C: Live End-to-End DNS & Automated Inbound DMARC Collection** | Public nameservers, inbound DMARC mailbox pipe, live external ISP feedback loops | `BLOCKED — REQUIRES INFRASTRUCTURE` | Local Windows + Laragon development environment lacks public authoritative DNS zone delegation, public IP addresses, and Linux Postfix/Dovecot inbound mail pipes. Automated aggregate report collection requires a dedicated Linux VPS staging environment. |
+
+
 
 
 

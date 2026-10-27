@@ -49,11 +49,13 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
         Route::middleware(EnsureActiveSubscription::class)->group(function () {
             Route::get('/dashboard', [DashboardApiController::class, 'index']);
 
-            // Domains CRUD & DNS Setup Wizard (Step 34)
+            // Domains CRUD, DNS Setup Wizard & Deliverability Reports (Steps 34 & 35)
             Route::apiResource('domains', DomainApiController::class)->except(['update']);
             Route::get('/domains/{domain}/dns-wizard', [DomainApiController::class, 'dnsWizard']);
+            Route::get('/domains/{domain}/deliverability-report', [DomainApiController::class, 'deliverabilityReport']);
             Route::post('/domains/{domain}/verify-dns', [DomainApiController::class, 'verifyDns'])->middleware('throttle:30,1');
             Route::post('/domains/{domain}/verify', [DomainApiController::class, 'verify'])->middleware('throttle:30,1');
+            Route::post('/domains/{domain}/parse-dmarc-report', [DomainApiController::class, 'parseDmarcReport'])->middleware('throttle:10,1');
             Route::get('/domains/{domain}/catch-all', [\App\Http\Controllers\Api\CatchAllApiController::class, 'show']);
             Route::put('/domains/{domain}/catch-all', [\App\Http\Controllers\Api\CatchAllApiController::class, 'update']);
 

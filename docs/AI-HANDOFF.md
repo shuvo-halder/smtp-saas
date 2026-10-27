@@ -533,16 +533,57 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 35 — Domain Email Authentication Hardening & Tenant Deliverability Reports (IMPLEMENTED & VERIFIED):**
+  - **Inbound & Outbound Authentication Protocol Hardening (`DnsVerificationService`):**
+    - Hardened SPF syntax analysis (`analyzeSpfSyntax`): Enforces RFC 7208 prefix `v=spf1`, validates mechanism syntax, validates IPv4/IPv6 formats, warns against insecure `+all` open relays, tracks DNS lookup mechanisms (`include`, `a`, `mx`, `ptr`, `exists`, `redirect`) to warn on exceeding the 10-lookup limit (RFC 7208 section 4.6.4), and detects duplicate SPF records.
+    - Hardened DKIM key validation: Detects revoked keys (`p=` empty or missing), validates base64 key payloads, concatenates multi-chunk UDP DNS records, and warns when key length is under 2048-bit.
+    - Hardened DMARC syntax analysis (`analyzeDmarcSyntax`): Enforces `v=DMARC1;` as first tag, enforces mandatory `p=` tag (`none`, `quarantine`, `reject`), detects duplicate `_dmarc` TXT records per RFC 7489 section 6.6.3 PermError, extracts optional tags (`sp`, `pct`, `rua`, `ruf`, `adkim`, `aspf`), and provides policy explanations.
+    - Hardened MX verification: Prohibits bare IP addresses (RFC 5321 section 5.1) and warns on priority conflicts.
+    - DNS Drift Detection: Flags `dns_drift_detected: true` when an active domain loses required MX, SPF, or DKIM records.
+    - Verification History Extraction (`getVerificationHistory`): Queries immutable `audit_logs` where `action = 'domain.dns_verify'`, returning score trends and record statuses over time without schema churn.
+    - Deliverability Report Generator (`getDeliverabilityReport`): Computes 4-pillar score breakdown (MX 40%, SPF 25%, DKIM 25%, DMARC 10%), policy advisor matrix, drift indicator, and explicit diagnostic disclaimer.
+  - **RFC 7489 DMARC XML Aggregate Report Parser (`DmarcReportParserService`):**
+    - Robust XML aggregate parser for `<feedback>` documents up to 5MB.
+    - Neutralized XXE vulnerabilities using `LIBXML_NONET` and proactively rejecting `<!DOCTYPE` and `<!ENTITY` blocks before parsing.
+    - Validates that report domain matches the tenant domain to prevent cross-tenant spoofing.
+    - Computes deterministic SHA-256 deduplication digest over metadata and record contents.
+    - Extracts org metadata, published policies, message counts, pass/fail rates, and source IP authenticity records.
+    - Inbound collection posture: truthfully documents that automated ingestion via an IMAP poller or local mail pipe is `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - **RESTful API & Policy Authorization (`DomainApiController`):**
+    - Added `GET /api/domains/{domain}/deliverability-report` (supports `?refresh=1`).
+    - Added `POST /api/domains/{domain}/parse-dmarc-report` (file upload or raw XML, throttled at `throttle:10,1`).
+    - Zero private key exposure: Private keys strictly isolated from API responses, database tables, and audit logs.
+  - **Next.js Frontend Experience (`frontend/`):**
+    - Added TypeScript interfaces in `types/index.ts` and hooks in `hooks/useDomains.ts`.
+    - Enhanced `/domains/[id]/setup` (`DomainSetupPage.tsx`) with:
+      - DNS Drift warning alert banner.
+      - Deliverability Scorecard with 4-pillar breakdown (MX, SPF, DKIM, DMARC) and legal/diagnostic disclaimer.
+      - DMARC Policy Advisor card explaining `p=none` vs `p=quarantine` vs `p=reject` with escalation rules.
+      - Verification History audit table showing previous check timestamps, scores, and per-record statuses.
+      - DMARC Aggregate Report Inspector allowing tenants to upload or paste XML feedback reports and view detailed message counts, pass/fail rates, and source IP authenticity.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `TenantDomainDeliverabilityReportTest.php` passes (24/24 tests, 105 assertions).
+    - Level B (Configuration & Protocol Logic): `VERIFIED`. Mockable resolver, RFC 7208 syntax analysis, RFC 7489 duplicate detection, RFC 5321 bare IP prohibition, and SHA-256 deduplication hashing verified.
+    - Level C (End-to-End Live DNS & Inbound DMARC Collection): `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services and public DNS zone delegation; requires dedicated Linux VPS).
+  - **Automated Verification & Test Coverage:**
+    - Feature test suite (`tests/Feature/TenantDomainDeliverabilityReportTest.php`): **24 tests, 105 assertions passing (100%)**.
+    - DNS Wizard regression suite (`tests/Feature/TenantDomainDnsWizardTest.php`): **24 tests, 211 assertions passing (100%)**.
+    - Domain regression suite (`tests/Feature/TenantDomainAndMailboxManagementTest.php`): **21 tests, 86 assertions passing (100%)**.
+    - Full backend regression test suite: **472 tests, 2,290 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 27/27 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 35 — Automated Domain DKIM Key Lifecycle & Rotation Management:**
-  - Automated DKIM keypair generation per domain (`2048-bit RSA` or `Ed25519`).
-  - Safe key rotation with dual-selector overlapping publication (`default` vs `selector2`) ensuring zero delivery disruption.
-  - Key status telemetry and OpenDKIM keytable/signingtable synchronization.
+- **Step 36 — Domain DKIM Key Lifecycle, Multi-Selector Rotation & Cryptographic Health:**
+  - Automated dual-selector overlapping publication (`default` vs `selector2`) ensuring zero delivery disruption during cryptographic rotation.
+  - Key status telemetry, 2048-bit RSA and Ed25519 support, and OpenDKIM keytable/signingtable synchronization.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

@@ -74,4 +74,41 @@ export function useDomainDnsWizard(domainId: string | number | null) {
   };
 }
 
+export function useDomainDeliverabilityReport(domainId: string | number | null, refresh = false) {
+  const { data, error, isLoading, mutate } = useSWR<{ data: import('@/types').DeliverabilityReportData }>(
+    domainId ? `/domains/${domainId}/deliverability-report${refresh ? '?refresh=1' : ''}` : null,
+    fetcher
+  );
+
+  const refreshReport = async () => {
+    const res = await api.get<{ data: import('@/types').DeliverabilityReportData }>(
+      `/domains/${domainId}/deliverability-report?refresh=1`
+    );
+    await mutate(res.data, false);
+    return res.data?.data;
+  };
+
+  return {
+    report: data?.data,
+    isLoading,
+    error,
+    mutate,
+    refreshReport,
+  };
+}
+
+export async function parseDomainDmarcReport(
+  domainId: string | number, 
+  payload: FormData | { xml_content: string }
+): Promise<{ data: import('@/types').DmarcReportParserResponse }> {
+  const isFormData = typeof FormData !== 'undefined' && payload instanceof FormData;
+  const config = isFormData ? { headers: { 'Content-Type': 'multipart/form-data' } } : undefined;
+  const res = await api.post<{ data: import('@/types').DmarcReportParserResponse }>(
+    `/domains/${domainId}/parse-dmarc-report`,
+    payload,
+    config
+  );
+  return res.data;
+}
+
 

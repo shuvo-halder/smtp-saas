@@ -468,3 +468,38 @@ ACCEPTED & IMPLEMENTED
 Yes
 
 
+
+---
+
+## Decision: Domain Email Authentication Hardening, Deliverability Reports & DMARC Parser (Step 35)
+### Status
+ACCEPTED & IMPLEMENTED
+### Date
+2026-10-27 (Step 35)
+### Decision
+1. **Zero Private Key Exposure Architecture:**
+   DKIM private keys remain strictly on the host filesystem (`/var/vmail/dkim/` with `chmod 600`) and are never written to database tables or exposed in API payloads (`DomainResource`, `DomainApiController`, `DnsVerificationService`). Only public keys (`dkim_public_key`) and selectors are transmitted.
+2. **RFC 7208 & RFC 7489 Authentication Protocol Hardening:**
+   - Detects missing `v=spf1` prefix, validates mechanisms, checks IPv4/IPv6 syntax, flags dangerous `+all` open-relay settings, and warns when DNS lookup mechanism counts exceed the RFC 7208 section 4.6.4 10-lookup limit.
+   - Detects revoked DKIM keys (`p=` empty or missing), validates base64 key format, and estimates key length with warnings for $< 2048$-bit keys.
+   - Detects multiple TXT records at `_dmarc.<domain>` and flags them as RFC 7489 section 6.6.3 `PermError`.
+   - Prohibits bare IP addresses in MX records per RFC 5321 section 5.1 and warns of priority conflicts.
+3. **DMARC Policy Advisor Matrix & Safe Escalation:**
+   - Provides clear explanations for `p=none` (monitoring), `p=quarantine` (spam filter), and `p=reject` (strict blocking).
+   - Enforces the policy escalation invariant: tenants must never escalate directly to `p=reject` without first monitoring `p=none` or `p=quarantine` reports for 2-4 weeks with 0% legitimate sender failures.
+4. **Append-Only Verification History via Existing Audit Logs:**
+   Rather than introducing a redundant `domain_verification_histories` database table, historical verification events and deliverability score trends are queried directly from immutable `audit_logs` where `action = 'domain.dns_verify'`. This maintains database normalization and zero schema churn.
+5. **Secure DMARC Aggregate Report Parsing Engine (`DmarcReportParserService`):**
+   - Implements XML aggregate report parsing compliant with RFC 7489.
+   - Prevents XXE vulnerabilities by setting `LIBXML_NONET` and proactively rejecting `<!DOCTYPE` and `<!ENTITY` blocks.
+   - Limits uploads to 5MB and throttles endpoint `POST /api/domains/{domain}/parse-dmarc-report` at `throttle:10,1`.
+   - Validates that report domain matches the tenant domain to prevent cross-tenant spoofing.
+   - Generates a deterministic SHA-256 digest over metadata and records for deduplication.
+6. **DNS Drift Detection:**
+   `DnsVerificationService` identifies when an active domain loses its required DNS records, setting `dns_drift_detected: true` to alert tenants before email delivery failures occur.
+7. **Legal & Diagnostic Disclaimer:**
+   Every deliverability report includes an explicit notice clarifying that DNS verification confirms published records and does NOT guarantee external inbox placement, spam filter exemption, or sender reputation.
+8. **Truthful Inbound Mailbox Posture:**
+   Automated ingestion via an IMAP poller or local mail pipe is truthfully documented as `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+### DO NOT CHANGE WITHOUT APPROVAL
+Yes

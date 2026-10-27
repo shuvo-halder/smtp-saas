@@ -317,3 +317,27 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Persistent Security Audit Trail:**
   - Every DNS verification action (`verifyDns` and backwards-compatible `verify`) emits a `domain.dns_verify` event into `audit_logs` via `AuditService::record()`, recording actor ID, IP address, timestamp, and sanitized before/after verification states.
 
+## 25. Domain Authentication Hardening, Deliverability Reports & DMARC Parser Security (Step 35)
+- **Zero Private Key Exposure Invariant:**
+  - DKIM private keys are strictly generated and stored on the server filesystem (`/var/vmail/dkim/` with `chmod 600`) and are NEVER stored in database columns, returned in API payloads (`DomainResource`, `DomainApiController`, `DnsVerificationService`), rendered in frontend code, or persisted in `audit_logs`.
+  - Audited and verified across all Step 35 endpoints (`GET /api/domains/{domain}/deliverability-report`, `POST /api/domains/{domain}/parse-dmarc-report`).
+- **DMARC Aggregate Report Parser Hardening (XXE & DoS Protection):**
+  - **XXE Injection Neutralization:** XML parsing in `DmarcReportParserService` strictly sets `LIBXML_NONET` to disable all external network entity resolution. The parser explicitly inspects the raw payload and rejects documents containing `<!DOCTYPE` or `<!ENTITY` declarations before DOM loading.
+  - **Payload Size Bounding:** XML report uploads and raw string inputs are strictly bounded to 5MB (`max:5120`), mitigating XML bomb (Billion Laughs) and memory exhaustion attacks.
+  - **Cross-Domain Report Spoofing Prevention:** The parser verifies that the report's `<policy_published><domain>` element matches the tenant's domain. Unmatched reports are rejected with HTTP 422 to prevent spoofed telemetry injection.
+  - **Rate Limiting:** Report parsing endpoint (`POST /api/domains/{domain}/parse-dmarc-report`) is protected with `throttle:10,1` (maximum 10 parsing requests per minute per tenant).
+  - **Idempotency & Deduplication:** Generates a deterministic SHA-256 digest from report metadata and record contents, preventing duplicate report insertion.
+- **Inbound Collection Posture Truthfulness:**
+  - The application truthfully reports that automated ingestion via an inbound IMAP/mail-pipe daemon is `PENDING INFRASTRUCTURE & ARCHITECTURAL APPROVAL`. It does not expose unauthenticated open SMTP ingestion endpoints for aggregate reports.
+- **DNS Drift Detection:**
+  - `DnsVerificationService` compares active domain status against authoritative live DNS results. If an active domain loses its verified MX, SPF, or DKIM records, `dns_drift_detected: true` is flagged immediately in API responses and logged in `audit_logs`, alerting tenants before mail bounces occur.
+- **SPF Vulnerability & PermError Detection:**
+  - Insecure `+all` open-relay mechanisms are detected and flagged as a critical security risk.
+  - DNS lookup mechanism counts (include, a, mx, ptr, exists, redirect) are tracked to warn tenants when records exceed the RFC 7208 section 4.6.4 10-lookup limit.
+- **DMARC & MX Protocol Violations:**
+  - Multiple TXT records at `_dmarc.<domain>` are detected and flagged as PermError per RFC 7489 section 6.6.3.
+  - Bare IP addresses configured as MX targets are detected and rejected per RFC 5321 section 5.1 prohibition.
+- **Clear Legal & Diagnostic Disclaimer:**
+  - Deliverability reports explicitly include a disclaimer that DNS verification reflects published DNS records and does NOT guarantee external inbox placement, third-party spam filter exemption, or sender reputation.
+
+

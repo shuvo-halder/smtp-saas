@@ -45,6 +45,7 @@ export interface Domain {
   catch_all_mailbox_id?: number | null;
   required_dns_records: DnsRecord[];
   last_dns_check_at?: string | null;
+  dns_drift_detected?: boolean;
   activated_at: string | null;
   created_at: string;
 }
@@ -110,11 +111,26 @@ export interface DnsRecord {
   troubleshooting?: string | null;
 }
 
+export interface DeliverabilityScoreBreakdownItem {
+  weight: number;
+  earned: number;
+  status: string;
+}
+
+export interface DeliverabilityScoreBreakdown {
+  mx: DeliverabilityScoreBreakdownItem;
+  spf: DeliverabilityScoreBreakdownItem;
+  dkim: DeliverabilityScoreBreakdownItem;
+  dmarc: DeliverabilityScoreBreakdownItem;
+}
+
 export interface DeliverabilityScore {
   score_percent: number;
   status: 'ready' | 'needs_attention' | 'critical';
   status_label: string;
   summary: string;
+  breakdown?: DeliverabilityScoreBreakdown;
+  disclaimer?: string;
 }
 
 export interface InboundRoutingDiagnostics {
@@ -141,6 +157,90 @@ export interface InfrastructureDiagnostics {
   mta_note: string;
 }
 
+export interface VerificationHistoryEntry {
+  id: number;
+  checked_at: string | null;
+  score: number;
+  status: string;
+  mx_status: string;
+  spf_status: string;
+  dkim_status: string;
+  dmarc_status: string;
+  dns_drift_detected: boolean;
+  actor_email: string | null;
+}
+
+export interface DmarcPolicyAdvisorItem {
+  name: string;
+  status: 'active' | 'recommended' | 'available' | 'inactive';
+  description: string;
+  implication: string;
+  recommended_when: string;
+}
+
+export interface DmarcPolicyAdvisor {
+  current_policy: string;
+  current_policy_explanation: string;
+  policies: {
+    none: DmarcPolicyAdvisorItem;
+    quarantine: DmarcPolicyAdvisorItem;
+    reject: DmarcPolicyAdvisorItem;
+  };
+  policy_escalation_rule: string;
+}
+
+export interface DeliverabilityReportData {
+  domain: {
+    id: number;
+    domain_name: string;
+    status: string;
+    is_verified: boolean;
+    activated_at: string | null;
+    last_dns_check_at: string | null;
+    dns_drift_detected: boolean;
+  };
+  deliverability_score: DeliverabilityScore;
+  inbound_routing: InboundRoutingDiagnostics;
+  outbound_authentication: OutboundAuthDiagnostics;
+  infrastructure_status: InfrastructureDiagnostics;
+  dmarc_policy_advisor: DmarcPolicyAdvisor;
+  verification_history: VerificationHistoryEntry[];
+  recommendations: string[];
+}
+
+export interface DmarcReportParserResponse {
+  message: string;
+  report_metadata: {
+    org_name: string;
+    email: string;
+    report_id: string;
+    date_range_begin: string;
+    date_range_end: string;
+  };
+  policy_published: {
+    domain: string;
+    policy: string;
+    subdomain_policy: string;
+    percentage: number;
+    dkim_alignment: string;
+    spf_alignment: string;
+  };
+  summary: {
+    total_messages: number;
+    passed_messages: number;
+    failed_messages: number;
+    unique_source_ips: number;
+  };
+  records: Array<{
+    source_ip: string;
+    count: number;
+    disposition: string;
+    dkim_result: string;
+    spf_result: string;
+  }>;
+  deduplication_digest: string;
+}
+
 export interface DomainDnsWizardData {
   domain: {
     id: number;
@@ -149,12 +249,15 @@ export interface DomainDnsWizardData {
     is_verified: boolean;
     activated_at: string | null;
     last_dns_check_at: string | null;
+    dns_drift_detected?: boolean;
   };
   deliverability_score: DeliverabilityScore;
   records: DnsRecord[];
   inbound_routing: InboundRoutingDiagnostics;
   outbound_authentication: OutboundAuthDiagnostics;
   infrastructure_status: InfrastructureDiagnostics;
+  dmarc_policy_advisor?: DmarcPolicyAdvisor;
+  verification_history?: VerificationHistoryEntry[];
   recommendations: string[];
 }
 

@@ -755,3 +755,46 @@
 
 
 
+
+---
+
+## Step 35 — Domain Email Authentication Hardening & Tenant Deliverability Reports (`IMPLEMENTED — VERIFIED`)
+- `[x]` Authentication Hardening in `DnsVerificationService`:
+  - `[x]` Hardened SPF syntax analysis (`analyzeSpfSyntax`): Enforces RFC 7208 prefix `v=spf1`, validates mechanism syntax, validates IPv4/IPv6 formats, warns against insecure `+all` open relays, tracks DNS lookup mechanisms (`include`, `a`, `mx`, `ptr`, `exists`, `redirect`) to warn on exceeding the 10-lookup limit (RFC 7208 section 4.6.4), and detects duplicate SPF records.
+  - `[x]` Hardened DKIM key validation: Detects revoked keys (`p=` empty or missing), validates base64 key payloads, concatenates multi-chunk UDP DNS records, and warns when key length is under 2048-bit.
+  - `[x]` Hardened DMARC syntax analysis (`analyzeDmarcSyntax`): Enforces `v=DMARC1;` as first tag, enforces mandatory `p=` tag (`none`, `quarantine`, `reject`), detects duplicate `_dmarc` TXT records per RFC 7489 section 6.6.3 PermError, extracts optional tags (`sp`, `pct`, `rua`, `ruf`, `adkim`, `aspf`), and provides policy explanations.
+  - `[x]` Hardened MX verification: Prohibits bare IP addresses (RFC 5321 section 5.1) and warns on priority conflicts.
+  - `[x]` DNS Drift Detection: Flags `dns_drift_detected: true` when an active domain loses required MX, SPF, or DKIM records.
+  - `[x]` Verification History Extraction (`getVerificationHistory`): Queries immutable `audit_logs` where `action = 'domain.dns_verify'`, returning score trends and record statuses over time without schema churn.
+  - `[x]` Deliverability Report Generator (`getDeliverabilityReport`): Computes 4-pillar score breakdown (MX 40%, SPF 25%, DKIM 25%, DMARC 10%), policy advisor matrix, drift indicator, and explicit diagnostic disclaimer.
+- `[x]` DMARC Aggregate Report Parser (`DmarcReportParserService`):
+  - `[x]` RFC 7489 XML Aggregate Report Parser: Parses `<feedback>` XML files up to 5MB.
+  - `[x]` Protected against XXE vulnerabilities using `LIBXML_NONET` and proactively rejecting `<!DOCTYPE` or `<!ENTITY` blocks.
+  - `[x]` Extracts report metadata, published policy, volume summaries, and source IP delivery records.
+  - `[x]` Computes deterministic SHA-256 deduplication digest.
+  - `[x]` Rejects cross-domain spoofing by validating `<policy_published><domain>` against tenant domain.
+- `[x]` RESTful API & Security Boundaries:
+  - `[x]` Added `deliverabilityReport()` on `DomainApiController` (`GET /api/domains/{domain}/deliverability-report`, supporting `?refresh=1`).
+  - `[x]` Added `parseDmarcReport()` on `DomainApiController` (`POST /api/domains/{domain}/parse-dmarc-report`, throttled at `throttle:10,1`).
+  - `[x]` Enhanced `verifyDns` and `verify` to log rich audit state (score, per-record statuses, drift detection) without breaking legacy Mockery tests.
+  - `[x]` Zero private key exposure: Private keys strictly isolated from API responses, database tables, and audit logs.
+- `[x]` Next.js Tenant UI:
+  - `[x]` Added TypeScript interfaces in `types/index.ts` (`DeliverabilityScoreBreakdown`, `VerificationHistoryEntry`, `DmarcPolicyAdvisor`, `DeliverabilityReportData`, `DmarcReportParserResponse`).
+  - `[x]` Added `useDomainDeliverabilityReport` and `parseDomainDmarcReport` in `hooks/useDomains.ts`.
+  - `[x]` Enhanced `/domains/[id]/setup` (`DomainSetupPage.tsx`) with:
+    - `[x]` DNS Drift warning alert banner.
+    - `[x]` Deliverability Scorecard with 4-pillar breakdown (MX, SPF, DKIM, DMARC) and legal/diagnostic disclaimer.
+    - `[x]` DMARC Policy Advisor card explaining `p=none` vs `p=quarantine` vs `p=reject` with escalation rules.
+    - `[x]` Verification History audit table showing previous check timestamps, scores, and per-record statuses.
+    - `[x]` DMARC Aggregate Report Inspector allowing tenants to upload or paste XML feedback reports and view detailed message counts, pass/fail rates, and source IP authenticity.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `TenantDomainDeliverabilityReportTest.php` passes with 24 tests (105 assertions).
+  - `[x]` **Level B (Configuration & Protocol Logic):** `VERIFIED`. Mockable resolver, RFC 7208 syntax analysis, RFC 7489 duplicate detection, RFC 5321 bare IP prohibition, and SHA-256 deduplication hashing verified.
+  - `[x]` **Level C (End-to-End Live DNS & Inbound DMARC Collection):** `BLOCKED — REQUIRES INFRASTRUCTURE` (local Windows + Laragon development environment lacks Linux Postfix/Dovecot services and public DNS zone delegation; requires dedicated Linux VPS).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Feature test suite (`tests/Feature/TenantDomainDeliverabilityReportTest.php`): **24 tests, 105 assertions passing (100%)**.
+  - `[x]` DNS Wizard regression suite (`tests/Feature/TenantDomainDnsWizardTest.php`): **24 tests, 211 assertions passing (100%)**.
+  - `[x]` Domain regression suite (`tests/Feature/TenantDomainAndMailboxManagementTest.php`): **21 tests, 86 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **472 tests, 2,290 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 27 static pages cleanly with zero errors (100%)**.

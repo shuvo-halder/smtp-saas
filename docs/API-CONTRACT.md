@@ -883,6 +883,159 @@ All DNS wizard and verification endpoints require an authenticated Sanctum sessi
 - **`NOT_CONFIGURED`**: DKIM key or server configuration is missing in the database.
 - **`EXPECTED`**: Baseline unverified state awaiting lookup.
 
+---
+
+## Step 35 — Domain Email Authentication Hardening & Tenant Deliverability Reports
+
+All Step 35 endpoints require an authenticated Sanctum session and an active tenant subscription (`EnsureActiveSubscription`). Authorization is strictly gated per-tenant via `DomainPolicy`.
+
+| Method | Endpoint | Description | Middleware | Rate Limit |
+|---|---|---|---|---|
+| GET | `/api/domains/{domain}/deliverability-report` | Full deliverability report including domain status, DNS drift indicator, weighted 4-pillar deliverability score (MX 40%, SPF 25%, DKIM 25%, DMARC 10%), detailed diagnostic breakdown, DMARC policy advisor with escalation matrix, and historical audit log timeline. Supports optional `?refresh=1` query parameter to force fresh authoritative DNS resolution. | `auth:sanctum`, `EnsureActiveSubscription` | Standard |
+| POST | `/api/domains/{domain}/parse-dmarc-report` | Securely parses an RFC 7489 DMARC XML aggregate feedback report uploaded as a multipart file (`report_file`, max 5MB) or raw string payload (`xml_content`). Protected against XXE (`LIBXML_NONET`), validates domain ownership match, extracts aggregate metrics, and returns a deterministic SHA-256 deduplication digest. | `auth:sanctum`, `EnsureActiveSubscription` | `throttle:10,1` (10 per minute) |
+
+### Deliverability Report Response (`GET /api/domains/{domain}/deliverability-report`)
+```json
+{
+  "data": {
+    "domain": {
+      "id": 1,
+      "domain_name": "company.com",
+      "status": "active",
+      "is_verified": true,
+      "activated_at": "2026-10-16T12:00:00Z",
+      "last_dns_check_at": "2026-10-27T17:00:00Z",
+      "dns_drift_detected": false
+    },
+    "deliverability_score": {
+      "score_percent": 100,
+      "status": "ready",
+      "status_label": "Ready for Production",
+      "summary": "All required DNS and authentication records are verified. Excellent deliverability posture.",
+      "breakdown": {
+        "mx": { "weight": 40, "earned": 40, "status": "VERIFIED" },
+        "spf": { "weight": 25, "earned": 25, "status": "VERIFIED" },
+        "dkim": { "weight": 25, "earned": 25, "status": "VERIFIED" },
+        "dmarc": { "weight": 10, "earned": 10, "status": "VERIFIED" }
+      },
+      "disclaimer": "Notice: DNS verification confirms cryptographic publication and routing records on authoritative nameservers. It does NOT guarantee external inbox placement, third-party spam filter exemption, or sender reputation."
+    },
+    "inbound_routing": {
+      "status": "operational",
+      "mx_target": "mail.company.com",
+      "mx_priority": 10,
+      "details": "Inbound MX records are operational."
+    },
+    "outbound_authentication": {
+      "spf_status": "VERIFIED",
+      "dkim_status": "VERIFIED",
+      "dmarc_status": "VERIFIED",
+      "spf_policy": "~all",
+      "dmarc_policy": "quarantine",
+      "details": "Outbound authentication fully aligned."
+    },
+    "infrastructure_status": {
+      "dns_publication": "published",
+      "application_config": "active",
+      "mail_server_mta": "local_development",
+      "mta_driver": "postfix_mysql_map",
+      "mta_note": "Local development mode. External DNS resolution uses system resolvers."
+    },
+    "dmarc_policy_advisor": {
+      "current_policy": "quarantine",
+      "current_policy_explanation": "Current policy is quarantine: Failing emails are directed to spam folders.",
+      "policies": {
+        "none": {
+          "name": "Monitoring (p=none)",
+          "status": "available",
+          "description": "Mail is delivered normally without rejection. Feedback reports are collected to identify sending sources.",
+          "implication": "Zero risk to legitimate mail, but provides no spoofing protection.",
+          "recommended_when": "First 2-4 weeks of domain configuration."
+        },
+        "quarantine": {
+          "name": "Spam Quarantine (p=quarantine)",
+          "status": "active",
+          "description": "Suspicious or unauthenticated mail is redirected to spam/junk folders.",
+          "implication": "Protects recipients from phishing while allowing inspection of false positives.",
+          "recommended_when": "All legitimate sending sources have been identified and configured."
+        },
+        "reject": {
+          "name": "Strict Rejection (p=reject)",
+          "status": "recommended",
+          "description": "Unauthenticated mail is blocked outright by recipient mail transfer agents.",
+          "implication": "Maximum security against impersonation. Any unaligned legitimate mail will bounce.",
+          "recommended_when": "All senders pass SPF or DKIM alignment with zero legitimate failures in reports."
+        }
+      },
+      "policy_escalation_rule": "Never escalate directly to p=reject without first observing 0% legitimate delivery failures under p=none or p=quarantine for at least two weeks."
+    },
+    "verification_history": [
+      {
+        "id": 45,
+        "checked_at": "2026-10-27T17:00:00Z",
+        "score": 100,
+        "status": "active",
+        "mx_status": "VERIFIED",
+        "spf_status": "VERIFIED",
+        "dkim_status": "VERIFIED",
+        "dmarc_status": "VERIFIED",
+        "dns_drift_detected": false,
+        "actor_email": "tenant@company.com"
+      }
+    ],
+    "recommendations": []
+  }
+}
+```
+
+### Parse DMARC Report Response (`POST /api/domains/{domain}/parse-dmarc-report`)
+```json
+{
+  "message": "DMARC report parsed successfully.",
+  "data": {
+    "report_metadata": {
+      "org_name": "google.com",
+      "email": "noreply-dmarc-support@google.com",
+      "report_id": "9876543210987654321",
+      "date_range_begin": "2026-10-26 00:00:00 UTC",
+      "date_range_end": "2026-10-26 23:59:59 UTC"
+    },
+    "policy_published": {
+      "domain": "company.com",
+      "policy": "quarantine",
+      "subdomain_policy": "quarantine",
+      "percentage": 100,
+      "dkim_alignment": "r",
+      "spf_alignment": "r"
+    },
+    "summary": {
+      "total_messages": 125,
+      "passed_messages": 120,
+      "failed_messages": 5,
+      "unique_source_ips": 3
+    },
+    "records": [
+      {
+        "source_ip": "198.51.100.1",
+        "count": 120,
+        "disposition": "none",
+        "dkim_result": "pass",
+        "spf_result": "pass"
+      },
+      {
+        "source_ip": "203.0.113.5",
+        "count": 5,
+        "disposition": "quarantine",
+        "dkim_result": "fail",
+        "spf_result": "fail"
+      }
+    ],
+    "deduplication_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}
+```
+
+
 
 
 

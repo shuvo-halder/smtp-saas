@@ -3,7 +3,12 @@
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useDomain, useDomainDnsWizard } from '@/hooks/useDomains';
+import { 
+  useDomain, 
+  useDomainDnsWizard, 
+  useDomainDeliverabilityReport,
+  parseDomainDmarcReport
+} from '@/hooks/useDomains';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,8 +25,18 @@ import {
   Globe, 
   AlertTriangle,
   ExternalLink,
-  ShieldAlert
+  ShieldAlert,
+  Info,
+  History,
+  FileText,
+  UploadCloud,
+  Check,
+  XCircle,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
+import { DmarcReportParserResponse } from '@/types';
 
 export default function DomainSetupPage() {
   const params = useParams();
@@ -30,6 +45,7 @@ export default function DomainSetupPage() {
   
   const { domain, isLoading: domainLoading, mutate: mutateDomain } = useDomain(id);
   const { wizard, isLoading: wizardLoading, error: wizardError, verifyDns } = useDomainDnsWizard(id);
+  const { report, isLoading: reportLoading, mutate: mutateReport, refreshReport } = useDomainDeliverabilityReport(id);
 
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationFeedback, setVerificationFeedback] = useState<{
@@ -37,12 +53,21 @@ export default function DomainSetupPage() {
     message: string;
   } | null>(null);
 
+  // DMARC XML Parser state
+  const [showDmarcParser, setShowDmarcParser] = useState(false);
+  const [xmlFile, setXmlFile] = useState<File | null>(null);
+  const [xmlContent, setXmlContent] = useState('');
+  const [isParsingReport, setIsParsingReport] = useState(false);
+  const [parsedReportResult, setParsedReportResult] = useState<DmarcReportParserResponse | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+
   const handleVerify = async () => {
     setIsVerifying(true);
     setVerificationFeedback(null);
     try {
       const res = await verifyDns();
       await mutateDomain();
+      await refreshReport();
       if (res.verified) {
         setVerificationFeedback({
           success: true,
@@ -61,6 +86,34 @@ export default function DomainSetupPage() {
       });
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  const handleParseDmarcReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!domain) return;
+    setIsParsingReport(true);
+    setParseError(null);
+    setParsedReportResult(null);
+
+    try {
+      let res;
+      if (xmlFile) {
+        const formData = new FormData();
+        formData.append('report_file', xmlFile);
+        res = await parseDomainDmarcReport(domain.id, formData);
+      } else if (xmlContent.trim()) {
+        res = await parseDomainDmarcReport(domain.id, { xml_content: xmlContent.trim() });
+      } else {
+        setParseError('Please upload an XML report file or paste raw XML content.');
+        setIsParsingReport(false);
+        return;
+      }
+      setParsedReportResult(res.data);
+    } catch (err: any) {
+      setParseError(err.response?.data?.message || err.message || 'Failed to parse DMARC report.');
+    } finally {
+      setIsParsingReport(false);
     }
   };
 
@@ -88,12 +141,15 @@ export default function DomainSetupPage() {
     );
   }
 
-  const score = wizard?.deliverability_score;
-  const inbound = wizard?.inbound_routing;
-  const outbound = wizard?.outbound_authentication;
-  const infra = wizard?.infrastructure_status;
-  const recommendations = wizard?.recommendations || [];
+  const score = report?.deliverability_score || wizard?.deliverability_score;
+  const inbound = report?.inbound_routing || wizard?.inbound_routing;
+  const outbound = report?.outbound_authentication || wizard?.outbound_authentication;
+  const infra = report?.infrastructure_status || wizard?.infrastructure_status;
+  const advisor = report?.dmarc_policy_advisor || wizard?.dmarc_policy_advisor;
+  const verificationHistory = report?.verification_history || wizard?.verification_history || [];
+  const recommendations = report?.recommendations || wizard?.recommendations || [];
   const records = wizard?.records || domain.required_dns_records || [];
+  const isDriftDetected = domain.dns_drift_detected || report?.domain?.dns_drift_detected;
 
   return (
     <div className="space-y-8 max-w-6xl pb-12">
@@ -157,6 +213,19 @@ export default function DomainSetupPage() {
         </div>
       </div>
 
+      {/* DNS Drift Alert Banner */}
+      {isDriftDetected && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-sm flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            <h4 className="font-semibold text-sm">DNS Drift Detected</h4>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              This domain is marked active in your tenant account, but authoritative DNS checks indicate that one or more required records (MX, SPF, or DKIM) have been removed, modified, or are no longer resolving. Mail delivery or cryptographic signing may fail until the expected records are restored.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Verification Feedback Alert */}
       {verificationFeedback && (
         <div className={`p-4 rounded-lg flex items-start gap-3 border shadow-sm transition-all ${
@@ -209,6 +278,37 @@ export default function DomainSetupPage() {
               style={{ width: `${score?.score_percent ?? 0}%` }}
             />
           </div>
+
+          {/* 4 Pillars Breakdown */}
+          {score?.breakdown && (
+            <div className="grid grid-cols-4 gap-1.5 pt-1 text-center">
+              <div className="bg-slate-50 p-1.5 rounded border border-slate-100">
+                <span className="text-[10px] text-muted-foreground block font-mono">MX (40%)</span>
+                <span className={`text-xs font-bold ${score.breakdown.mx.earned > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {score.breakdown.mx.earned}%
+                </span>
+              </div>
+              <div className="bg-slate-50 p-1.5 rounded border border-slate-100">
+                <span className="text-[10px] text-muted-foreground block font-mono">SPF (25%)</span>
+                <span className={`text-xs font-bold ${score.breakdown.spf.earned > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {score.breakdown.spf.earned}%
+                </span>
+              </div>
+              <div className="bg-slate-50 p-1.5 rounded border border-slate-100">
+                <span className="text-[10px] text-muted-foreground block font-mono">DKIM (25%)</span>
+                <span className={`text-xs font-bold ${score.breakdown.dkim.earned > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {score.breakdown.dkim.earned}%
+                </span>
+              </div>
+              <div className="bg-slate-50 p-1.5 rounded border border-slate-100">
+                <span className="text-[10px] text-muted-foreground block font-mono">DMARC (10%)</span>
+                <span className={`text-xs font-bold ${score.breakdown.dmarc.earned > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {score.breakdown.dmarc.earned}%
+                </span>
+              </div>
+            </div>
+          )}
+
           <p className="text-xs text-muted-foreground leading-relaxed">{score?.summary}</p>
         </div>
 
@@ -263,6 +363,113 @@ export default function DomainSetupPage() {
           </p>
         </div>
       </div>
+
+      {/* Health Score Limitations Disclaimer Banner */}
+      <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 text-xs text-slate-600 flex items-start gap-2.5">
+        <Info className="h-4 w-4 text-slate-500 mt-0.5 shrink-0" />
+        <div className="space-y-0.5">
+          <strong className="text-slate-800 font-medium">Deliverability Score Notice:</strong>{' '}
+          {score?.disclaimer || 'DNS verification reflects the published cryptographic keys and routing records on authoritative nameservers. It does not guarantee external inbox placement, spam filter bypass, or recipient reputation.'}
+        </div>
+      </div>
+
+      {/* DMARC Policy Advisor Card */}
+      {advisor && (
+        <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-indigo-600" />
+                <h3 className="font-semibold text-base text-gray-900">DMARC Policy Advisor</h3>
+                <span className="text-xs font-mono px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  Current: p={advisor.current_policy}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {advisor.current_policy_explanation}
+              </p>
+            </div>
+            <span className="text-xs text-slate-500 font-medium">
+              RFC 7489 Alignment Protection
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* p=none */}
+            <div className={`p-4 rounded-lg border transition-all ${
+              advisor.current_policy === 'none' 
+                ? 'bg-blue-50/70 border-blue-300 ring-1 ring-blue-300' 
+                : 'bg-white border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs font-bold text-gray-900">p=none</span>
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                  advisor.current_policy === 'none' ? 'bg-blue-200 text-blue-900' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {advisor.current_policy === 'none' ? 'Active Policy' : 'Monitoring'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 leading-relaxed mb-2">
+                {advisor.policies.none.description}
+              </p>
+              <div className="text-[11px] text-slate-500 border-t pt-2 mt-2">
+                <strong>Implication:</strong> {advisor.policies.none.implication}
+              </div>
+            </div>
+
+            {/* p=quarantine */}
+            <div className={`p-4 rounded-lg border transition-all ${
+              advisor.current_policy === 'quarantine' 
+                ? 'bg-amber-50/70 border-amber-300 ring-1 ring-amber-300' 
+                : 'bg-white border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs font-bold text-gray-900">p=quarantine</span>
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                  advisor.current_policy === 'quarantine' ? 'bg-amber-200 text-amber-900' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {advisor.current_policy === 'quarantine' ? 'Active Policy' : 'Spam Filter'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 leading-relaxed mb-2">
+                {advisor.policies.quarantine.description}
+              </p>
+              <div className="text-[11px] text-slate-500 border-t pt-2 mt-2">
+                <strong>Implication:</strong> {advisor.policies.quarantine.implication}
+              </div>
+            </div>
+
+            {/* p=reject */}
+            <div className={`p-4 rounded-lg border transition-all ${
+              advisor.current_policy === 'reject' 
+                ? 'bg-red-50/70 border-red-300 ring-1 ring-red-300' 
+                : 'bg-white border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs font-bold text-gray-900">p=reject</span>
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                  advisor.current_policy === 'reject' ? 'bg-red-200 text-red-900' : 'bg-slate-100 text-slate-600'
+                }`}>
+                  {advisor.current_policy === 'reject' ? 'Active Policy' : 'Strict Block'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 leading-relaxed mb-2">
+                {advisor.policies.reject.description}
+              </p>
+              <div className="text-[11px] text-slate-500 border-t pt-2 mt-2">
+                <strong>Implication:</strong> {advisor.policies.reject.implication}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-700 flex items-start gap-2">
+            <Info className="h-4 w-4 text-indigo-500 mt-0.5 shrink-0" />
+            <div>
+              <strong>Escalation Rule:</strong> {advisor.policy_escalation_rule}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Multi-Layer Environment & Infrastructure Banner */}
       <div className="rounded-xl border bg-slate-50 p-4 space-y-2 text-xs">
@@ -324,6 +531,269 @@ export default function DomainSetupPage() {
         </div>
 
         <DnsRecordTable records={records} showTroubleshooting={true} />
+      </div>
+
+      {/* Verification History Section */}
+      <div className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-gray-600" />
+            <h3 className="font-semibold text-base text-gray-900">Verification History</h3>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            Audit-logged verification events ({verificationHistory.length})
+          </span>
+        </div>
+
+        {verificationHistory.length === 0 ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">
+            No verification history recorded yet. Click "Check DNS Records Now" above to run an audit.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse">
+              <thead>
+                <tr className="border-b bg-slate-50 text-slate-600">
+                  <th className="py-2.5 px-3 font-semibold">Timestamp</th>
+                  <th className="py-2.5 px-3 font-semibold">Score</th>
+                  <th className="py-2.5 px-3 font-semibold">Domain Status</th>
+                  <th className="py-2.5 px-3 font-semibold">MX</th>
+                  <th className="py-2.5 px-3 font-semibold">SPF</th>
+                  <th className="py-2.5 px-3 font-semibold">DKIM</th>
+                  <th className="py-2.5 px-3 font-semibold">DMARC</th>
+                  <th className="py-2.5 px-3 font-semibold">Drift</th>
+                  <th className="py-2.5 px-3 font-semibold">Verified By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {verificationHistory.map((item) => (
+                  <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-2.5 px-3 font-mono text-slate-700">
+                      {item.checked_at ? new Date(item.checked_at).toLocaleString() : 'N/A'}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`font-bold ${item.score >= 80 ? 'text-green-600' : item.score >= 50 ? 'text-amber-600' : 'text-red-600'}`}>
+                        {item.score}%
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 capitalize">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-800">
+                        {item.status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                        item.mx_status === 'VERIFIED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {item.mx_status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                        item.spf_status === 'VERIFIED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {item.spf_status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                        item.dkim_status === 'VERIFIED' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {item.dkim_status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                        item.dmarc_status === 'VERIFIED' ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-slate-700'
+                      }`}>
+                        {item.dmarc_status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {item.dns_drift_detected ? (
+                        <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                          Drift
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-500 font-mono text-[11px] truncate max-w-[150px]">
+                      {item.actor_email || 'System'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* DMARC Aggregate Report Parser / Inspector Tool */}
+      <div className="rounded-xl border bg-white shadow-sm overflow-hidden">
+        <button
+          onClick={() => setShowDmarcParser(!showDmarcParser)}
+          className="w-full flex items-center justify-between p-5 text-left bg-slate-50/50 hover:bg-slate-50 transition-colors"
+        >
+          <div className="flex items-center gap-2.5">
+            <FileText className="h-5 w-5 text-indigo-600" />
+            <div>
+              <h3 className="font-semibold text-sm text-gray-900">
+                DMARC Aggregate Report Inspector (RFC 7489)
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Upload or inspect XML feedback reports received from mailbox providers (Google, Yahoo, Microsoft)
+              </p>
+            </div>
+          </div>
+          {showDmarcParser ? (
+            <ChevronUp className="h-5 w-5 text-gray-500" />
+          ) : (
+            <ChevronDown className="h-5 w-5 text-gray-500" />
+          )}
+        </button>
+
+        {showDmarcParser && (
+          <div className="p-6 border-t space-y-5">
+            <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3 text-xs text-indigo-900 flex items-start gap-2">
+              <Info className="h-4 w-4 text-indigo-600 mt-0.5 shrink-0" />
+              <div>
+                <strong>Inbound Collection Notice:</strong> Automated ingestion via an inbound IMAP/mail-pipe daemon is currently pending MTA infrastructure approval. You can manually inspect received aggregate XML reports below to check alignment, pass rates, and source IP authenticity.
+              </div>
+            </div>
+
+            <form onSubmit={handleParseDmarcReport} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* File Upload Option */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-700 block">
+                    Upload XML Report File
+                  </label>
+                  <input
+                    type="file"
+                    accept=".xml"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setXmlFile(e.target.files[0]);
+                      }
+                    }}
+                    className="block w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-primary file:text-white hover:file:bg-primary/90"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Accepts RFC 7489 compliant XML reports up to 5MB.
+                  </p>
+                </div>
+
+                {/* Paste Option */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-gray-700 block">
+                    Or Paste Raw XML Content
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="<feedback>...</feedback>"
+                    value={xmlContent}
+                    onChange={(e) => setXmlContent(e.target.value)}
+                    className="w-full text-xs font-mono p-2.5 rounded-md border border-slate-200 focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
+              {parseError && (
+                <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-900 text-xs flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
+                  <span>{parseError}</span>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isParsingReport || (!xmlFile && !xmlContent.trim())}
+                className="flex items-center gap-2"
+              >
+                {isParsingReport ? <Spinner className="h-4 w-4" /> : <UploadCloud className="h-4 w-4" />}
+                {isParsingReport ? 'Parsing Report...' : 'Analyze DMARC Report'}
+              </Button>
+            </form>
+
+            {/* Parsed Output Details */}
+            {parsedReportResult && (
+              <div className="border rounded-xl p-5 bg-slate-50/50 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b pb-3">
+                  <div>
+                    <h4 className="font-semibold text-sm text-gray-900">
+                      Report Analysis: {parsedReportResult.report_metadata.org_name}
+                    </h4>
+                    <span className="text-xs text-muted-foreground">
+                      Report ID: {parsedReportResult.report_metadata.report_id} • Range: {parsedReportResult.report_metadata.date_range_begin} to {parsedReportResult.report_metadata.date_range_end}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-mono bg-slate-200 text-slate-800 px-2 py-0.5 rounded truncate max-w-[240px]" title={parsedReportResult.deduplication_digest}>
+                    Digest: {parsedReportResult.deduplication_digest.substring(0, 16)}...
+                  </span>
+                </div>
+
+                {/* Summary Metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                  <div className="bg-white p-3 rounded-lg border">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">Total Volume</span>
+                    <span className="text-lg font-bold text-gray-900">{parsedReportResult.summary.total_messages}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">Passed</span>
+                    <span className="text-lg font-bold text-green-600">{parsedReportResult.summary.passed_messages}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">Failed</span>
+                    <span className="text-lg font-bold text-red-600">{parsedReportResult.summary.failed_messages}</span>
+                  </div>
+                  <div className="bg-white p-3 rounded-lg border">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold block">Sources</span>
+                    <span className="text-lg font-bold text-indigo-600">{parsedReportResult.summary.unique_source_ips}</span>
+                  </div>
+                </div>
+
+                {/* Records Table */}
+                <div className="space-y-2">
+                  <span className="text-xs font-semibold text-gray-800">Source Delivery Records</span>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left border-collapse bg-white rounded-lg border">
+                      <thead>
+                        <tr className="border-b bg-slate-100/70 text-slate-600">
+                          <th className="py-2 px-3">Source IP</th>
+                          <th className="py-2 px-3">Count</th>
+                          <th className="py-2 px-3">Disposition</th>
+                          <th className="py-2 px-3">DKIM Result</th>
+                          <th className="py-2 px-3">SPF Result</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {parsedReportResult.records.map((rec, i) => (
+                          <tr key={i} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-mono">{rec.source_ip}</td>
+                            <td className="py-2 px-3 font-bold">{rec.count}</td>
+                            <td className="py-2 px-3 uppercase text-[10px] font-semibold">{rec.disposition}</td>
+                            <td className="py-2 px-3">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${rec.dkim_result === 'pass' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {rec.dkim_result}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${rec.spf_result === 'pass' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {rec.spf_result}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Bottom Navigation */}
