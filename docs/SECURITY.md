@@ -381,5 +381,23 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 - **Idempotent Lifecycle State Transitions:**
   - Read (`POST /api/notifications/{id}/read`, `POST /api/notifications/mark-all-read`) and dismiss (`POST /api/notifications/{id}/dismiss`) actions are strictly idempotent. Re-submitting on an already-read or dismissed notification will not corrupt state, generate duplicate records, or trigger database errors.
 
+## 28. Tenant Notification Preferences & Alert Retention Lifecycle Security Invariants (Step 38)
+- **Strict Multi-Tenant Preference Isolation:**
+  - Notification preferences are stored in a dedicated JSON column on the `users` table (`notification_preferences`).
+  - Preference read (`GET /api/notifications/preferences`) and update (`PUT /api/notifications/preferences`) endpoints operate strictly against `auth()->user()`. A tenant can never view or modify another tenant's notification preferences.
+- **Critical Category Immutability & Anti-Mute Enforcement:**
+  - Categories `security_abuse` and `billing_subscription` represent essential compliance, account integrity, and legal notifications and are strictly immutable.
+  - The API explicitly validates and rejects any attempt to mute these categories (`$preferences[$imm] === false`) with HTTP 422 Unprocessable Entity. Frontend toggles for these categories are permanently locked and disabled.
+- **Critical Severity Notification Invariant:**
+  - Regardless of user category muting preferences, any notification dispatched with `severity === 'critical'` (such as domain DNS drift or 100% SMTP quota exhaustion) automatically bypasses category mute filters and is always recorded and delivered to the tenant.
+- **Audit-Logged Preference Mutations:**
+  - Every modification to tenant notification preferences triggers an administrative audit event (`action: 'tenant.notification_preferences.update'`) via `AuditService::record()`, preserving complete historical tracking of before and after configuration states with IP address, user agent, and request ID.
+- **Bounded Retention Pruning & Anti-Data-Loss Boundaries:**
+  - Automated pruning (`notifications:prune`) strictly respects documented retention windows (read: 90 days, dismissed: 30 days, non-critical unread: 180 days).
+  - **Unresolved Critical Alert Invariant:** Unresolved critical alerts (`severity === 'critical' AND read_at IS NULL AND dismissed_at IS NULL`) are permanently exempted from automated pruning and are NEVER deleted.
+  - **Audit & Abuse Ledger Immunity:** Pruning commands operate strictly on `tenant_notifications`. Under no circumstances does the pruning process touch, modify, or delete records from `audit_logs` or `abuse_incidents`.
+  - **Chunk-Bounded Deletion & Atomic Concurrency Lock:** Deletions are processed in bounded batches (`--batch-size=500`) to prevent MySQL table locking, transaction log bloat, or database replication lag. Pruning execution is protected by an atomic cache lock (`notifications_prune_lock`) with automatic 300-second expiration to prevent overlapping concurrent runs.
+
+
 
 

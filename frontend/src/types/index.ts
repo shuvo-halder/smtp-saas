@@ -1006,4 +1006,35 @@ export interface UnreadCountResponse {
   unread_count: number;
 }
 
+export interface NotificationPreferences {
+  domain_dns: boolean;
+  security_abuse: boolean;
+  smtp_quota: boolean;
+  billing_subscription: boolean;
+  mailbox_rule: boolean;
+  system: boolean;
+}
+
+export interface NotificationPreferencesResponse {
+  preferences: NotificationPreferences;
+  immutable_categories: TenantNotificationCategory[];
+  category_labels: Record<TenantNotificationCategory, string>;
+  critical_notice: string;
+}
+
+export interface CategoryCountItem {
+  unread: number;
+  total: number;
+}
+
+export interface NotificationCountsResponse {
+  unread: number;
+  read: number;
+  dismissed: number;
+  total_active: number;
+  by_category: Record<TenantNotificationCategory, CategoryCountItem>;
+  by_severity: Record<TenantNotificationSeverity, number>;
+}
+
+
 

@@ -375,6 +375,38 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
   - Sidebar Navigation (`frontend/src/components/layouts/Sidebar.tsx`): Dedicated `Notifications` nav item with live unread count badge.
   - Notification Center Page (`frontend/src/app/(dashboard)/notifications/page.tsx`): Full-featured management view with category filters, status tabs (All, Unread, Read), bulk mark-all-read action, dismiss controls, and bounded pagination.
 
+## 27. Tenant Notification Preferences & Alert Lifecycle Management (Step 38)
+**Status:** IMPLEMENTED & VERIFIED (Step 38)
+**Purpose:** Empower tenants with self-service category muting preferences while strictly preserving delivery of critical alerts, managing alert archiving and restoration, and enforcing automated bounded retention cleanup.
+**Components:**
+- **Tenant Notification Preferences (`app/Services/TenantNotificationService.php`):**
+  - Stored in `users.notification_preferences` JSON column with sensible defaults (all 6 categories enabled).
+  - Mutable categories: `domain_dns`, `smtp_quota`, `mailbox_rule`, `system`.
+  - Immutable mandatory categories: `security_abuse` and `billing_subscription` (cannot be disabled; validated server-side with HTTP 422).
+  - Critical Alert Invariant: Any alert with `severity === 'critical'` automatically bypasses category preference filters and is always delivered to the tenant.
+  - Audit logging: Every preference modification emits an append-only audit event via `AuditService::record()` with before/after state snapshots.
+- **Alert Lifecycle & Archive Restoration:**
+  - Distinct lifecycle states: `unread`, `read`, `dismissed`, and `active`.
+  - Idempotent restoration via `POST /api/notifications/{id}/restore` and `TenantNotification::restore()`.
+  - Comprehensive metrics endpoint: `GET /api/notifications/counts` providing breakdowns by category and severity.
+  - Status filtering: `GET /api/notifications?status=dismissed` enables viewing archived notifications with restore capability.
+- **Automated Retention Pruning Command (`app/Console/Commands/PruneNotificationsCommand.php`):**
+  - Artisan command `notifications:prune` supporting options `--read-days=90`, `--dismissed-days=30`, `--batch-size=500`, `--dry-run`.
+  - Scheduled daily at 04:30 UTC in `routes/console.php` with 15-minute overlapping lock.
+  - Retention Invariants:
+    - Read alerts > 90 days pruned.
+    - Dismissed alerts > 30 days pruned.
+    - Stale non-critical unread alerts > 180 days pruned.
+    - Unresolved critical alerts (`severity === 'critical' AND read_at IS NULL AND dismissed_at IS NULL`) are NEVER deleted.
+    - `audit_logs` and `abuse_incidents` tables are strictly untouched.
+- **Next.js Frontend Enhancements (`frontend/src/app/(dashboard)/notifications/page.tsx`):**
+  - Dual view toggle: "Alerts & Activity" and "Preferences".
+  - Status tabs with real-time count badges: All, Unread, Read, and Dismissed.
+  - Dismissed notifications list with one-click "Restore" button.
+  - Notification Preferences management card: category toggle switches, description copy, immutable locked category badges, and security guidance callouts.
+  - Settings page integration: Notification Preferences discovery card added to `/settings`.
+
+
 
 
 

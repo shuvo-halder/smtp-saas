@@ -45,13 +45,17 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
         Route::get('/billing/invoices/{invoice}', [BillingApiController::class, 'show']);
         Route::get('/billing/invoices/{invoice}/download', [BillingApiController::class, 'downloadInvoice']);
 
-        // Tenant Notifications (Step 37)
+        // Tenant Notifications & Alert Center (Step 37 & Step 38)
         Route::prefix('notifications')->group(function () {
             Route::get('/', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'index']);
             Route::get('/unread-count', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'unreadCount']);
+            Route::get('/counts', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'counts']);
+            Route::get('/preferences', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'preferences']);
+            Route::put('/preferences', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'updatePreferences']);
             Route::post('/{id}/read', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'markAsRead'])->whereNumber('id');
             Route::post('/mark-all-read', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'markAllAsRead']);
             Route::post('/{id}/dismiss', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'dismiss'])->whereNumber('id');
+            Route::post('/{id}/restore', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'restore'])->whereNumber('id');
         });
 
         // Active Subscription Required

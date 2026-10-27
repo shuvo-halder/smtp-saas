@@ -25,6 +25,7 @@ class User extends Authenticatable
         'name', 'email', 'password', 'phone',
         'company_name', 'address', 'plan_id',
         'status', 'plan_expires_at', 'is_admin',
+        'notification_preferences',
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -32,10 +33,11 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
-            'email_verified_at' => 'datetime',
-            'plan_expires_at'   => 'datetime',
-            'password'          => 'hashed',
-            'is_admin'          => 'boolean',
+            'email_verified_at'        => 'datetime',
+            'plan_expires_at'          => 'datetime',
+            'password'                 => 'hashed',
+            'is_admin'                 => 'boolean',
+            'notification_preferences' => 'array',
         ];
     }
 
@@ -116,6 +118,44 @@ class User extends Authenticatable
     public function tenantNotifications(): HasMany
     {
         return $this->hasMany(TenantNotification::class, 'tenant_id');
+    }
+
+    /**
+     * Get tenant notification preferences with sensible defaults.
+     */
+    public function getNotificationPreferences(): array
+    {
+        $defaults = [
+            'domain_dns'           => true,
+            'security_abuse'       => true,
+            'smtp_quota'           => true,
+            'billing_subscription' => true,
+            'mailbox_rule'         => true,
+            'system'               => true,
+        ];
+
+        $stored = $this->notification_preferences;
+        if (!is_array($stored)) {
+            return $defaults;
+        }
+
+        $merged = array_merge($defaults, $stored);
+
+        // Security invariants: security and billing alerts can never be muted
+        $merged['security_abuse'] = true;
+        $merged['billing_subscription'] = true;
+
+        return $merged;
+    }
+
+    /**
+     * Check if a specific notification category is enabled for the tenant.
+     */
+    public function isNotificationCategoryEnabled(string $category): bool
+    {
+        $prefs = $this->getNotificationPreferences();
+
+        return (bool) ($prefs[$category] ?? true);
     }
 }
 

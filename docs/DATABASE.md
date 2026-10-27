@@ -435,4 +435,36 @@ CREATE TABLE `tenant_notifications` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 
+## 21. Tenant Notification Preferences & Retention Lifecycle Schema (Step 38)
+
+### Users Table Extension (`notification_preferences`)
+Migration: `2026_10_28_000002_add_notification_preferences_to_users_table.php`
+
+```sql
+ALTER TABLE `users` ADD COLUMN `notification_preferences` JSON NULL AFTER `remember_token`;
+```
+
+#### JSON Payload Structure & Defaults
+```json
+{
+  "domain_dns": true,
+  "security_abuse": true,
+  "smtp_quota": true,
+  "billing_subscription": true,
+  "mailbox_rule": true,
+  "system": true
+}
+```
+
+#### Critical Schema Invariants
+1. **Critical Category Immutability:** Categories `security_abuse` and `billing_subscription` are locked to `true` by invariant enforcement. API requests attempting to set them to `false` are rejected with HTTP 422 Unprocessable Entity.
+2. **Critical Severity Bypass:** Regardless of user preference flags, any alert dispatched with `severity === 'critical'` (e.g., DNS drift, complete SMTP quota exhaustion) completely bypasses mute filters and is always recorded in `tenant_notifications`.
+3. **Retention & Pruning Schema Rules:**
+   - Read notifications (`read_at IS NOT NULL AND dismissed_at IS NULL`) are pruned after 90 days.
+   - Dismissed notifications (`dismissed_at IS NOT NULL`) are pruned after 30 days.
+   - Non-critical unread notifications (`read_at IS NULL AND dismissed_at IS NULL AND severity != 'critical'`) are pruned after 180 days.
+   - **Unresolved critical alerts (`severity === 'critical' AND read_at IS NULL AND dismissed_at IS NULL`) are NEVER automatically deleted.**
+   - Pruning strictly targets `tenant_notifications` only; `audit_logs` and `abuse_incidents` are completely isolated and immune to automated deletion.
+
+
 

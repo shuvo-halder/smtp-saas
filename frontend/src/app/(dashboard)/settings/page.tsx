@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { Bell, Sliders } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import api from '@/lib/api';
 import { Card } from '@/components/ui/card';
@@ -179,6 +181,26 @@ export default function SettingsPage() {
             </Button>
           </div>
         </form>
+      </Card>
+
+      <Card className="p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center space-x-2">
+              <Bell className="h-5 w-5 text-indigo-600" />
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Notification Preferences</h2>
+            </div>
+            <p className="text-sm text-gray-600 dark:text-gray-400 max-w-xl">
+              Configure which security alerts, DNS drift warnings, SMTP quota threshold notices, and service updates are delivered to your in-app notification center.
+            </p>
+          </div>
+          <Link href="/notifications">
+            <Button variant="outline" className="flex items-center space-x-1.5 text-xs">
+              <Sliders className="h-3.5 w-3.5 mr-1" />
+              Manage Preferences
+            </Button>
+          </Link>
+        </div>
       </Card>
 
       <Card className="p-6 border-red-200 bg-red-50/50 dark:bg-red-900/10 dark:border-red-900/50">

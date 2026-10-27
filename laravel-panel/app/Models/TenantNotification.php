@@ -24,6 +24,7 @@ class TenantNotification extends Model
         'data',
         'read_at',
         'dismissed_at',
+        'created_at',
     ];
 
     protected function casts(): array
@@ -93,6 +94,18 @@ class TenantNotification extends Model
         }
 
         return $this->update(['dismissed_at' => now()]);
+    }
+
+    /**
+     * Restore a dismissed notification idempotently.
+     */
+    public function restore(): bool
+    {
+        if (!$this->isDismissed()) {
+            return true;
+        }
+
+        return $this->update(['dismissed_at' => null]);
     }
 
     /**

@@ -1381,7 +1381,7 @@ Archives an individual notification by setting `dismissed_at = now()`. The notif
 {
   "data": {
     "id": 1,
-    "category": "security",
+    "category": "security_abuse",
     "severity": "critical",
     "title": "Security Incident: High Hard Bounce Rate",
     "message": "Outbound sending paused due to abnormal bounce activity on domain acme.com.",
@@ -1396,6 +1396,120 @@ Archives an individual notification by setting `dismissed_at = now()`. The notif
   }
 }
 ```
+
+---
+
+#### 6. Restore Dismissed Notification (`POST /api/notifications/{id}/restore`)
+Restores an archived/dismissed notification by resetting `dismissed_at = null`. Returns the notification to the active list.
+
+**Authorization:** Strictly scoped to tenant owner (`TenantNotificationPolicy::update`).
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "message": "Notification restored successfully.",
+  "data": {
+    "id": 1,
+    "category": "security_abuse",
+    "severity": "critical",
+    "title": "Security Incident: High Hard Bounce Rate",
+    "message": "Outbound sending paused due to abnormal bounce activity on domain acme.com.",
+    "action_url": "/security/incidents",
+    "data": {
+      "incident_id": 42,
+      "domain_name": "acme.com"
+    },
+    "read_at": "2026-10-28T00:35:12Z",
+    "dismissed_at": null,
+    "created_at": "2026-10-28T00:30:00Z"
+  }
+}
+```
+
+---
+
+#### 7. Get Notification Preferences (`GET /api/notifications/preferences`)
+Returns current tenant in-app notification preferences across all 6 categories, metadata detailing immutable categories, and security advisory.
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "preferences": {
+    "domain_dns": true,
+    "security_abuse": true,
+    "smtp_quota": true,
+    "billing_subscription": true,
+    "mailbox_rule": true,
+    "system": true
+  },
+  "immutable_categories": [
+    "security_abuse",
+    "billing_subscription"
+  ],
+  "category_labels": {
+    "domain_dns": "Domain & DNS Security",
+    "security_abuse": "Security Incidents & Abuse",
+    "smtp_quota": "SMTP Quota & Sending Limits",
+    "billing_subscription": "Billing & Subscriptions",
+    "mailbox_rule": "Mailbox Rules & Auto-Replies",
+    "system": "System & Service Notices"
+  },
+  "critical_notice": "Critical security, DNS drift, and billing expiration alerts are mandatory and cannot be muted to ensure account security and compliance."
+}
+```
+
+---
+
+#### 8. Update Notification Preferences (`PUT /api/notifications/preferences`)
+Updates category muting preferences for the authenticated tenant. Records an audit entry in `audit_logs` tracking the before and after state.
+
+**Validation Rules:**
+- `domain_dns`: optional, boolean
+- `smtp_quota`: optional, boolean
+- `mailbox_rule`: optional, boolean
+- `system`: optional, boolean
+- `security_abuse`: locked, cannot be set to `false` (HTTP 422 if false)
+- `billing_subscription`: locked, cannot be set to `false` (HTTP 422 if false)
+
+**Request Schema:**
+```json
+{
+  "mailbox_rule": false,
+  "system": true
+}
+```
+
+**Response Schema (`200 OK`):**
+Returns updated preferences representation matching `GET /api/notifications/preferences`.
+
+---
+
+#### 9. Get Category & Severity Counts (`GET /api/notifications/counts`)
+Returns aggregated metrics for notification drawer badges and tab filters.
+
+**Response Schema (`200 OK`):**
+```json
+{
+  "unread": 3,
+  "read": 12,
+  "dismissed": 4,
+  "total_active": 15,
+  "by_category": {
+    "domain_dns": { "unread": 1, "total": 3 },
+    "security_abuse": { "unread": 1, "total": 2 },
+    "smtp_quota": { "unread": 1, "total": 4 },
+    "billing_subscription": { "unread": 0, "total": 1 },
+    "mailbox_rule": { "unread": 0, "total": 3 },
+    "system": { "unread": 0, "total": 2 }
+  },
+  "by_severity": {
+    "critical": 1,
+    "warning": 2,
+    "info": 12
+  }
+}
+```
+
 
 
 

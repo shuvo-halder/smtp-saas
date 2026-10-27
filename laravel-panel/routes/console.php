@@ -29,6 +29,9 @@ Schedule::call(function () {
     app(\App\Services\Scheduling\ScheduledTaskTrackerService::class)->prune(7);
 })->dailyAt('04:00')->name('scheduled-tasks:prune')->withoutOverlapping(15);
 
+// Schedule daily pruning of expired tenant notifications at 04:30
+Schedule::command('notifications:prune')->dailyAt('04:30')->withoutOverlapping(15);
+
 // Schedule daily read-only tenant usage, quota, and billing reconciliation audit at 05:00
 Schedule::command('tenant:reconcile-usage')->dailyAt('05:00')->withoutOverlapping(15);
 

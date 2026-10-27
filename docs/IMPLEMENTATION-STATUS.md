@@ -889,4 +889,51 @@
   - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
   - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 28 static pages cleanly with zero errors (100%)**.
 
+---
+
+## Step 38 — Tenant Notification Preferences & Alert Lifecycle Management (`IMPLEMENTED — VERIFIED`)
+- `[x]` Database & Schema Architecture:
+  - `[x]` Added `notification_preferences` (`json`, nullable) to `users` table via non-destructive migration `2026_10_28_000002_add_notification_preferences_to_users_table.php` on MySQL 8.4.3.
+  - `[x]` Preserves strict backward compatibility: existing and new users default to all categories enabled (`domain_dns`, `security_abuse`, `smtp_quota`, `billing_subscription`, `mailbox_rule`, `system`).
+- `[x]` Tenant Notification Preferences & Invariants:
+  - `[x]` Preferences stored and managed directly per tenant user (`User::getNotificationPreferences()`, `User::isNotificationCategoryEnabled()`).
+  - `[x]` Mutable categories: `domain_dns`, `smtp_quota`, `mailbox_rule`, `system`.
+  - `[x]` Immutable categories: `security_abuse` and `billing_subscription` (cannot be muted; API validates and rejects muting with HTTP 422).
+  - `[x]` **Critical Alert Invariant:** Any alert with `severity === 'critical'` (e.g. domain DNS drift or 100% quota exhaustion) automatically bypasses category preferences and is always delivered to the tenant.
+  - `[x]` Multi-tenant isolation: Tenants can only view and update their own preferences. Cross-tenant access is impossible.
+  - `[x]` Persistent audit logging: Every preference update is recorded in `audit_logs` via `AuditService::record()` with before and after state snapshots.
+- `[x]` Alert Lifecycle & Archive Management:
+  - `[x]` Distinct alert states: `unread`, `read`, `dismissed`, and `active` (`dismissed_at IS NULL`).
+  - `[x]` Status filtering: `GET /api/notifications?status=dismissed` enables viewing archived notifications.
+  - `[x]` Idempotent alert restoration: `POST /api/notifications/{id}/restore` resets `dismissed_at = null`, returning the alert to the active drawer and center.
+  - `[x]` Aggregated category and severity counts: `GET /api/notifications/counts` providing unread/total breakdowns across all categories and severity levels.
+- `[x]` Documented Retention Policy & Bounded Pruning:
+  - `[x]` Read notifications older than 90 days are pruned.
+  - `[x]` Dismissed notifications older than 30 days are pruned.
+  - `[x]` Stale non-critical unread notifications older than 180 days are pruned.
+  - `[x]` **Critical Alert Retention Invariant:** Unresolved critical alerts (`severity === 'critical' AND read_at IS NULL AND dismissed_at IS NULL`) are permanently exempted from automated deletion and NEVER deleted.
+  - `[x]` **Anti-Data-Loss Invariant:** Pruning strictly targets `tenant_notifications`. Under no circumstances are `audit_logs` or `abuse_incidents` modified or pruned.
+  - `[x]` Bounded Artisan command: `php artisan notifications:prune` with `--read-days=90`, `--dismissed-days=30`, `--batch-size=500`, `--dry-run`.
+  - `[x]` Daily automated schedule in `routes/console.php` at 04:30 UTC with atomic cache lock `withoutOverlapping(15)`.
+- `[x]` Next.js Frontend Implementation:
+  - `[x]` TypeScript interfaces in `frontend/src/types/index.ts` (`NotificationPreferences`, `NotificationPreferencesResponse`, `CategoryCountItem`, `NotificationCountsResponse`).
+  - `[x]` SWR hooks and mutations in `frontend/src/hooks/useNotifications.ts` (`useNotificationCounts`, `useNotificationPreferences`, `updateNotificationPreferences`, `restoreNotification`).
+  - `[x]` Enhanced Notification Center in `frontend/src/app/(dashboard)/notifications/page.tsx`:
+    - `[x]` View switcher between "Alerts & Activity" and "Preferences".
+    - `[x]` Status filter tabs with live count badges: All, Unread, Read, and Dismissed.
+    - `[x]` One-click "Restore" action on dismissed alert items.
+    - `[x]` `NotificationPreferencesCard` with category switches, descriptions, immutable locked badges, and critical alert explanations.
+  - `[x]` Settings page integration (`frontend/src/app/(dashboard)/settings/page.tsx`) linking directly to notification preferences.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `TenantNotificationPreferencesTest.php` passes with 15 tests (75 assertions).
+  - `[x]` **Level B (Preferences Isolation, Immutability & Retention Invariants):** `VERIFIED`. Category muting, critical severity bypass, immutable category enforcement, audit logging, dry-run simulation, and retention pruning invariants verified.
+  - `[x]` **Level C (End-to-End Live External Notification Channels):** `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL` (external push / email digest / SMS delivery requires third-party delivery infrastructure).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Feature test suite (`tests/Feature/TenantNotificationPreferencesTest.php`): **15 tests, 75 assertions passing (100%)**.
+  - `[x]` Notification feature suite (`tests/Feature/TenantNotificationTest.php`): **16 tests, 92 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **521 tests, 2,601 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 28 static pages cleanly with zero errors (100%)**.
+
+
 

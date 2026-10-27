@@ -1,5 +1,42 @@
 # Changelog
 
+### Tenant Notification Preferences & Alert Lifecycle Management (Step 38)
+- **Implemented:** Database Migration & User Preferences:
+  - Created and applied `2026_10_28_000002_add_notification_preferences_to_users_table.php` on MySQL 8.4.3.
+  - Added `notification_preferences` (`json`, nullable) to `users` table with default enablements across all 6 categories: `domain_dns`, `security_abuse`, `smtp_quota`, `billing_subscription`, `mailbox_rule`, `system`.
+  - Added `getNotificationPreferences()` and `isNotificationCategoryEnabled()` helpers to `User` model.
+- **Implemented:** Alert Lifecycle Management & Preferences Enforcement:
+  - Updated `TenantNotificationService::notify()` to evaluate category preferences before dispatching.
+  - Enforced the **Critical Alert Invariant**: notifications with `severity === 'critical'` (DNS drift, quota exhaustion) automatically bypass category mute filters and are always delivered.
+  - Enforced immutable categories: `security_abuse` and `billing_subscription` cannot be disabled; attempts to mute are rejected with HTTP 422 Unprocessable Entity.
+  - Added `TenantNotificationService::getPreferences()` and `updatePreferences()` with persistent audit logging via `AuditService::record()`.
+  - Added `TenantNotification::restore()` and `TenantNotificationService::restore()` for idempotent alert un-dismissing.
+  - Added `TenantNotificationService::getCounts()` aggregating unread, read, dismissed, active, and breakdowns by category and severity.
+- **Implemented:** Automated Retention Policy & Bounded Pruning:
+  - Documented retention schedule: read alerts retained 90 days, dismissed alerts retained 30 days, non-critical unread alerts retained 180 days.
+  - Guaranteed invariant: unresolved critical alerts (`severity === 'critical' AND read_at IS NULL AND dismissed_at IS NULL`) are never deleted.
+  - Anti-data-loss boundary: pruning strictly touches `tenant_notifications` only; `audit_logs` and `abuse_incidents` are completely immune.
+  - Implemented Artisan command `php artisan notifications:prune` (`PruneNotificationsCommand.php`) with `--read-days`, `--dismissed-days`, `--batch-size`, `--dry-run`.
+  - Scheduled daily run in `routes/console.php` at 04:30 UTC with atomic cache lock `withoutOverlapping(15)`.
+- **Implemented:** Next.js Frontend Notification Preferences & Archive UI:
+  - Updated TypeScript interfaces in `frontend/src/types/index.ts`.
+  - Added hooks in `frontend/src/hooks/useNotifications.ts` (`useNotificationCounts`, `useNotificationPreferences`, `updateNotificationPreferences`, `restoreNotification`).
+  - Added dual view switcher ("Alerts & Activity" vs "Preferences") in `frontend/src/app/(dashboard)/notifications/page.tsx`.
+  - Added status tabs with real-time count badges (All, Unread, Read, Dismissed) and one-click "Restore" action on dismissed alerts.
+  - Created `NotificationPreferencesCard` with category toggles, locked badges for mandatory categories, and compliance explanations.
+  - Added Notification Preferences discovery card to `frontend/src/app/(dashboard)/settings/page.tsx`.
+- **Automated Verification & Three-Level Matrix:**
+  - Created `tests/Feature/TenantNotificationPreferencesTest.php` with 15 tests (75 assertions) covering category preferences, immutable category validation, audit log persistence, tenant isolation, critical alert bypass, category/severity counts, dismiss view, restore action, cross-tenant restore isolation, prune command deletion, critical alert retention immunity, audit log/abuse incident immunity, and dry-run mode.
+  - Level A (Application & API Layer): `VERIFIED`.
+  - Level B (Preferences Isolation, Immutability & Retention Invariants): `VERIFIED`.
+  - Level C (Multi-Channel Live Push / Webhooks): `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - Backend feature tests: **15 tests, 75 assertions passing (100%)**.
+  - Notification feature tests: **16 tests, 92 assertions passing (100%)**.
+  - Full backend regression suite: **521 tests, 2,601 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+  - Frontend production build: **Next.js 14 compiles and optimizes all 28 static pages cleanly with zero errors**.
+
+
 ### Tenant Notifications & Security Alert Center (Step 37)
 - **Implemented:** Database Schema & Non-Destructive Migration:
   - Created and applied `2026_10_28_000001_create_tenant_notifications_table.php` on MySQL 8.4.3.

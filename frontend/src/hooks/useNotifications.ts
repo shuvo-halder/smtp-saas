@@ -6,6 +6,9 @@ import {
   TenantNotificationCategory,
   TenantNotificationSeverity,
   UnreadCountResponse,
+  NotificationCountsResponse,
+  NotificationPreferences,
+  NotificationPreferencesResponse,
 } from '@/types';
 
 const fetcher = (url: string) => api.get(url).then((res) => res.data);
@@ -13,7 +16,7 @@ const fetcher = (url: string) => api.get(url).then((res) => res.data);
 export interface UseNotificationsOptions {
   page?: number;
   per_page?: number;
-  status?: 'unread' | 'read' | 'all';
+  status?: 'unread' | 'read' | 'dismissed' | 'all';
   category?: TenantNotificationCategory | 'all';
   severity?: TenantNotificationSeverity | 'all';
 }
@@ -61,6 +64,45 @@ export function useUnreadCount() {
   };
 }
 
+export function useNotificationCounts() {
+  const { data, error, isLoading, mutate } = useSWR<NotificationCountsResponse>(
+    '/notifications/counts',
+    fetcher,
+    { refreshInterval: 30000 }
+  );
+
+  return {
+    counts: data,
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
+export function useNotificationPreferences() {
+  const { data, error, isLoading, mutate } = useSWR<NotificationPreferencesResponse>(
+    '/notifications/preferences',
+    fetcher
+  );
+
+  return {
+    preferences: data?.preferences,
+    immutableCategories: data?.immutable_categories ?? [],
+    categoryLabels: data?.category_labels ?? ({} as Record<TenantNotificationCategory, string>),
+    criticalNotice: data?.critical_notice,
+    isLoading,
+    error,
+    mutate,
+  };
+}
+
+export async function updateNotificationPreferences(
+  preferences: Partial<NotificationPreferences>
+): Promise<NotificationPreferencesResponse> {
+  const response = await api.put('/notifications/preferences', preferences);
+  return response.data.data;
+}
+
 export async function markNotificationAsRead(id: number): Promise<TenantNotification> {
   const response = await api.post(`/notifications/${id}/read`);
   return response.data.notification;
@@ -74,3 +116,9 @@ export async function markAllNotificationsAsRead(): Promise<number> {
 export async function dismissNotification(id: number): Promise<void> {
   await api.post(`/notifications/${id}/dismiss`);
 }
+
+export async function restoreNotification(id: number): Promise<TenantNotification> {
+  const response = await api.post(`/notifications/${id}/restore`);
+  return response.data.notification;
+}
+

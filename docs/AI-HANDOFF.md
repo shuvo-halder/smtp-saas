@@ -660,8 +660,45 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 38 — Tenant Notification Preferences & Alert Lifecycle Management (IMPLEMENTED & VERIFIED):**
+  - **Database Migration & User Preferences Schema:**
+    - Non-destructive migration `2026_10_28_000002_add_notification_preferences_to_users_table.php` applied to `emailsaas_local` (MySQL 8.4.3).
+    - Added `notification_preferences` (`json`, nullable) to `users` table with default enablements across all 6 categories: `domain_dns`, `security_abuse`, `smtp_quota`, `billing_subscription`, `mailbox_rule`, `system`.
+    - Added `getNotificationPreferences()` and `isNotificationCategoryEnabled()` helpers to `User` model.
+  - **Alert Lifecycle Management & Invariant Enforcement:**
+    - Updated `TenantNotificationService::notify()` to evaluate category preferences before dispatching.
+    - Enforced the **Critical Alert Invariant**: notifications with `severity === 'critical'` (DNS drift, quota exhaustion) automatically bypass category mute filters and are always delivered.
+    - Enforced immutable categories: `security_abuse` and `billing_subscription` cannot be disabled; attempts to mute are rejected with HTTP 422 Unprocessable Entity.
+    - Added `TenantNotificationService::getPreferences()` and `updatePreferences()` with persistent audit logging via `AuditService::record()`.
+    - Added `TenantNotification::restore()` and `TenantNotificationService::restore()` for idempotent alert un-dismissing.
+    - Added `TenantNotificationService::getCounts()` aggregating unread, read, dismissed, active, and breakdowns by category and severity.
+  - **Automated Retention Policy & Bounded Pruning:**
+    - Documented retention schedule: read alerts retained 90 days, dismissed alerts retained 30 days, non-critical unread alerts retained 180 days.
+    - Guaranteed invariant: unresolved critical alerts (`severity === 'critical' AND read_at IS NULL AND dismissed_at IS NULL`) are never deleted.
+    - Anti-data-loss boundary: pruning strictly touches `tenant_notifications` only; `audit_logs` and `abuse_incidents` are completely immune.
+    - Implemented Artisan command `php artisan notifications:prune` (`PruneNotificationsCommand.php`) with `--read-days`, `--dismissed-days`, `--batch-size`, `--dry-run`.
+    - Scheduled daily run in `routes/console.php` at 04:30 UTC with atomic cache lock `withoutOverlapping(15)`.
+  - **Next.js Frontend Notification Preferences & Archive UI:**
+    - Updated TypeScript interfaces in `frontend/src/types/index.ts`.
+    - Added hooks in `frontend/src/hooks/useNotifications.ts` (`useNotificationCounts`, `useNotificationPreferences`, `updateNotificationPreferences`, `restoreNotification`).
+    - Added dual view switcher ("Alerts & Activity" vs "Preferences") in `frontend/src/app/(dashboard)/notifications/page.tsx`.
+    - Added status tabs with real-time count badges (All, Unread, Read, Dismissed) and one-click "Restore" action on dismissed alerts.
+    - Created `NotificationPreferencesCard` with category toggles, locked badges for mandatory categories, and compliance explanations.
+    - Added Notification Preferences discovery card to `frontend/src/app/(dashboard)/settings/page.tsx`.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `TenantNotificationPreferencesTest.php` passes with 15 tests (75 assertions).
+    - Level B (Preferences Isolation, Immutability & Retention Invariants): `VERIFIED`.
+    - Level C (Multi-Channel Live Push / Webhooks): `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - **Automated Verification & Test Coverage:**
+    - Feature test suite (`tests/Feature/TenantNotificationPreferencesTest.php`): **15 tests, 75 assertions passing (100%)**.
+    - Notification feature suite (`tests/Feature/TenantNotificationTest.php`): **16 tests, 92 assertions passing (100%)**.
+    - Full backend regression test suite: **521 tests, 2,601 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 38 — Tenant Security & Audit Webhooks / Multi-Channel Alert Delivery:**
+- **Step 39 — Tenant Security & Audit Webhooks / Multi-Channel Alert Delivery:**
   - Configurable tenant webhook endpoints with HMAC-SHA256 signature verification.
   - Granular event subscriptions (security incidents, quota exhaustion, DNS drift).
   - Webhook delivery retry queue with exponential backoff and dead-letter handling.
@@ -670,6 +707,7 @@ This document is the operational starting point for any AI coding agent working 
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

@@ -281,4 +281,47 @@ This document describes the current implementation state of the EmailSaaS projec
   - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
   - Next.js production build: `npm run build` (28/28 static pages compiled cleanly with 0 errors).
 
+## 18. Tenant Notification Preferences & Alert Lifecycle Management (Step 38)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **Database Architecture & Migration:**
+  - Non-destructive migration `2026_10_28_000002_add_notification_preferences_to_users_table.php` applied to `emailsaas_local` (MySQL 8.4.3).
+  - Schema extension: added `notification_preferences` (`json`, nullable) to `users` table after `remember_token`.
+- **Backend Architecture & Service Layer:**
+  - `User` Model (`app/Models/User.php`):
+    - Added `notification_preferences` to `$fillable` and `casts()`.
+    - Added `getNotificationPreferences(): array` returning tenant preferences with sensible defaults and locking mandatory categories.
+    - Added `isNotificationCategoryEnabled(string $category): bool` helper for category routing checks.
+  - `TenantNotification` Model (`app/Models/TenantNotification.php`):
+    - Added `restore(): bool` for idempotent alert restoration (`dismissed_at = null`).
+    - Added `created_at` to `$fillable` to allow precise historical timestamp assertions and bounded retention testing.
+  - `TenantNotificationService` (`app/Services/TenantNotificationService.php`):
+    - Updated `notify()` to evaluate tenant category preferences prior to database storage, enforcing the **Critical Alert Invariant**: notifications with `severity === 'critical'` (DNS drift, 100% quota exhaustion) bypass category filters and are always delivered.
+    - Added `getPreferences(User $user): array` returning category settings, immutable definitions, labels, and compliance notices.
+    - Added `updatePreferences(User $user, array $preferences): array` rejecting attempts to mute immutable categories with HTTP 422 and recording an append-only audit entry via `AuditService::record()`.
+    - Added `getCounts(User $user): array` returning aggregated unread, read, dismissed, active, and breakdowns by category and severity.
+    - Added `restore(User $user, int $notificationId): ?TenantNotification` for un-dismissing alerts.
+    - Added `pruneExpiredNotifications(int $readDays, int $dismissedDays, int $batchSize, bool $dryRun): array` implementing bounded retention cleanup while strictly exempting unresolved critical alerts and preserving `audit_logs` and `abuse_incidents`.
+  - `TenantNotificationApiController` (`app/Http/Controllers/Api/TenantNotificationApiController.php`):
+    - Endpoints added: `GET /api/notifications/preferences`, `PUT /api/notifications/preferences`, `GET /api/notifications/counts`, `POST /api/notifications/{id}/restore`.
+    - Enhanced `GET /api/notifications` with `status=dismissed` filter to allow viewing archived alerts.
+  - `PruneNotificationsCommand` (`app/Console/Commands/PruneNotificationsCommand.php`):
+    - Artisan command `notifications:prune` with `--read-days=90`, `--dismissed-days=30`, `--batch-size=500`, `--dry-run`.
+    - Scheduled daily at 04:30 UTC in `routes/console.php` with 15-minute overlapping lock (`withoutOverlapping(15)`).
+- **Next.js Frontend Architecture:**
+  - TypeScript types (`frontend/src/types/index.ts`): added `NotificationPreferences`, `NotificationPreferencesResponse`, `CategoryCountItem`, `NotificationCountsResponse`.
+  - SWR Hooks (`frontend/src/hooks/useNotifications.ts`): added `useNotificationCounts()`, `useNotificationPreferences()`, `updateNotificationPreferences()`, `restoreNotification()`, and updated `useNotifications` options for `status=dismissed`.
+  - Notification Center Page (`frontend/src/app/(dashboard)/notifications/page.tsx`):
+    - Added view switcher between "Alerts & Activity" and "Preferences".
+    - Added status filter tabs with real-time count badges: All, Unread, Read, and Dismissed.
+    - Added one-click "Restore" action on dismissed alert items.
+    - Created `NotificationPreferencesCard` with category switches, descriptions, immutable locked badges, and critical alert explanations.
+  - Settings Page Integration (`frontend/src/app/(dashboard)/settings/page.tsx`): added Notification Preferences discovery card linking to `/notifications`.
+- **Verification & Testing Results:**
+  - Dedicated feature test suite: `TenantNotificationPreferencesTest.php` (15/15 tests passing, 75 assertions, 100%).
+  - Notifications feature suite: `TenantNotificationTest.php` (16/16 tests passing, 92 assertions, 100%).
+  - Full PHPUnit regression suite: 521/521 tests passing (2601 assertions, 100%).
+  - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
+  - Next.js production build: `npm run build` (28/28 static pages compiled cleanly with 0 errors).
+
+
 
