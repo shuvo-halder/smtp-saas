@@ -1648,6 +1648,10 @@ Returns real-time operational status, delivery reliability, deduplication metric
   "timestamp": "2026-10-30T14:05:00Z",
   "dry_run_mode": true,
   "queue_driver": "database",
+  "configuration_health": {
+    "is_valid": true,
+    "issues": []
+  },
   "metrics": {
     "total_deliveries": 45,
     "queued_count": 0,
@@ -1680,6 +1684,11 @@ Returns real-time operational status, delivery reliability, deduplication metric
 - **Method:** `POST`
 - **Path:** `/api/admin/system/mail-deliveries/{id}/retry`
 - **Authentication:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
+- **Concurrency & State Rules:**
+  - Allowed only for records in `failed` or `cancelled` state.
+  - If record is `processing`, returns `409 Conflict`: `{"message": "Cannot retry a message that is actively being processed by a worker (#id)."}`
+  - If record is `sent`, returns `409 Conflict`: `{"message": "Cannot retry a message that has already been delivered (#id)."}`
+  - If record is already `queued`, returns existing record without creating duplicate queue jobs.
 - **Response Schema (`200 OK`):**
 ```json
 {
@@ -1699,6 +1708,11 @@ Returns real-time operational status, delivery reliability, deduplication metric
 - **Method:** `POST`
 - **Path:** `/api/admin/system/mail-deliveries/{id}/cancel`
 - **Authentication:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
+- **Concurrency & State Rules:**
+  - Allowed only for records in `queued` state.
+  - If record is `processing`, returns `409 Conflict`: `{"message": "Cannot cancel a message that is actively in-flight with a worker (#id)."}`
+  - If record is `sent`, returns `409 Conflict`: `{"message": "Cannot cancel an already delivered message (#id)."}`
+  - If record is already `cancelled` or `failed`, returns existing record without error.
 - **Response Schema (`200 OK`):**
 ```json
 {

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Exceptions\MailDelivery\InvalidDeliveryStateException;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -17,6 +18,28 @@ class MailDeliveryRecord extends Model
     public const STATUS_SENT = 'sent';
     public const STATUS_FAILED = 'failed';
     public const STATUS_CANCELLED = 'cancelled';
+
+    /**
+     * Permitted state transitions in the transactional mail delivery lifecycle.
+     */
+    public const ALLOWED_TRANSITIONS = [
+        self::STATUS_QUEUED => [
+            self::STATUS_PROCESSING,
+            self::STATUS_CANCELLED,
+        ],
+        self::STATUS_PROCESSING => [
+            self::STATUS_SENT,
+            self::STATUS_FAILED,
+            self::STATUS_QUEUED,
+        ],
+        self::STATUS_FAILED => [
+            self::STATUS_QUEUED,
+        ],
+        self::STATUS_CANCELLED => [
+            self::STATUS_QUEUED,
+        ],
+        self::STATUS_SENT => [],
+    ];
 
     protected $table = 'mail_deliveries';
 
@@ -150,14 +173,52 @@ class MailDeliveryRecord extends Model
     }
 
     /**
+     * Check whether a state transition from current status to target status is valid.
+     */
+    public function canTransitionTo(string $targetStatus): bool
+    {
+        $allowed = self::ALLOWED_TRANSITIONS[$this->status] ?? [];
+        return in_array($targetStatus, $allowed, true);
+    }
+
+    /**
+     * Perform an explicit, validated state transition.
+     *
+     * @throws InvalidDeliveryStateException
+     */
+    public function transitionTo(string $targetStatus, array $attributes = []): bool
+    {
+        if (!$this->canTransitionTo($targetStatus)) {
+            throw new InvalidDeliveryStateException(
+                "Invalid delivery state transition from '{$this->status}' to '{$targetStatus}' for record #{$this->id}."
+            );
+        }
+
+        return $this->update(array_merge($attributes, ['status' => $targetStatus]));
+    }
+
+    /**
      * Record a failed attempt and transition status accordingly.
+     *
+     * @throws InvalidDeliveryStateException
      */
     public function markFailedAttempt(string $errorMessage, bool $isTransient = true): void
     {
+        if ($this->isSent()) {
+            throw new InvalidDeliveryStateException("Cannot mark attempt failed on already delivered record #{$this->id}.");
+        }
+
         $newAttempts = $this->attempts + 1;
         $maxAttempts = $this->max_attempts ?: 3;
+        $targetStatus = (!$isTransient || $newAttempts >= $maxAttempts) ? self::STATUS_FAILED : self::STATUS_QUEUED;
 
-        if (!$isTransient || $newAttempts >= $maxAttempts) {
+        if (!$this->canTransitionTo($targetStatus)) {
+            throw new InvalidDeliveryStateException(
+                "Invalid state transition from '{$this->status}' to '{$targetStatus}' during failure handling."
+            );
+        }
+
+        if ($targetStatus === self::STATUS_FAILED) {
             $this->update([
                 'attempts' => $newAttempts,
                 'status' => self::STATUS_FAILED,

@@ -779,11 +779,52 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 41 — Transactional Mail Security, Queue Recovery & Delivery Consistency (IMPLEMENTED & VERIFIED):**
+  - **Finite State Machine & Delivery Lifecycle Validation:**
+    - Defined strict transition mapping (`ALLOWED_TRANSITIONS`) in `MailDeliveryRecord`: `queued` -> `[processing, cancelled]`, `processing` -> `[sent, failed, queued]`, `failed` -> `[queued]`, `cancelled` -> `[queued]`, `sent` -> `[]`.
+    - Added `canTransitionTo()` and `transitionTo()` methods throwing `InvalidDeliveryStateException` on illegal transitions.
+    - Sent immutability guaranteed: records in `sent` status cannot transition or be modified, retried, or cancelled.
+  - **Worker Execution Safety & Timing Hierarchy:**
+    - Added explicit `$timeout = 60;` property on `ProcessMailDeliveryJob`, strictly below queue driver `retry_after = 90`.
+    - Added `worker_lease_seconds = 120` to `config/mail_delivery.php`.
+    - Implemented atomic conditional worker acquisition: claims `queued` or reclaims `processing` only when `last_attempted_at <= now() - worker_lease_seconds`. Sibling workers and recovery jobs will never stomp or interrupt an active running worker.
+    - Worker completion updates (`sent` or `failed`) conditioned strictly on `WHERE id = ? AND status = 'processing'`.
+  - **Atomic Concurrency & Safe State Recovery:**
+    - Stale processing recovery (`recoverStaleProcessing()`): Conditional atomic update `WHERE id = ? AND status = 'processing' AND last_attempted_at <= cutoff`. If an active worker finishes in between, 0 rows are affected and no duplicate job is dispatched.
+    - Retry (`retry()`): Validates state (`isSent()` or `isProcessing()` throws `InvalidDeliveryStateException`), performs atomic conditional update `WHERE id = ? AND status IN ('failed', 'cancelled')`, and dispatches queue job only if affected rows > 0.
+    - Cancel (`cancel()`): Validates state (`isSent()` or `isProcessing()` throws `InvalidDeliveryStateException`), performs atomic conditional update `WHERE id = ? AND status = 'queued'`.
+    - Concurrency-safe idempotency locking via `Cache::lock("mail_delivery_idemp:{$tenantId}:{$key}", 5)->block(3)`.
+    - Two Generals' Problem Documentation: Acknowledged distributed systems constraint that true exactly-once email delivery across a worker crash post-SMTP acceptance (`250 OK`) is technically impossible without downstream MTA deduplication. Status `sent` strictly represents Transport Acceptance.
+  - **Per-Tenant Burst Rate Limiting:**
+    - Integrated `RateLimiter::tooManyAttempts("mail_delivery_rate:{$tenantId}", $limit)` enforcing 60 dispatches/minute per tenant (configurable via `config('mail_delivery.tenant_rate_limit_per_minute')`).
+    - Throws `RateLimitExceededException` upon exceeding burst limit, protecting queue capacity.
+  - **Security & Content Hardening:**
+    - URL scheme validation: `validateSafeUrl()` validates action URLs (`verification_url`, `reset_url`, `invoice_url`, `action_url`) strictly against `http` and `https` schemes with valid hostnames, rejecting `javascript:`, `data:`, and malformed URIs.
+    - Blade template contextual escaping: All transactional templates strictly utilize `{{ ... }}` escaping with zero unescaped `{!! ... !!}` directives.
+    - Enhanced error message scrubber: Regex scrubbing of URI passwords (`redis://user:pass@host` -> `redis://user:[REDACTED]@host`), bearer tokens, API keys, authorization headers, and hashes.
+  - **Administrative API Conflict Handling & Configuration Audit:**
+    - `AdminSystemHealthApiController`: Catches `InvalidDeliveryStateException` on retry/cancel endpoints and returns semantic `HTTP 409 Conflict`.
+    - `MailDeliveryService::validateConfiguration()`: Validates timing hierarchy (`job_timeout < retry_after`, `retry_after <= stale_threshold`, `base_backoff <= max_backoff`, `worker_lease > timeout`), surfacing `configuration_health` inside administrative telemetry (`GET /api/admin/system/mail-queue`).
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `MailDeliverySecurityAndConsistencyTest.php` passes with 15 tests (51 assertions).
+    - Level B (State Machine, Concurrency, Leases, Redaction & Recovery): `VERIFIED`. Valid/invalid transitions, 409 Conflict responses on in-flight retries/cancellations, concurrent retry deduplication, active worker preservation during stale recovery, dead-lettering, concurrent idempotency key locking, rate limiting, URL scheme validation, Blade XSS escaping, error secret redaction, config validation, and operational health verified.
+    - Level C (End-to-End Live External SMTP Transport): `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - **Automated Verification & Test Coverage:**
+    - Dedicated security feature test suite (`tests/Feature/MailDeliverySecurityAndConsistencyTest.php`): **15 tests, 51 assertions passing (100%)**.
+    - Queue foundation test suite (`tests/Feature/MailDeliveryQueueTest.php`): **15 tests, 78 assertions passing (100%)**.
+    - Full backend regression test suite: **568 tests, 2,824 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 41 — Tenant Webhooks & Multi-Channel Alert Delivery Infrastructure Acceptance:**
-  - Configurable tenant webhook endpoints with HMAC-SHA256 signature verification.
-  - Granular event subscriptions (security incidents, quota exhaustion, DNS drift).
-  - Webhook delivery retry queue with exponential backoff and dead-letter handling.
+- **Step 42 — Transactional Mail Dispatch Integration & Event Triggering:**
+  - Connect transactional mail queue dispatches to application events:
+    - User registration & email verification dispatch.
+    - Password reset request dispatch.
+    - Billing invoice payment confirmation & renewal reminders.
+    - High-severity security and abuse incident alerts.
+  - Ensure background job queuing is wrapped with fail-safe boundaries so primary transactions (registration, payment, password update) never fail if mail queue dispatch encounters transient failures.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.

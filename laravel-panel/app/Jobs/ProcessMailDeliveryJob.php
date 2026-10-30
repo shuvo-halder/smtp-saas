@@ -26,6 +26,12 @@ class ProcessMailDeliveryJob implements ShouldQueue
     public int $tries = 5;
 
     /**
+     * The maximum number of seconds the job can run before timing out.
+     * Aligned with worker execution configuration and strictly less than queue retry_after.
+     */
+    public int $timeout = 60;
+
+    /**
      * Create a new job instance.
      */
     public function __construct(
@@ -49,16 +55,26 @@ class ProcessMailDeliveryJob implements ShouldQueue
             return;
         }
 
-        // Atomic transition to processing
+        $leaseSeconds = (int) config('mail_delivery.worker_lease_seconds', 120);
+        $cutoff = now()->subSeconds($leaseSeconds);
+
+        // Atomic transition to processing:
+        // Claim if status is 'queued', or reclaim if 'processing' and lease expired (worker crash recovery)
         $affected = MailDeliveryRecord::where('id', $this->recordId)
-            ->whereIn('status', ['queued', 'processing'])
+            ->where(function ($query) use ($cutoff) {
+                $query->where('status', MailDeliveryRecord::STATUS_QUEUED)
+                      ->orWhere(function ($sub) use ($cutoff) {
+                          $sub->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+                              ->where('last_attempted_at', '<=', $cutoff);
+                      });
+            })
             ->update([
-                'status'            => 'processing',
+                'status'            => MailDeliveryRecord::STATUS_PROCESSING,
                 'last_attempted_at' => now(),
             ]);
 
         if ($affected === 0) {
-            // Already updated or state changed concurrently
+            Log::info("ProcessMailDeliveryJob: Record #{$this->recordId} is active with another worker or in terminal state. Skipping.");
             return;
         }
 
@@ -76,13 +92,15 @@ class ProcessMailDeliveryJob implements ShouldQueue
                     'subject'      => $record->subject,
                 ]);
 
-                $record->update([
-                    'status'     => 'sent',
-                    'attempts'   => max(1, $record->attempts + 1),
-                    'sent_at'    => now(),
-                    'is_dry_run' => true,
-                    'last_error' => null,
-                ]);
+                MailDeliveryRecord::where('id', $record->id)
+                    ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+                    ->update([
+                        'status'     => MailDeliveryRecord::STATUS_SENT,
+                        'attempts'   => max(1, $record->attempts + 1),
+                        'sent_at'    => now(),
+                        'is_dry_run' => true,
+                        'last_error' => null,
+                    ]);
 
                 return;
             }
@@ -90,13 +108,15 @@ class ProcessMailDeliveryJob implements ShouldQueue
             // Live Mail Delivery Transport
             Mail::to($record->recipient_email)->send(new TransactionalMail($record));
 
-            $record->update([
-                'status'     => 'sent',
-                'attempts'   => max(1, $record->attempts + 1),
-                'sent_at'    => now(),
-                'is_dry_run' => false,
-                'last_error' => null,
-            ]);
+            MailDeliveryRecord::where('id', $record->id)
+                ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+                ->update([
+                    'status'     => MailDeliveryRecord::STATUS_SENT,
+                    'attempts'   => max(1, $record->attempts + 1),
+                    'sent_at'    => now(),
+                    'is_dry_run' => false,
+                    'last_error' => null,
+                ]);
         } catch (Throwable $e) {
             $this->handleFailure($record, $e);
         }
@@ -116,11 +136,13 @@ class ProcessMailDeliveryJob implements ShouldQueue
                 'error_class' => get_class($e),
             ]);
 
-            $record->update([
-                'status'     => 'failed',
-                'failed_at'  => now(),
-                'last_error' => $sanitizedError,
-            ]);
+            MailDeliveryRecord::where('id', $record->id)
+                ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+                ->update([
+                    'status'     => MailDeliveryRecord::STATUS_FAILED,
+                    'failed_at'  => now(),
+                    'last_error' => $sanitizedError,
+                ]);
 
             $this->fail($e);
             return;
@@ -138,12 +160,14 @@ class ProcessMailDeliveryJob implements ShouldQueue
                 'max_attempts' => $maxAttempts,
             ]);
 
-            $record->update([
-                'attempts'   => $newAttempts,
-                'status'     => 'failed',
-                'failed_at'  => now(),
-                'last_error' => "Max attempts ({$maxAttempts}) exceeded: " . $sanitizedError,
-            ]);
+            MailDeliveryRecord::where('id', $record->id)
+                ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+                ->update([
+                    'attempts'   => $newAttempts,
+                    'status'     => MailDeliveryRecord::STATUS_FAILED,
+                    'failed_at'  => now(),
+                    'last_error' => "Max attempts ({$maxAttempts}) exceeded: " . $sanitizedError,
+                ]);
 
             $this->fail($e);
             return;
@@ -156,11 +180,13 @@ class ProcessMailDeliveryJob implements ShouldQueue
 
         Log::warning("ProcessMailDeliveryJob: Retrying record #{$record->id} (attempt {$newAttempts}/{$maxAttempts}) in {$delay}s: {$sanitizedError}");
 
-        $record->update([
-            'attempts'   => $newAttempts,
-            'status'     => 'queued',
-            'last_error' => $sanitizedError,
-        ]);
+        MailDeliveryRecord::where('id', $record->id)
+            ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+            ->update([
+                'attempts'   => $newAttempts,
+                'status'     => MailDeliveryRecord::STATUS_QUEUED,
+                'last_error' => $sanitizedError,
+            ]);
 
         $this->release($delay);
     }
@@ -187,13 +213,16 @@ class ProcessMailDeliveryJob implements ShouldQueue
     /**
      * Sanitize error message to prevent leaking database passwords or internal traces.
      */
-    protected function sanitizeErrorMessage(string $message): string
+    public function sanitizeErrorMessage(string $message): string
     {
-        // Strip sensitive strings or credentials
+        // Strip sensitive strings, credentials, and authentication secrets
         $patterns = [
-            '/password=([^;\s]+)/i' => 'password=[REDACTED]',
-            '/bearer\s+[a-zA-Z0-9_\-\.]+/i' => 'Bearer [REDACTED]',
-            '/[a-zA-Z0-9]{32,}/' => '[REDACTED_HASH]',
+            '/:\/\/([^:\s]+):([^@\s]+)@/'             => '://$1:[REDACTED]@',
+            '/password=([^;\s]+)/i'                   => 'password=[REDACTED]',
+            '/(token|secret|key|api_key)=([^;\s]+)/i' => '$1=[REDACTED]',
+            '/bearer\s+[a-zA-Z0-9_\-\.]+/i'           => 'Bearer [REDACTED]',
+            '/authorization:\s*([^\r\n]+)/i'          => 'Authorization: [REDACTED]',
+            '/[a-zA-Z0-9]{32,}/'                      => '[REDACTED_HASH]',
         ];
 
         $cleaned = preg_replace(array_keys($patterns), array_values($patterns), $message);

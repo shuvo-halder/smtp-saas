@@ -33,4 +33,16 @@ return [
     |
     */
     'stale_threshold_seconds' => (int) env('MAIL_DELIVERY_STALE_THRESHOLD', 900),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Worker Execution, Lease and Rate Limit Settings
+    |--------------------------------------------------------------------------
+    |
+    | Job execution timeout, worker lease duration, and per-tenant enqueue rate limit.
+    |
+    */
+    'job_timeout_seconds'         => (int) env('MAIL_DELIVERY_JOB_TIMEOUT', 60),
+    'worker_lease_seconds'        => (int) env('MAIL_DELIVERY_WORKER_LEASE', 120),
+    'tenant_rate_limit_per_minute' => (int) env('MAIL_DELIVERY_TENANT_RATE_LIMIT', 60),
 ];

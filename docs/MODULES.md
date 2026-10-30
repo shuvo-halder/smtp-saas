@@ -467,3 +467,30 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
 
 
 
+
+
+## 30. Transactional Mail Security, Queue Recovery & Delivery Consistency (Step 41)
+**Status:** IMPLEMENTED & VERIFIED (Step 41)
+**Purpose:** Harden the mail delivery foundation against duplicate processing, worker crashes, unsafe retries, sensitive-data exposure, and inconsistent delivery states, while preserving the locked architecture and keeping live external email delivery disabled.
+**Components:**
+- **Finite State Machine & State Transition Validation (`app/Models/MailDeliveryRecord.php`):**
+  - Formalized valid transition mapping (`ALLOWED_TRANSITIONS`): `queued` -> `[processing, cancelled]`, `processing` -> `[sent, failed, queued]`, `failed` -> `[queued]`, `cancelled` -> `[queued]`, `sent` -> `[]`.
+  - Added `canTransitionTo(string $targetStatus): bool` and `transitionTo(string $targetStatus, array $attributes = []): bool` throwing `InvalidDeliveryStateException` on illegal transitions.
+  - Immutability guarantee: `sent` status is permanent; any mutation attempt on a sent delivery is rejected.
+- **Worker Lease Time & Non-Overlapping Execution (`app/Jobs/ProcessMailDeliveryJob.php`):**
+  - Added explicit `$timeout = 60` seconds on the queue job, strictly lower than the queue `retry_after = 90` seconds.
+  - Configured `worker_lease_seconds = 120` in `config/mail_delivery.php`.
+  - Implemented conditional atomic claim: jobs claim `processing` only when `status = 'queued'` or `status = 'processing' AND last_attempted_at <= now() - worker_lease_seconds`. Sibling workers and recovery jobs will never stomp or interrupt an active running worker.
+- **Atomic State Transitions & Safe Stale Recovery (`app/Services/MailDeliveryService.php`):**
+  - Atomic conditional updates for `retry()`, `cancel()`, and `recoverStaleProcessing()` checking database affected row counts before dispatching queue jobs. Concurrent administrative retries or simultaneous recovery executions affect 0 rows on duplicates, neutralizing duplicate jobs.
+  - Distributed systems invariant: Acknowledged the Two Generals' Problem where status `sent` strictly represents Transport Acceptance (`250 OK`) by the MTA, not guaranteed inbox receipt.
+- **Per-Tenant Burst Rate Limiting (`app/Services/MailDeliveryService.php`):**
+  - Added `RateLimiter::tooManyAttempts("mail_delivery_rate:{$tenantId}", $limit)` enforcing 60 transactional dispatches/minute per tenant (configurable).
+  - Throws `RateLimitExceededException` upon exceeding burst limits, preventing runaway loops from exhausting queue capacity.
+- **Security & Content Hardening (`app/Services/MailDeliveryService.php` & Blade Templates):**
+  - Injected action URLs (`verification_url`, `reset_url`, `invoice_url`, `action_url`) are validated via `validateSafeUrl()`, strictly restricting to HTTP/HTTPS schemes with well-formed hostnames and rejecting dangerous pseudo-protocols (`javascript:`, `data:`, `file:`).
+  - All Blade transactional mail templates enforce context-aware escaping `{{ ... }}` with zero raw `{!! ... !!}` directives.
+  - Enhanced error message scrubber redacting URI passwords (`redis://user:pass@host` -> `redis://user:[REDACTED]@host`), bearer tokens, API keys, and authorization headers from `last_error`.
+- **Administrative API Hardening (`app/Http/Controllers/Api/AdminSystemHealthApiController.php`):**
+  - Catches `InvalidDeliveryStateException` on retry/cancel actions, returning semantic `HTTP 409 Conflict` responses.
+  - Added automated configuration audit (`validateConfiguration()`) surfacing `configuration_health` inside the administrative mail queue diagnostic payload (`GET /api/admin/system/mail-queue`).

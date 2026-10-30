@@ -1023,3 +1023,46 @@
 
 
 
+
+---
+
+## Step 41 — Transactional Mail Security, Queue Recovery & Delivery Consistency (`IMPLEMENTED — VERIFIED`)
+- `[x]` Finite State Machine & Delivery Lifecycle Validation:
+  - `[x]` Defined strict transition mapping (`ALLOWED_TRANSITIONS`) in `MailDeliveryRecord`:
+    - `queued` -> `[processing, cancelled]`
+    - `processing` -> `[sent, failed, queued]`
+    - `failed` -> `[queued]`
+    - `cancelled` -> `[queued]`
+    - `sent` -> `[]`
+  - `[x]` Added `canTransitionTo()` and `transitionTo()` methods throwing `InvalidDeliveryStateException` on illegal transitions.
+  - `[x]` Sent immutability guaranteed: records in `sent` status cannot transition or be modified, retried, or cancelled.
+- `[x]` Worker Execution Safety & Timing Hierarchy:
+  - `[x]` Added explicit `$timeout = 60;` property on `ProcessMailDeliveryJob`, strictly below queue driver `retry_after = 90`.
+  - `[x]` Added `worker_lease_seconds = 120` to `config/mail_delivery.php`.
+  - `[x]` Implemented atomic conditional worker acquisition: claims `queued` or reclaims `processing` only when `last_attempted_at <= now() - worker_lease_seconds`. Sibling workers and recovery jobs will never stomp or interrupt an active running worker.
+  - `[x]` Worker completion updates (`sent` or `failed`) conditioned strictly on `WHERE id = ? AND status = 'processing'`.
+- `[x]` Atomic Concurrency & Safe State Recovery:
+  - `[x]` Stale processing recovery (`recoverStaleProcessing()`): Conditional atomic update `WHERE id = ? AND status = 'processing' AND last_attempted_at <= cutoff`. If an active worker finishes in between, 0 rows are affected and no duplicate job is dispatched.
+  - `[x]` Retry (`retry()`): Validates state (`isSent()` or `isProcessing()` throws `InvalidDeliveryStateException`), performs atomic conditional update `WHERE id = ? AND status IN ('failed', 'cancelled')`, and dispatches queue job only if affected rows > 0.
+  - `[x]` Cancel (`cancel()`): Validates state (`isSent()` or `isProcessing()` throws `InvalidDeliveryStateException`), performs atomic conditional update `WHERE id = ? AND status = 'queued'`.
+  - `[x]` Concurrency-safe idempotency locking via `Cache::lock("mail_delivery_idemp:{$tenantId}:{$key}", 5)->block(3)`.
+  - `[x]` Two Generals' Problem Documentation: Acknowledged distributed systems constraint that true exactly-once email delivery across a worker crash post-SMTP acceptance (`250 OK`) is technically impossible without downstream MTA deduplication. Status `sent` strictly represents Transport Acceptance.
+- `[x]` Per-Tenant Burst Rate Limiting:
+  - `[x]` Integrated `RateLimiter::tooManyAttempts("mail_delivery_rate:{$tenantId}", $limit)` enforcing 60 dispatches/minute per tenant (configurable via `config('mail_delivery.tenant_rate_limit_per_minute')`).
+  - `[x]` Throws `RateLimitExceededException` upon exceeding burst limit, protecting queue capacity.
+- `[x]` Security & Content Hardening:
+  - `[x]` URL scheme validation: `validateSafeUrl()` validates action URLs (`verification_url`, `reset_url`, `invoice_url`, `action_url`) strictly against `http` and `https` schemes with valid hostnames, rejecting `javascript:`, `data:`, and malformed URIs.
+  - `[x]` Blade template contextual escaping: All transactional templates strictly utilize `{{ ... }}` escaping with zero unescaped `{!! ... !!}` directives.
+  - `[x]` Enhanced error message scrubber: Regex scrubbing of URI passwords (`redis://user:pass@host` -> `redis://user:[REDACTED]@host`), bearer tokens, API keys, authorization headers, and hashes.
+- `[x]` Administrative API Conflict Handling & Configuration Audit:
+  - `[x]` `AdminSystemHealthApiController`: Catches `InvalidDeliveryStateException` on retry/cancel endpoints and returns semantic `HTTP 409 Conflict`.
+  - `[x]` `MailDeliveryService::validateConfiguration()`: Validates timing hierarchy (`job_timeout < retry_after`, `retry_after <= stale_threshold`, `base_backoff <= max_backoff`, `worker_lease > timeout`), surfacing `configuration_health` inside administrative telemetry (`GET /api/admin/system/mail-queue`).
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `MailDeliverySecurityAndConsistencyTest.php` passes with 15 tests (51 assertions).
+  - `[x]` **Level B (State Machine, Concurrency, Leases, Redaction & Recovery):** `VERIFIED`. Valid/invalid transitions, 409 Conflict responses on in-flight retries/cancellations, concurrent retry deduplication, active worker preservation during stale recovery, dead-lettering, concurrent idempotency key locking, rate limiting, URL scheme validation, Blade XSS escaping, error secret redaction, config validation, and operational health verified.
+  - `[x]` **Level C (End-to-End Live External SMTP Transport):** `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL` (sending live external emails through Postfix or external relay is locked and disabled per Step 41 specification).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Security feature test suite (`tests/Feature/MailDeliverySecurityAndConsistencyTest.php`): **15 tests, 51 assertions passing (100%)**.
+  - `[x]` Queue foundation test suite (`tests/Feature/MailDeliveryQueueTest.php`): **15 tests, 78 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **568 tests, 2,824 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.

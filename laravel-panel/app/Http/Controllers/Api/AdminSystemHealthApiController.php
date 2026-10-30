@@ -100,12 +100,16 @@ class AdminSystemHealthApiController extends Controller
      */
     public function retryMailDelivery(int $id, MailDeliveryService $deliveryService): JsonResponse
     {
-        $record = $deliveryService->retry($id);
+        try {
+            $record = $deliveryService->retry($id);
 
-        return response()->json([
-            'message' => 'Mail delivery queued for retry.',
-            'delivery' => new MailDeliveryRecordResource($record),
-        ], 200);
+            return response()->json([
+                'message' => 'Mail delivery queued for retry.',
+                'delivery' => new MailDeliveryRecordResource($record),
+            ], 200);
+        } catch (\App\Exceptions\MailDelivery\InvalidDeliveryStateException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
     }
 
     /**
@@ -114,11 +118,15 @@ class AdminSystemHealthApiController extends Controller
      */
     public function cancelMailDelivery(int $id, MailDeliveryService $deliveryService): JsonResponse
     {
-        $record = $deliveryService->cancel($id);
+        try {
+            $record = $deliveryService->cancel($id);
 
-        return response()->json([
-            'message' => 'Mail delivery cancelled.',
-            'delivery' => new MailDeliveryRecordResource($record),
-        ], 200);
+            return response()->json([
+                'message' => 'Mail delivery cancelled.',
+                'delivery' => new MailDeliveryRecordResource($record),
+            ], 200);
+        } catch (\App\Exceptions\MailDelivery\InvalidDeliveryStateException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
     }
 }

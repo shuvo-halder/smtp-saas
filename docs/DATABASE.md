@@ -525,6 +525,38 @@ CREATE TABLE `mail_deliveries` (
 4. **Stale Recovery Index:** Index `[status, last_attempted_at]` enables sub-millisecond retrieval of interrupted in-flight jobs for `mail:recover-stale` scheduled recovery.
 5. **Separation from Postfix Logs:** `mail_deliveries` operates solely as an application-level transactional delivery foundation (verification, password reset, billing, alerts) and does not interfere with or replace `delivery_logs` (which parses Postfix SMTP daemon logs).
 
+## 24. Transactional Mail State Machine & Concurrency Invariants (Step 41)
+
+### Permitted State Lifecycle (`ALLOWED_TRANSITIONS`)
+The application enforces strict unidirectional lifecycle progression governed by `MailDeliveryRecord::ALLOWED_TRANSITIONS`:
+```
+queued      --> [processing, cancelled]
+processing  --> [sent, failed, queued]
+failed      --> [queued]  (via manual administrative retry)
+cancelled   --> [queued]  (via manual administrative retry)
+sent        --> []        (IMMUTABLE TERMINAL STATE)
+```
+
+### Concurrency Protection & Row Locking Mechanics
+1. **Atomic In-Flight Worker Claiming:**
+   - Workers claim records from the database using an atomic conditional update:
+     `UPDATE mail_deliveries SET status = 'processing', last_attempted_at = NOW() WHERE id = ? AND (status = 'queued' OR (status = 'processing' AND last_attempted_at <= ?))`
+   - A concurrent second worker attempting to claim an actively processing delivery where `last_attempted_at > cutoff` matches 0 rows and terminates immediately without double transport execution.
+2. **Terminal State Immutability:**
+   - Records with `status = 'sent'` cannot transition to any other status. Attempting to modify, retry, or fail an already-delivered record throws `InvalidDeliveryStateException`.
+3. **Atomic Retry and Cancellation Isolation:**
+   - Manual administrative retry operations are restricted to `failed` and `cancelled` records using:
+     `UPDATE mail_deliveries SET status = 'queued', attempts = 0 WHERE id = ? AND status IN ('failed', 'cancelled')`
+   - Concurrent retry requests serialize cleanly; only one request updates the row and dispatches the queue job.
+   - Cancellation is restricted strictly to `queued` records. Attempting to cancel an in-flight `processing` or `sent` record throws `InvalidDeliveryStateException`.
+4. **Atomic Concurrency-Safe Stale Recovery:**
+   - The scheduled recovery command (`mail:recover-stale`) reclaims interrupted worker records using atomic conditional updates:
+     `UPDATE mail_deliveries SET status = 'queued', attempts = attempts + 1 WHERE id = ? AND status = 'processing' AND last_attempted_at <= ?`
+   - Active workers executing within their valid lease window are completely untouched. If a worker completes transport while recovery is scanning, the conditional update affects 0 rows, completely preventing duplicate dispatches.
+5. **Atomic Idempotency Mutex Lock:**
+   - Enqueue operations with an `idempotency_key` acquire an atomic cache mutex lock (`Cache::lock("mail_delivery_idemp:...")->block(3)`) before checking existence, creating records, and dispatching jobs.
+
+
 
 
 

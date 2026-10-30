@@ -442,3 +442,41 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
 
 
 
+
+
+## 31. Transactional Mail Security, Queue Recovery & Delivery Consistency Invariants (Step 41)
+- **Delivery State Machine & Terminal Immutability:**
+  - Mail deliveries adhere to a strictly validated finite state machine:
+    - `queued` -> `[processing, cancelled]`
+    - `processing` -> `[sent, failed, queued]`
+    - `failed` -> `[queued]`
+    - `cancelled` -> `[queued]`
+    - `sent` -> `[]` (Terminal immutable state)
+  - The `sent` state is strictly immutable. Any attempt to transition, retry, cancel, or modify a `sent` record throws `InvalidDeliveryStateException` and returns `HTTP 409 Conflict` at the API boundary, guaranteeing that accepted deliveries are never re-dispatched.
+- **Two Generals' Problem & At-Least-Once Delivery Semantics:**
+  - Distributed systems invariant: An email transport acceptance (`250 OK` from SMTP/transport relay) and database transaction commit are inherently separated across network boundaries.
+  - If a worker crashes or loses network connectivity immediately after the MTA accepts the message but before updating the database, subsequent automated recovery will re-process the job.
+  - Exactly-once delivery across client crash windows is physically impossible without downstream message-ID deduplication at the destination MTA. Consequently, the system enforces safe at-least-once semantics, and the database status `sent` strictly represents **Transport Acceptance**, not confirmed user inbox receipt.
+- **Worker Lease Invariants & Active Worker Protection:**
+  - Queue worker parameters follow a strict mathematical timing hierarchy:
+    $$\text{Job Timeout (60s)} < \text{Queue Retry After (90s)} < \text{Worker Lease (120s)} < \text{Stale Threshold (900s)}$$
+  - Active workers are protected from premature reclamation: worker acquisition and stale recovery require `last_attempted_at <= now() - worker_lease_seconds`. Sibling workers and recovery jobs will never interrupt or duplicate an active, running worker.
+- **Atomic State Transitions & Race Condition Elimination:**
+  - State changes use atomic conditional SQL updates (`UPDATE mail_deliveries SET status = ... WHERE id = ... AND status = ...`).
+  - Queue job dispatching only occurs if the database returns an affected row count > 0. Concurrent administrative retry clicks or simultaneous recovery scans will safely affect 0 rows on duplicate requests, neutralizing duplicate queue dispatches.
+  - Concurrency-safe idempotency locking via `Cache::lock("mail_delivery_idemp:{$tenantId}:{$key}", 5)->block(3)` guarantees that concurrent enqueue requests for the same idempotency key serialize cleanly without duplicate row creation.
+- **Per-Tenant Burst Rate Limiting:**
+  - Transactional mail dispatching is throttled per tenant using Laravel's `RateLimiter`:
+    - Enforces a ceiling (default: 60/minute per tenant) to prevent runaway application loops, compromised API keys, or sudden script bursts from monopolizing queue capacity or degrading sender IP reputation.
+    - Exceeding the burst threshold triggers an immediate `RateLimitExceededException` (transient failure), logging the incident while preventing queue starvation.
+- **URL Scheme & Redirection Hardening:**
+  - Injected action URLs (`verification_url`, `reset_url`, `invoice_url`, `action_url`) are validated strictly against HTTP/HTTPS schemes with well-formed hostnames (`validateSafeUrl()`).
+  - Dangerous pseudo-protocols (`javascript:`, `data:`, `vbscript:`, `file:`) and protocol-relative URIs are strictly rejected with `InvalidPayloadException`, preventing phishing, open redirection, and client script injection via email links.
+- **Blade Template Contextual Escaping:**
+  - All transactional mail templates (`account_verification`, `password_reset`, `billing_invoice`, `security_alert`) employ standard Blade escaping `{{ ... }}` for all dynamic user inputs and metadata.
+  - Zero raw unescaped `{!! ... !!}` directives exist in mail templates, mitigating stored cross-site scripting (XSS) and HTML injection across desktop and webmail clients.
+- **Operational Secret & Credential Redaction:**
+  - Payload scrubber blacklists sensitive credentials (`password`, `token`, `secret`, `key`, `bearer`, etc.) before persistence.
+  - Error logs stored in `last_error` are sanitized via comprehensive regular expressions, scrubbing URI passwords (`redis://user:pass@host` -> `redis://user:[REDACTED]@host`), authorization bearer tokens, API keys, and hashes prior to database persistence.
+- **Automated Configuration Audit:**
+  - The operational status service automatically checks queue timing invariants (`timeout < retry_after`, `retry_after <= stale_threshold`, `base_backoff <= max_backoff`, `worker_lease > timeout`), surfacing `configuration_health` in administrative monitoring (`GET /api/admin/system/mail-queue`).
