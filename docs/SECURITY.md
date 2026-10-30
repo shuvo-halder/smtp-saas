@@ -415,6 +415,29 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - API listing endpoint strictly validates `category` and `severity` against enumerated allowed sets, rejecting malformed query parameters with HTTP 422.
   - Artisan pruning options (`--read-days`, `--dismissed-days`, `--stale-days`, `--batch-size`) are validated against positive boundaries, rejecting invalid flags with `Command::INVALID`.
 
+## 30. Mail Delivery Queue Foundation, Redaction & Anti-Abuse Invariants (Step 40)
+- **Strict Multi-Tenant Isolation:**
+  - Delivery records are bound to `tenant_id` with cascading foreign keys to `users.id`.
+  - Tenant API endpoints (`GET /api/mail-deliveries`, `GET /api/mail-deliveries/{id}`) enforce strict tenant scoping via `MailDeliveryPolicy`. Attempts to access records owned by another tenant yield HTTP 404 to eliminate cross-tenant ID enumeration.
+- **Sensitive Credential & Token Scrubbing:**
+  - Before any payload is persisted in the database, `MailDeliveryService::scrubPayload()` recursively inspects payload keys against a blacklist (`password`, `password_hash`, `token`, `verification_token`, `reset_token`, `secret`, `key`, `private_key`, `api_key`, `auth`, `credentials`, `bearer`).
+  - Sensitive values are replaced with `'[REDACTED]'`, preventing plaintext storage of user passwords, raw reset secrets, or credentials in `mail_deliveries.payload`.
+  - Error messages logged during failures are sanitized via `ProcessMailDeliveryJob::sanitizeErrorMessage()`, scrubbing passwords, bearer tokens, and hashes before database storage.
+- **Dry-Run Safety Invariant:**
+  - By default, `MAIL_DELIVERY_DRY_RUN=true`. Local development, test suites, and staging environments simulate deliveries locally. No external network requests, SMTP connections, or real email dispatches occur.
+- **Bounded Retries & Exponential Backoff with Jitter:**
+  - Transient network or relay errors trigger exponential backoff: `min($maxBackoff, ($baseBackoff * 2^(attempt - 1)) + jitter)` with randomized jitter (1-10s) to prevent thundering herds against mail relays.
+  - Deliveries reaching `max_attempts` (default 3, capped at 5) are dead-lettered to `status: failed`.
+- **Permanent vs Transient Failure Classification:**
+  - Non-retryable errors (`InvalidRecipientException`, `InvalidPayloadException`, `UnsupportedMessageTypeException`, `PermanentDeliveryException`) immediately transition the delivery to `failed` without wasting queue resources on doomed attempts.
+- **Idempotency Protection:**
+  - `enqueue()` supports `idempotency_key` indexed per tenant. Concurrent or duplicate requests return the existing record without duplicating deliveries.
+- **Zero Administrative Privacy Leakage:**
+  - The administrative monitoring endpoint (`GET /api/admin/system/mail-queue`) and `SystemHealthService::checkMailDelivery()` report ONLY aggregate queue counts, queue driver status, and health flags. Message bodies, payloads, and recipient addresses are completely excluded.
+- **Stale Processing Recovery Invariant:**
+  - Jobs interrupted by worker restarts or crashes in `processing` status are safely rescued by `php artisan mail:recover-stale` every 15 minutes, with `withoutOverlapping(10)` protection.
+
+
 
 
 

@@ -35,3 +35,7 @@ Schedule::command('notifications:prune')->dailyAt('04:30')->withoutOverlapping(1
 // Schedule daily read-only tenant usage, quota, and billing reconciliation audit at 05:00
 Schedule::command('tenant:reconcile-usage')->dailyAt('05:00')->withoutOverlapping(15);
 
+// Schedule recovery of stale processing mail delivery records every 15 minutes
+Schedule::command('mail:recover-stale')->everyFifteenMinutes()->withoutOverlapping(10);
+
+

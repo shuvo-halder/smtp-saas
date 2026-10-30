@@ -1559,6 +1559,160 @@ Returns real-time operational status, delivery reliability, deduplication metric
 }
 ```
 
+## 25. Mail Delivery Queue & Operational Retries API (Step 40)
+
+### 25.1 Tenant Mail Delivery Endpoints
+
+#### List Tenant Mail Deliveries
+- **Method:** `GET`
+- **Path:** `/api/mail-deliveries`
+- **Authentication:** `auth:sanctum` (Strictly scoped to authenticated tenant `User`)
+- **Query Parameters:**
+  - `status` (string, optional): Filter by `queued`, `processing`, `sent`, `failed`, `cancelled`.
+  - `message_type` (string, optional): Filter by `account_verification`, `password_reset`, `billing_invoice`, `security_alert`.
+  - `per_page` (integer, optional): Bounded between 1 and 50 (default: 15).
+- **Response Schema (`200 OK`):**
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "uuid": "4391da40-5e3e-4626-9f4a-95ec9dc98efb",
+      "recipient_email": "tenant@example.com",
+      "message_type": "account_verification",
+      "template_id": "account_verification",
+      "subject": "Verify your EmailSaaS account",
+      "status": "sent",
+      "attempts": 1,
+      "max_attempts": 3,
+      "idempotency_key": "verify_usr_123_abc",
+      "last_attempted_at": "2026-10-30T14:00:00Z",
+      "sent_at": "2026-10-30T14:00:01Z",
+      "failed_at": null,
+      "cancelled_at": null,
+      "last_error": null,
+      "is_dry_run": true,
+      "created_at": "2026-10-30T13:59:59Z",
+      "updated_at": "2026-10-30T14:00:01Z"
+    }
+  ],
+  "links": { ... },
+  "meta": { ... }
+}
+```
+
+#### Get Tenant Mail Delivery Detail
+- **Method:** `GET`
+- **Path:** `/api/mail-deliveries/{id}`
+- **Authentication:** `auth:sanctum`
+- **Access Control:** `MailDeliveryPolicy::view` (`$user->id === $record->tenant_id`). Requests targeting deliveries belonging to other tenants return `404 Not Found`.
+- **Response Schema (`200 OK`):**
+```json
+{
+  "data": {
+    "id": 1,
+    "uuid": "4391da40-5e3e-4626-9f4a-95ec9dc98efb",
+    "recipient_email": "tenant@example.com",
+    "message_type": "account_verification",
+    "template_id": "account_verification",
+    "subject": "Verify your EmailSaaS account",
+    "status": "sent",
+    "attempts": 1,
+    "max_attempts": 3,
+    "idempotency_key": "verify_usr_123_abc",
+    "last_attempted_at": "2026-10-30T14:00:00Z",
+    "sent_at": "2026-10-30T14:00:01Z",
+    "failed_at": null,
+    "cancelled_at": null,
+    "last_error": null,
+    "is_dry_run": true,
+    "created_at": "2026-10-30T13:59:59Z",
+    "updated_at": "2026-10-30T14:00:01Z"
+  }
+}
+```
+
+---
+
+### 25.2 Admin System Mail Delivery Queue Endpoints
+
+#### Mail Queue Operational Telemetry
+- **Method:** `GET`
+- **Path:** `/api/admin/system/mail-queue`
+- **Authentication:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
+- **Description:** Exposes aggregate operational metrics, queue depth, dead-letter count, and stale processing counts without exposing any message content, payload metadata, or recipient PII.
+- **Response Schema (`200 OK`):**
+```json
+{
+  "status": "HEALTHY",
+  "timestamp": "2026-10-30T14:05:00Z",
+  "dry_run_mode": true,
+  "queue_driver": "database",
+  "metrics": {
+    "total_deliveries": 45,
+    "queued_count": 0,
+    "processing_count": 0,
+    "sent_count": 44,
+    "failed_count": 1,
+    "cancelled_count": 0,
+    "dead_letter_count": 1,
+    "retried_count": 2,
+    "stale_processing_count": 0,
+    "oldest_pending_age_seconds": null,
+    "last_attempted_at": "2026-10-30T14:00:00Z",
+    "last_sent_at": "2026-10-30T14:00:01Z"
+  },
+  "database_queue": {
+    "pending_jobs_table_count": 0,
+    "failed_jobs_table_count_24h": 0
+  },
+  "note": "Dry-run delivery mode active: transactional messages are queued and simulated locally without external SMTP network requests."
+}
+```
+
+#### Admin List Mail Deliveries
+- **Method:** `GET`
+- **Path:** `/api/admin/system/mail-deliveries`
+- **Authentication:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
+- **Query Parameters:** `status`, `message_type`, `tenant_id`, `date_from`, `date_to`, `per_page` (clamped 1-100).
+
+#### Admin Retry Mail Delivery
+- **Method:** `POST`
+- **Path:** `/api/admin/system/mail-deliveries/{id}/retry`
+- **Authentication:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
+- **Response Schema (`200 OK`):**
+```json
+{
+  "message": "Mail delivery queued for retry.",
+  "delivery": {
+    "id": 1,
+    "uuid": "4391da40-5e3e-4626-9f4a-95ec9dc98efb",
+    "status": "queued",
+    "attempts": 0,
+    "max_attempts": 3,
+    "last_error": null
+  }
+}
+```
+
+#### Admin Cancel Mail Delivery
+- **Method:** `POST`
+- **Path:** `/api/admin/system/mail-deliveries/{id}/cancel`
+- **Authentication:** `auth:sanctum`, `EnsureAdmin`, `admin.permission:admin.stats.read`
+- **Response Schema (`200 OK`):**
+```json
+{
+  "message": "Mail delivery cancelled.",
+  "delivery": {
+    "id": 1,
+    "uuid": "4391da40-5e3e-4626-9f4a-95ec9dc98efb",
+    "status": "cancelled",
+    "cancelled_at": "2026-10-30T14:10:00Z"
+  }
+}
+```
+
+
 
 
 

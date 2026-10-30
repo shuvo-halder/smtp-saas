@@ -429,6 +429,36 @@ This document lists the primary modules within the EmailSaaS architecture. Detai
   - 8th component posture card rendered with `Bell` icon displaying total alerts, active unread, unresolved critical count, and last pruning execution posture.
   - Complete `next-intl` localization with zero hardcoded strings.
 
+## 29. Mail Delivery Queue Foundation & Retry Management (Step 40)
+**Status:** IMPLEMENTED & VERIFIED (Step 40)
+**Purpose:** Build a reliable, observable application-level mail delivery foundation for EmailSaaS to prepare the platform for future transactional email delivery (account verification, password reset, billing notices, security alerts) with bounded retries, exponential backoff with jitter, dead-lettering, stale recovery, and dry-run safety.
+**Components:**
+- **Dedicated Mail Delivery Ledger Table (`mail_deliveries`):**
+  - Tracks individual transactional deliveries with `uuid`, `tenant_id`, `recipient_email`, `message_type`, `template_id`, `subject`, `payload` (JSON), `status` (`queued`, `processing`, `sent`, `failed`, `cancelled`), `attempts`, `max_attempts`, `idempotency_key`, timestamps (`last_attempted_at`, `sent_at`, `failed_at`, `cancelled_at`), `last_error`, and `is_dry_run`.
+  - Composite indexes optimize tenant queries, status polling, and stale worker recovery.
+  - Completely isolated from Postfix `delivery_logs`.
+- **Core Service Layer (`app/Services/MailDeliveryService.php`):**
+  - `enqueue()`: Validates recipient email, message type (`account_verification`, `password_reset`, `billing_invoice`, `security_alert`), required payload fields; scrubs sensitive tokens (`password`, `token`, `secret`, `bearer`); prevents duplicates via `idempotency_key`; and dispatches `ProcessMailDeliveryJob`.
+  - `retry()`: Idempotently retries failed/cancelled records, resets `attempts` to 0, and dispatches the queue job.
+  - `cancel()`: Idempotently cancels pending queued records.
+  - `recoverStaleProcessing()`: Identifies and rescues in-flight records stuck in `processing` status due to worker interruptions/crashes.
+  - `getOperationalStatus()`: Aggregates operational telemetry (queued, processing, sent, failed, dead-letter, stale processing counts, database queue depth, dry-run mode).
+  - `getTenantDeliveries()` & `getAdminDeliveries()`: Bounded paginated queries.
+- **Queue Job & Mail Transport Abstraction (`app/Jobs/ProcessMailDeliveryJob.php` & `app/Mail/TransactionalMail.php`):**
+  - Implements Laravel's `ShouldQueue` with dynamic retry budget per delivery record.
+  - Dry-Run Safety Invariant: Defaults to `MAIL_DELIVERY_DRY_RUN=true`, simulating deliveries locally and logging to Laravel log without outbound SMTP network traffic.
+  - Failure classification: Permanent errors (`PermanentDeliveryException`, `InvalidRecipientException`, etc.) fail immediately without retry; transient errors trigger exponential backoff with jitter (`min(900, (60 * 2^(attempts-1)) + jitter)`) and release back to queue. Records exceeding `max_attempts` dead-letter to `failed`.
+  - Error message sanitizer redacting passwords, bearer tokens, and hashes from logs and database error columns.
+- **Scheduled Stale Recovery Command (`app/Console/Commands/RecoverStaleMailCommand.php`):**
+  - Artisan command `mail:recover-stale --stale-seconds=900` scheduled every 15 minutes in `routes/console.php` with `withoutOverlapping(10)` protection.
+- **System Health Diagnostics & Admin API (`AdminSystemHealthApiController` & `SystemHealthService`):**
+  - Added `mail_delivery` to `SystemHealthService::getHealth()`.
+  - Admin endpoints: `GET /api/admin/system/mail-queue`, `GET /api/admin/system/mail-deliveries`, `POST /api/admin/system/mail-deliveries/{id}/retry`, `POST /api/admin/system/mail-deliveries/{id}/cancel`.
+  - Zero PII exposure: metrics endpoint exposes only aggregate counts and operational states.
+- **Next.js Admin UI (`frontend/src/app/(admin)/admin/system-health/page.tsx`):**
+  - Added 9th component health card for "Mail Delivery Queue" displaying total deliveries, queued in-flight count, dead-letter count, and dry-run mode indicator.
+
+
 
 
 

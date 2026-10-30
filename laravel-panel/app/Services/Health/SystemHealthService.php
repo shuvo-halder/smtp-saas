@@ -30,6 +30,7 @@ class SystemHealthService
         $queue = $this->checkQueue();
         $backup = $this->checkBackup();
         $notifications = $this->checkNotifications();
+        $mailDelivery = $this->checkMailDelivery();
 
         $components = [
             'app'           => $app,
@@ -40,6 +41,7 @@ class SystemHealthService
             'queue'         => $queue,
             'backup'        => $backup,
             'notifications' => $notifications,
+            'mail_delivery' => $mailDelivery,
         ];
 
         $overallStatus = $this->resolveOverallStatus($components);
@@ -349,6 +351,41 @@ class SystemHealthService
                 'status'  => 'UNKNOWN',
                 'details' => [
                     'error' => 'Unable to inspect notification subsystem health',
+                ],
+            ];
+        }
+    }
+
+    /**
+     * Inspect Transactional Mail Delivery Queue health & operational posture.
+     *
+     * @return array{status: string, details: array<string, mixed>}
+     */
+    public function checkMailDelivery(): array
+    {
+        try {
+            $service = app(\App\Services\MailDeliveryService::class);
+            $op = $service->getOperationalStatus();
+
+            return [
+                'status'  => $op['status'],
+                'details' => [
+                    'dry_run_mode'               => $op['dry_run_mode'],
+                    'queue_driver'               => $op['queue_driver'],
+                    'queued_count'               => $op['metrics']['queued_count'],
+                    'processing_count'           => $op['metrics']['processing_count'],
+                    'sent_count'                 => $op['metrics']['sent_count'],
+                    'failed_count'               => $op['metrics']['failed_count'],
+                    'dead_letter_count'          => $op['metrics']['dead_letter_count'],
+                    'stale_processing_count'     => $op['metrics']['stale_processing_count'],
+                    'oldest_pending_age_seconds' => $op['metrics']['oldest_pending_age_seconds'],
+                ],
+            ];
+        } catch (Throwable $e) {
+            return [
+                'status'  => 'UNKNOWN',
+                'details' => [
+                    'error' => 'Unable to inspect mail delivery queue health',
                 ],
             ];
         }

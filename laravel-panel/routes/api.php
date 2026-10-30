@@ -58,6 +58,12 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
             Route::post('/{id}/restore', [\App\Http\Controllers\Api\TenantNotificationApiController::class, 'restore'])->whereNumber('id');
         });
 
+        // Tenant Mail Delivery Status (Step 40)
+        Route::prefix('mail-deliveries')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\MailDeliveryApiController::class, 'index']);
+            Route::get('/{id}', [\App\Http\Controllers\Api\MailDeliveryApiController::class, 'show'])->whereNumber('id');
+        });
+
         // Active Subscription Required
         Route::middleware(EnsureActiveSubscription::class)->group(function () {
             Route::get('/dashboard', [DashboardApiController::class, 'index']);
@@ -119,6 +125,10 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
                     Route::get('/health', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'index']);
                     Route::get('/tasks', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'tasks']);
                     Route::get('/notifications', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'notifications']);
+                    Route::get('/mail-queue', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'mailQueue']);
+                    Route::get('/mail-deliveries', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'mailDeliveries']);
+                    Route::post('/mail-deliveries/{id}/retry', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'retryMailDelivery'])->whereNumber('id');
+                    Route::post('/mail-deliveries/{id}/cancel', [\App\Http\Controllers\Api\AdminSystemHealthApiController::class, 'cancelMailDelivery'])->whereNumber('id');
                 });
             });
             

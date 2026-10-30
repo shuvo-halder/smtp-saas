@@ -479,6 +479,53 @@ ALTER TABLE `users` ADD COLUMN `notification_preferences` JSON NULL AFTER `remem
 - **UTF-8 Normalization:** String values are normalized using `mb_convert_encoding($v, 'UTF-8', 'UTF-8')` to prevent invalid byte sequence failures in MySQL JSON parsers.
 - **Zero Schema Alterations:** Step 39 required zero DDL modifications; all guarantees are enforced through application-level atomic locks, recursive serialization guards, and query-level retention bounds.
 
+## 23. Transactional Mail Delivery Queue Schema & Lifecycle Ledger (Step 40)
+
+### `mail_deliveries` Table
+Migration: `2026_10_30_000001_create_mail_deliveries_table.php`
+
+```sql
+CREATE TABLE `mail_deliveries` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `uuid` char(36) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `tenant_id` bigint unsigned NOT NULL,
+  `recipient_email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `message_type` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `template_id` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `subject` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `payload` json NOT NULL,
+  `status` enum('queued','processing','sent','failed','cancelled') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'queued',
+  `attempts` tinyint unsigned NOT NULL DEFAULT '0',
+  `max_attempts` tinyint unsigned NOT NULL DEFAULT '3',
+  `idempotency_key` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_attempted_at` timestamp NULL DEFAULT NULL,
+  `sent_at` timestamp NULL DEFAULT NULL,
+  `failed_at` timestamp NULL DEFAULT NULL,
+  `cancelled_at` timestamp NULL DEFAULT NULL,
+  `last_error` text COLLATE utf8mb4_unicode_ci,
+  `is_dry_run` tinyint(1) NOT NULL DEFAULT '1',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `mail_deliveries_uuid_unique` (`uuid`),
+  KEY `mail_deliveries_tenant_id_foreign` (`tenant_id`),
+  KEY `mail_deliveries_tenant_id_created_at_index` (`tenant_id`,`created_at`),
+  KEY `mail_deliveries_tenant_id_status_created_at_index` (`tenant_id`,`status`,`created_at`),
+  KEY `mail_deliveries_status_created_at_index` (`status`,`created_at`),
+  KEY `mail_deliveries_status_last_attempted_at_index` (`status`,`last_attempted_at`),
+  KEY `mail_deliveries_tenant_id_idempotency_key_index` (`tenant_id`,`idempotency_key`),
+  CONSTRAINT `mail_deliveries_tenant_id_foreign` FOREIGN KEY (`tenant_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+### Schema & Indexing Invariants
+1. **Tenant Isolation:** Foreign key `tenant_id` references `users(id)` with cascading deletion. Every query from tenant API context is strictly filtered by `tenant_id`.
+2. **Payload Protection:** Sensitive authentication tokens (`password`, `password_hash`, `token`, `secret`, `key`, `private_key`, `bearer`, `auth`, `credentials`) are scrubbed before storage, replacing raw credentials with `[REDACTED]`.
+3. **Idempotency Protection:** `idempotency_key` indexed with `tenant_id` prevents duplicate transactional mail enqueue operations under concurrent or repeated dispatches.
+4. **Stale Recovery Index:** Index `[status, last_attempted_at]` enables sub-millisecond retrieval of interrupted in-flight jobs for `mail:recover-stale` scheduled recovery.
+5. **Separation from Postfix Logs:** `mail_deliveries` operates solely as an application-level transactional delivery foundation (verification, password reset, billing, alerts) and does not interfere with or replace `delivery_logs` (which parses Postfix SMTP daemon logs).
+
+
 
 
 

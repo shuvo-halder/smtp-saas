@@ -735,8 +735,52 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 40 — Mail Delivery Queue Foundation & Retry Management (IMPLEMENTED & VERIFIED):**
+  - **Dedicated Mail Delivery Ledger Table (`mail_deliveries`):**
+    - Migration: `2026_10_30_000001_create_mail_deliveries_table.php` applied on MySQL 8.4.3 (`emailsaas_local`).
+    - Tracks individual transactional deliveries with `uuid`, `tenant_id`, `recipient_email`, `message_type`, `template_id`, `subject`, `payload` (JSON), `status` (`queued`, `processing`, `sent`, `failed`, `cancelled`), `attempts`, `max_attempts`, `idempotency_key`, timestamps (`last_attempted_at`, `sent_at`, `failed_at`, `cancelled_at`), `last_error`, and `is_dry_run`.
+    - High-performance composite indexes: `[tenant_id, created_at]`, `[tenant_id, status, created_at]`, `[status, created_at]`, `[status, last_attempted_at]`, `[tenant_id, idempotency_key]`.
+    - Completely isolated from Postfix MTA logs (`delivery_logs`).
+  - **Configuration & Exception Hierarchy:**
+    - `config/mail_delivery.php` configuring dry-run mode (default `true`), max attempts (3), base backoff (60s), max backoff (900s), and stale threshold (900s).
+    - Exception hierarchy under `App\Exceptions\MailDelivery\`: `PermanentDeliveryException`, `TransientDeliveryException`, `InvalidRecipientException`, `InvalidPayloadException`, `UnauthorizedRecipientException`, `UnsupportedMessageTypeException`.
+  - **Core Service Layer (`MailDeliveryService`):**
+    - `enqueue()`: Validates recipient email, message type (`account_verification`, `password_reset`, `billing_invoice`, `security_alert`), required payload fields; recursively scrubs sensitive tokens (`password`, `token`, `secret`, `bearer`); deduplicates via `idempotency_key`; and dispatches `ProcessMailDeliveryJob`.
+    - `retry()`: Idempotent manual retry of failed/cancelled records, resets attempts to 0, and dispatches job.
+    - `cancel()`: Idempotent cancellation of pending queued records.
+    - `recoverStaleProcessing()`: Rescues interrupted/crashed worker records stuck in `processing`.
+    - `getOperationalStatus()`: Structured operational telemetry and queue health.
+    - `getTenantDeliveries()` & `getAdminDeliveries()`: Bounded paginated queries.
+  - **Queue Worker & Mail Transport Abstraction (`ProcessMailDeliveryJob`):**
+    - Implements `ShouldQueue` with dynamic retry budget per delivery record.
+    - Dry-run safety invariant: `MAIL_DELIVERY_DRY_RUN=true` simulates deliveries locally and logs to Laravel log without outbound SMTP network traffic.
+    - Failure classification: Permanent errors fail immediately without retry; transient errors trigger exponential backoff with jitter (`min(900, (60 * 2^(attempts-1)) + jitter)`). Records exceeding `max_attempts` dead-letter to `failed`.
+    - Error message sanitizer redacting passwords, bearer tokens, and hashes from logs and database error columns.
+    - Created responsive transactional Blade email templates in `resources/views/emails/transactional/` (`layout`, `account_verification`, `password_reset`, `billing_invoice`, `security_alert`) and `TransactionalMail` mailable.
+  - **Scheduled Stale Processing Recovery (`mail:recover-stale`):**
+    - Created Artisan command `App\Console\Commands\RecoverStaleMailCommand` with `--stale-seconds=900` and `--dry-run`.
+    - Scheduled every 15 minutes in `routes/console.php` with `withoutOverlapping(10)` protection.
+  - **API Routing & Policy Isolation:**
+    - Tenant endpoints: `GET /api/mail-deliveries` and `GET /api/mail-deliveries/{id}` protected by `MailDeliveryPolicy` and strictly tenant-scoped (404 on cross-tenant access).
+    - Admin endpoints: `GET /api/admin/system/mail-queue`, `GET /api/admin/system/mail-deliveries`, `POST /api/admin/system/mail-deliveries/{id}/retry`, `POST /api/admin/system/mail-deliveries/{id}/cancel` guarded by `EnsureAdmin` and `admin.permission:admin.stats.read`.
+    - System health integration: added `mail_delivery` to `SystemHealthService::getHealth()`.
+  - **Next.js Admin UI Integration:**
+    - Added `mail_delivery?: ComponentHealth`, `MailQueueOperationalStatus`, `MailDeliveryItem` in `frontend/src/types/index.ts`.
+    - Added localization strings in `frontend/messages/en.json`.
+    - Rendered 9th posture card in `frontend/src/app/(admin)/admin/system-health/page.tsx` with `Mail` icon.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `MailDeliveryQueueTest.php` passes with 15 tests (78 assertions).
+    - Level B (Queue Invariants, Idempotency, Backoff & Redaction): `VERIFIED`. Dry-run simulation, idempotency keys, permanent vs transient failure classification, exponential backoff with jitter, dead-lettering, sensitive token scrubbing, and stale recovery verified.
+    - Level C (End-to-End Live External SMTP Transport): `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL`.
+  - **Automated Verification & Test Coverage:**
+    - Dedicated queue feature test suite (`tests/Feature/MailDeliveryQueueTest.php`): **15 tests, 78 assertions passing (100%)**.
+    - Full backend regression test suite: **553 tests, 2,773 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Frontend Next.js production build: **`npm run build` succeeds cleanly (0 errors, 28/28 static pages)**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 40 — Tenant Webhooks & Multi-Channel Alert Delivery Infrastructure Acceptance:**
+- **Step 41 — Tenant Webhooks & Multi-Channel Alert Delivery Infrastructure Acceptance:**
   - Configurable tenant webhook endpoints with HMAC-SHA256 signature verification.
   - Granular event subscriptions (security incidents, quota exhaustion, DNS drift).
   - Webhook delivery retry queue with exponential backoff and dead-letter handling.

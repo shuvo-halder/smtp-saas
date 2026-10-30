@@ -974,6 +974,52 @@
   - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
   - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 28 static pages cleanly with zero errors (100%)**.
 
+---
+
+## Step 40 — Mail Delivery Queue Foundation & Retry Management (`IMPLEMENTED — VERIFIED`)
+- `[x]` Mail Delivery Ledger Database Migration (`mail_deliveries`):
+  - `[x]` Created and applied migration `2026_10_30_000001_create_mail_deliveries_table.php` on MySQL 8.4.3 (`emailsaas_local`).
+  - `[x]` High-performance composite indexes: `[tenant_id, created_at]`, `[tenant_id, status, created_at]`, `[status, created_at]`, `[status, last_attempted_at]`, `[tenant_id, idempotency_key]`.
+  - `[x]` Foreign key `tenant_id` references `users(id)` with cascade deletion; dedicated to application-level transactional emails (verification, reset, invoices, alerts) with zero interference with Postfix or `delivery_logs`.
+- `[x]` Configuration & Domain Model Layer:
+  - `[x]` Configuration in `config/mail_delivery.php` (dry-run mode default true, max attempts 3, base backoff 60s, max backoff 900s, stale threshold 900s).
+  - `[x]` Eloquent model `App\Models\MailDeliveryRecord` with status constants (`STATUS_QUEUED`, `STATUS_PROCESSING`, `STATUS_SENT`, `STATUS_FAILED`, `STATUS_CANCELLED`), casts, scopes (`forTenant`, `queued`, `processing`, `sent`, `failed`, `cancelled`, `staleProcessing`), and domain helper methods (`canRetry`, `markFailedAttempt`, `isSent`, etc.).
+  - `[x]` Exception hierarchy in `App\Exceptions\MailDelivery\` (`PermanentDeliveryException`, `TransientDeliveryException`, `InvalidRecipientException`, `InvalidPayloadException`, `UnauthorizedRecipientException`, `UnsupportedMessageTypeException`).
+- `[x]` Core Mail Delivery Service Layer (`MailDeliveryService`):
+  - `[x]` `enqueue()`: Validates recipient email, message type (`account_verification`, `password_reset`, `billing_invoice`, `security_alert`), required payload fields; recursively scrubs sensitive tokens (`password`, `token`, `secret`, `bearer`); deduplicates via `idempotency_key`; and dispatches `ProcessMailDeliveryJob`.
+  - `[x]` `retry()`: Idempotent manual retry of failed/cancelled records, resets attempts to 0, and dispatches job.
+  - `[x]` `cancel()`: Idempotent cancellation of pending queued records.
+  - `[x]` `recoverStaleProcessing()`: Rescues interrupted/crashed worker records stuck in `processing`.
+  - `[x]` `getOperationalStatus()`: Structured operational telemetry and queue health.
+  - `[x]` `getTenantDeliveries()` & `getAdminDeliveries()`: Bounded paginated queries.
+- `[x]` Queue Worker & Mail Transport Abstraction (`ProcessMailDeliveryJob`):
+  - `[x]` Implements `ShouldQueue` with dynamic retry budget per delivery record.
+  - `[x]` Dry-run safety invariant: `MAIL_DELIVERY_DRY_RUN=true` simulates deliveries locally and logs to Laravel log without outbound SMTP network traffic.
+  - `[x]` Failure classification: Permanent errors fail immediately without retry; transient errors trigger exponential backoff with jitter (`min(900, (60 * 2^(attempts-1)) + jitter)`). Records exceeding `max_attempts` dead-letter to `failed`.
+  - `[x]` Error message sanitizer redacting passwords, bearer tokens, and hashes from logs and database error columns.
+  - `[x]` Responsive transactional Blade email templates in `resources/views/emails/transactional/` (`layout`, `account_verification`, `password_reset`, `billing_invoice`, `security_alert`) and `TransactionalMail` mailable.
+- `[x]` Scheduled Stale Processing Recovery (`mail:recover-stale`):
+  - `[x]` Artisan command `App\Console\Commands\RecoverStaleMailCommand` with `--stale-seconds=900` and `--dry-run`.
+  - `[x]` Scheduled every 15 minutes in `routes/console.php` with `withoutOverlapping(10)` protection.
+- `[x]` API Routing & Policy Isolation:
+  - `[x]` Tenant endpoints: `GET /api/mail-deliveries` and `GET /api/mail-deliveries/{id}` protected by `MailDeliveryPolicy` and strictly tenant-scoped (404 on cross-tenant access).
+  - `[x]` Admin endpoints: `GET /api/admin/system/mail-queue`, `GET /api/admin/system/mail-deliveries`, `POST /api/admin/system/mail-deliveries/{id}/retry`, `POST /api/admin/system/mail-deliveries/{id}/cancel` guarded by `EnsureAdmin` and `admin.permission:admin.stats.read`.
+  - `[x]` System health integration: added `mail_delivery` to `SystemHealthService::getHealth()`.
+- `[x]` Next.js Admin UI Integration:
+  - `[x]` Added `mail_delivery?: ComponentHealth`, `MailQueueOperationalStatus`, `MailDeliveryItem` in `frontend/src/types/index.ts`.
+  - `[x]` Added localization strings in `frontend/messages/en.json`.
+  - `[x]` Rendered 9th posture card in `frontend/src/app/(admin)/admin/system-health/page.tsx` with `Mail` icon.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `MailDeliveryQueueTest.php` passes with 15 tests (78 assertions).
+  - `[x]` **Level B (Queue Invariants, Idempotency, Backoff & Redaction):** `VERIFIED`. Dry-run simulation, idempotency keys, permanent vs transient failure classification, exponential backoff with jitter, dead-lettering, sensitive token scrubbing, and stale recovery verified.
+  - `[x]` **Level C (End-to-End Live External SMTP Transport):** `BLOCKED — REQUIRES INFRASTRUCTURE & ARCHITECTURAL APPROVAL` (sending live external emails through Postfix or external relay is locked and disabled per Step 40 specification).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Dedicated queue feature test suite (`tests/Feature/MailDeliveryQueueTest.php`): **15 tests, 78 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **553 tests, 2,773 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Frontend Next.js 14 production build (`npm run build`): **Compiled all 28 static pages cleanly with zero errors (100%)**.
+
+
 
 
 

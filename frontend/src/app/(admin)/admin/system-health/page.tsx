@@ -25,6 +25,7 @@ import {
   Terminal,
   AlertCircle,
   Bell,
+  Mail,
   X
 } from 'lucide-react';
 
@@ -492,6 +493,46 @@ export default function AdminSystemHealthPage() {
                 <div className="space-y-0.5">
                   <span className="text-gray-500">{t('labels.prune_status')}:</span>
                   <p className="font-mono text-gray-700 capitalize">{components.notifications.details.last_prune_status ?? 'pending'}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 9. Mail Delivery Queue & Posture */}
+        {components.mail_delivery && (
+          <Card className="shadow-sm border sm:col-span-2 lg:col-span-2 xl:col-span-2">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+              <CardTitle className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <Mail className="w-4 h-4 text-indigo-600" />
+                {t('components.mail_delivery.title')}
+              </CardTitle>
+              {getStatusBadge(components.mail_delivery.status)}
+            </CardHeader>
+            <CardContent className="space-y-2 pt-2 text-xs">
+              <p className="text-gray-500">{t('components.mail_delivery.desc')}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t">
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.total_deliveries')}:</span>
+                  <p className="font-mono font-medium text-gray-900">{components.mail_delivery.details.total_deliveries ?? 0}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.queued_deliveries')}:</span>
+                  <p className="font-mono font-medium text-blue-600">
+                    {(components.mail_delivery.details.queued ?? 0) + (components.mail_delivery.details.processing ?? 0)}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.failed_deliveries')}:</span>
+                  <p className={`font-mono font-medium ${components.mail_delivery.details.dead_letter_count > 0 ? 'text-rose-600 font-bold' : 'text-emerald-600'}`}>
+                    {components.mail_delivery.details.dead_letter_count ?? 0}
+                  </p>
+                </div>
+                <div className="space-y-0.5">
+                  <span className="text-gray-500">{t('labels.dry_run')}:</span>
+                  <p className="font-mono font-medium text-slate-700">
+                    {components.mail_delivery.details.dry_run_mode ? t('labels.enabled') : t('labels.disabled')}
+                  </p>
                 </div>
               </div>
             </CardContent>

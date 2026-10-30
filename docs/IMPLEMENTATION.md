@@ -358,6 +358,48 @@ This document describes the current implementation state of the EmailSaaS projec
   - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
   - Next.js production build: `npm run build` (28/28 static pages compiled cleanly with 0 errors).
 
+## 20. Mail Delivery Queue Foundation & Retry Management (Step 40)
+- **Status:** IMPLEMENTED & FULLY VERIFIED
+- **Database & Migration (`mail_deliveries`):**
+  - Migration: `2026_10_30_000001_create_mail_deliveries_table.php` executed on MySQL 8.4.3 (`emailsaas_local`).
+  - Columns: `id`, `uuid` (unique), `tenant_id` (FK to `users.id` cascade on delete), `recipient_email`, `message_type`, `template_id`, `subject`, `payload` (JSON), `status` (`queued`, `processing`, `sent`, `failed`, `cancelled`), `attempts`, `max_attempts`, `idempotency_key`, `last_attempted_at`, `sent_at`, `failed_at`, `cancelled_at`, `last_error`, `is_dry_run`, timestamps.
+  - High-performance composite indexes: `[tenant_id, created_at]`, `[tenant_id, status, created_at]`, `[status, created_at]`, `[status, last_attempted_at]`, `[tenant_id, idempotency_key]`.
+- **Application Core & Service Architecture:**
+  - Configuration: `laravel-panel/config/mail_delivery.php` configuring dry-run mode (default `true`), default max attempts (3), base backoff (60s), max backoff (900s), and stale threshold (900s).
+  - Domain Model: `App\Models\MailDeliveryRecord` with status constants (`STATUS_QUEUED`, `STATUS_PROCESSING`, `STATUS_SENT`, `STATUS_FAILED`, `STATUS_CANCELLED`), query scopes (`forTenant`, `queued`, `processing`, `sent`, `failed`, `cancelled`, `staleProcessing`), and state helpers (`canRetry`, `markFailedAttempt`, `isSent`, etc.).
+  - Exceptions: `App\Exceptions\MailDelivery\` hierarchy with `PermanentDeliveryException`, `TransientDeliveryException`, `InvalidRecipientException`, `InvalidPayloadException`, `UnauthorizedRecipientException`, and `UnsupportedMessageTypeException`.
+  - Service Layer: `App\Services\MailDeliveryService`:
+    - `enqueue()`: Validates recipient email, message type (`account_verification`, `password_reset`, `billing_invoice`, `security_alert`), required payload fields; recursively scrubs sensitive tokens (`password`, `token`, `secret`, `bearer`); handles atomic deduplication via `idempotency_key`; creates delivery record and dispatches `ProcessMailDeliveryJob`.
+    - `retry()`: Idempotently retries failed/cancelled records, resets attempts to 0, and dispatches the job.
+    - `cancel()`: Idempotently cancels pending queued records.
+    - `recoverStaleProcessing()`: Identifies and recovers worker-interrupted deliveries stuck in `processing`.
+    - `getOperationalStatus()`: Aggregates operational telemetry for administrative diagnostics.
+    - `getTenantDeliveries()` & `getAdminDeliveries()`: Bounded paginated queries.
+- **Queue Worker & Mail Transport Abstraction:**
+  - Job: `App\Jobs\ProcessMailDeliveryJob` implementing Laravel's `ShouldQueue`.
+  - Dry-Run Safety Invariant: Defaults to `MAIL_DELIVERY_DRY_RUN=true`. All transactional messages are queued, simulated, and logged locally. Zero real external SMTP network requests.
+  - Exponential Backoff & Jitter: Transient failures retry with `min(900, (60 * 2^(attempts-1)) + jitter)` seconds delay. Deliveries reaching `max_attempts` dead-letter to `failed`.
+  - Permanent Failure Classification: Non-retryable errors fail immediately without retry.
+  - Error Message Sanitizer: Redacts passwords, bearer tokens, and hashes from error messages.
+  - Mailables & Blade Views: `App\Mail\TransactionalMail` with responsive Blade templates in `resources/views/emails/transactional/` (`layout`, `account_verification`, `password_reset`, `billing_invoice`, `security_alert`).
+- **Artisan Stale Recovery & Scheduling:**
+  - Artisan command: `php artisan mail:recover-stale` with `--stale-seconds=900` and `--dry-run`.
+  - Scheduled every 15 minutes in `routes/console.php` with `withoutOverlapping(10)` protection.
+- **System Health & Admin Diagnostics Integration:**
+  - Added `mail_delivery` to `SystemHealthService::getHealth()`.
+  - Admin endpoints in `AdminSystemHealthApiController`: `GET /api/admin/system/mail-queue`, `GET /api/admin/system/mail-deliveries`, `POST /api/admin/system/mail-deliveries/{id}/retry`, `POST /api/admin/system/mail-deliveries/{id}/cancel`.
+  - Tenant endpoints in `MailDeliveryApiController`: `GET /api/mail-deliveries`, `GET /api/mail-deliveries/{id}` protected by `MailDeliveryPolicy`.
+- **Next.js Admin UI Integration:**
+  - Added `mail_delivery?: ComponentHealth`, `MailQueueOperationalStatus`, `MailDeliveryItem` to `frontend/src/types/index.ts`.
+  - Added localization keys in `frontend/messages/en.json` under `Admin.system_health.components` and `labels`.
+  - Rendered 9th component health card with `Mail` icon in `frontend/src/app/(admin)/admin/system-health/page.tsx`.
+- **Verification & Testing Results:**
+  - Dedicated queue feature test suite: `MailDeliveryQueueTest.php` (15/15 tests passing, 78 assertions, 100%).
+  - Full PHPUnit regression suite: 553/553 tests passing (2,773 assertions, 100%).
+  - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
+  - Next.js production build: `npm run build` (28/28 static pages compiled cleanly with 0 errors).
+
+
 
 
 

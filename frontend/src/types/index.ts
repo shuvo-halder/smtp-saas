@@ -832,6 +832,7 @@ export interface SystemHealthResponse {
     queue: ComponentHealth;
     backup: ComponentHealth;
     notifications?: ComponentHealth;
+    mail_delivery?: ComponentHealth;
   };
   recent_tasks: ScheduledTaskRunItem[];
 }
@@ -861,6 +862,55 @@ export interface NotificationOperationalStatus {
     expression: string;
     overlapping_lock_active: boolean;
   };
+}
+
+export interface MailQueueOperationalStatus {
+  status: 'HEALTHY' | 'DEGRADED';
+  timestamp: string;
+  summary: {
+    total_deliveries: number;
+    queued: number;
+    processing: number;
+    sent: number;
+    failed: number;
+    cancelled: number;
+    dead_letter_count: number;
+    stale_processing_count: number;
+    dry_run_mode: boolean;
+  };
+  queue_worker: {
+    connection: string;
+    queue_name: string;
+    pending_jobs_in_queue: number;
+    failed_jobs_in_queue: number;
+  };
+  health: {
+    dead_letters_detected: boolean;
+    stale_deliveries_detected: boolean;
+    worker_backlog_high: boolean;
+  };
+}
+
+export interface MailDeliveryItem {
+  id: number;
+  uuid: string;
+  tenant_id: number;
+  recipient_email: string;
+  message_type: 'account_verification' | 'password_reset' | 'billing_invoice' | 'security_alert';
+  template_id: string;
+  subject: string;
+  status: 'queued' | 'processing' | 'sent' | 'failed' | 'cancelled';
+  attempts: number;
+  max_attempts: number;
+  idempotency_key: string | null;
+  last_attempted_at: string | null;
+  sent_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
+  last_error: string | null;
+  is_dry_run: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TenantSubscriptionSummary {
