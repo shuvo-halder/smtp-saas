@@ -442,3 +442,50 @@ EmailSaaS provides an authoritative policy advisor matrix guiding tenants throug
 
 
 
+
+
+---
+
+## Transactional Mail Delivery Infrastructure & Linux Worker Architecture (Steps 40–42)
+
+### 1. Architectural Scope & Subsystem Separation
+The transactional mail delivery infrastructure is dedicated to platform-critical transactional notices:
+- Account verification emails (`account_verification`)
+- Password reset emails (`password_reset`)
+- Billing invoices and payment confirmations (`billing_invoice`)
+- Platform security and abuse incident alerts (`security_alert`)
+
+**Decoupled Isolation Invariant:** This application-level queue subsystem operates against the `mail_deliveries` ledger table and the Laravel `jobs` / `failed_jobs` tables. It is completely isolated from customer SMTP routing, Postfix MTA daemons, Dovecot LMTP delivery agents, and MTA log parsing (`delivery_logs`).
+
+### 2. Linux Queue Worker Process Supervision (Supervisor)
+In production Linux deployments (Ubuntu 22.04 LTS), workers are managed by Supervisor:
+- Configuration Path: `/etc/supervisor/conf.d/emailsaas-worker.conf`
+- Process Command: `php8.3 artisan queue:work database --sleep=3 --tries=5 --timeout=60 --max-time=3600 --max-jobs=1000 --rest=1`
+- Process Count: `numprocs=2` (scalable based on vCPU count)
+- User: `www-data`
+- Graceful Termination: `stopwaitsecs=75` (strictly $> \text{job\_timeout}=60\text{s}$) with `killasgroup=true` and `stopasgroup=true`.
+
+### 3. Queue Timing Hierarchy & Mathematical Consistency
+$$\text{Job Timeout (60s)} < \text{Queue Retry After (90s)} < \text{Worker Lease (120s)} < \text{Stale Threshold (900s)}$$
+- `job_timeout` (60s) aborts long-running jobs before the queue driver's `retry_after` (90s) triggers.
+- `worker_lease` (120s) prevents sibling workers from reclaiming an in-flight job.
+- `stale_threshold` (900s) ensures the 15-minute recovery cron never touches active workers.
+- Exponential backoff with jitter: $\min(900, (\text{base\_backoff} \times 2^{\text{attempt}-1}) + \text{jitter})$ with $\text{base\_backoff}=60\text{s}$.
+- Automated Configuration Audit: `MailDeliveryService::validateConfiguration()` programmatically audits this hierarchy and reports status in `/api/admin/system/mail-queue`.
+
+### 4. Scheduler & Stale Worker Recovery Daemon
+- Executed via `www-data` crontab: `* * * * * /usr/bin/php8.3 /var/www/email-saas/laravel-panel/artisan schedule:run >> /dev/null 2>&1`
+- Or via systemd timer: `emailsaas-scheduler.timer`
+- Stale Recovery Schedule: `mail:recover-stale --stale-seconds=900` runs every 15 minutes with `withoutOverlapping(10)` mutex protection.
+- Atomic Conditional Claims: Reclaims `processing` records ONLY if `status = 'processing' AND last_attempted_at <= cutoff`.
+
+### 5. Log Rotation & Linux Permissions
+- Log paths: `/var/log/emailsaas/worker.log` and `/var/www/email-saas/laravel-panel/storage/logs/laravel.log`.
+- Logrotate configuration: `/etc/logrotate.d/emailsaas` (daily, 14-day retention, compressed, `0640 www-data www-data`).
+
+### 6. Three-Level Verification Matrix (Steps 40–42)
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `MailDeliveryService`, `ProcessMailDeliveryJob`, `MailDeliveryRecord`, `AdminSystemHealthApiController` | `VERIFIED` | 31 dedicated feature tests passing cleanly (`MailDeliveryQueueTest` 16/16, `MailDeliverySecurityAndConsistencyTest` 15/15). State machine transitions, 409 conflict handling, concurrency locks, URL scheme validation, Blade XSS escaping, secret sanitization, and audit logging verified. Full test suite: 569/569 tests passing (2,829 assertions). |
+| **Level B: Linux Queue Worker & Scheduler Layer** | Linux Supervisor daemon, systemd timer, MariaDB queue tables, logrotate | `PENDING INFRASTRUCTURE` | Local Windows + Laragon development environment lacks Linux Supervisor, systemd timers, and POSIX signal handling. Full verification requires a dedicated Linux VPS staging environment. |
+| **Level C: Live End-to-End SMTP Transport & Mailbox Reception** | External SMTP relay, live transport acceptance, destination mailbox delivery | `BLOCKED — REQUIRES APPROVAL` | Live external mail delivery is locked and disabled per Step 42 specification (`MAIL_DELIVERY_DRY_RUN=true`). Live testing requires explicit stakeholder approval and test mailbox credentials. |

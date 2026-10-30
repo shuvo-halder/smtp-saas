@@ -1,5 +1,22 @@
 # Changelog
 
+### Email Delivery Production Readiness Audit & Linux Deployment Runbook (Step 42)
+- **Implemented:** Comprehensive Linux Deployment & Verification Runbook (`docs/MAIL-DELIVERY-RUNBOOK.md`):
+  - Documented OS prerequisites (Ubuntu 22.04 LTS), PHP 8.3 CLI extensions (`pcntl`, `posix`, `pdo_mysql`, `redis`), Supervisor daemon configuration, and crontab/systemd timer setups.
+  - Formulated log rotation policy (`/etc/logrotate.d/emailsaas`) with `0640 www-data www-data` permissions.
+- **Implemented:** Production-Critical Failure Analysis Matrix:
+  - Documented 10 failure scenarios covering worker crashes after SMTP acceptance (Two Generals' Problem), active worker lease collision, stale recovery race conditions, repeated admin retries, cache outages, idempotency race conditions, database disconnections, worker restarts, URL attacks, and credential leaks.
+- **Implemented:** Operational Audit Logging for Mail Mutations:
+  - Added `AuditService::record()` logging on `AdminSystemHealthApiController::retryMailDelivery` (`admin.mail_delivery.retry`) and `cancelMailDelivery` (`admin.mail_delivery.cancel`).
+- **Implemented:** Transport-Level RFC 5322 Message-ID Deduplication:
+  - Added `TransactionalMail::headers()` defining deterministic `Message-ID: <uuid@domain>` and `X-Delivery-UUID` headers to enable destination MTAs and ESPs to deduplicate transmissions following post-crash worker recovery.
+- **Implemented:** Disaster Recovery Runbook Extension:
+  - Added Section 10 to `docs/DISASTER-RECOVERY-RUNBOOK.md` detailing database snapshot restoration impacts on in-flight mail, post-restore queue re-synchronization (`mail:recover-stale`, `queue:flush`), and dead-letter triage.
+- **Automated Verification & Three-Level Matrix:**
+  - Expanded `MailDeliveryQueueTest.php` with 16 tests (83 assertions) verifying deterministic headers and administrative audit logging.
+  - Full backend regression suite: **569 tests, 2,829 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+
 ### Transactional Mail Security, Queue Recovery & Delivery Consistency (Step 41)
 - **Implemented:** Finite State Machine & Delivery Lifecycle Validation:
   - Formalized valid transition mapping (`ALLOWED_TRANSITIONS`) in `MailDeliveryRecord`: `queued` -> `[processing, cancelled]`, `processing` -> `[sent, failed, queued]`, `failed` -> `[queued]`, `cancelled` -> `[queued]`, `sent` -> `[]`.

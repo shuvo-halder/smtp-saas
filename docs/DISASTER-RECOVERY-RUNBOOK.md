@@ -389,3 +389,46 @@ The retention engine implements a true calendar-aware Grandfather-Father-Son (GF
 | **CHK-20-13** | Local Dev | Isolated Schema & Maildir Restore | Restores into disposable SQLite DB and directory | Verifies all tables and Maildir structure | Exit `0` | `BackupAndDisasterRecoveryTest` | `VERIFIED` | SQLite/filesystem level only |
 | **CHK-20-14** | Remote Staging | Real MariaDB 10.11+ Live Restore | Live MariaDB daemon drop/create/import drill | Remote staging MariaDB daemon unavailable in local Windows dev environment | Deferred | Pending staging VPS | `PENDING INFRASTRUCTURE` | Requires dedicated Linux VPS |
 | **CHK-20-15** | Remote Staging | Real Dovecot MDA Live Indexing Drill | Live Dovecot `doveadm index` discovery drill | Remote staging Dovecot daemon unavailable in local Windows dev environment | Deferred | Pending staging VPS | `PENDING INFRASTRUCTURE` | Requires dedicated Linux VPS |
+
+
+---
+
+## 10. Transactional Mail Ledger Recovery & Queue State Restoration (Step 42)
+
+### 10.1 Impact of Database Restoration on Transactional Mail
+When restoring a MariaDB database snapshot, `mail_deliveries`, `jobs`, and `failed_jobs` tables are restored to the exact point-of-backup timestamp:
+1. **In-Flight Messages at Snapshot Time:** Any record that was in `status = 'processing'` at snapshot creation will be restored in `processing` status.
+2. **Messages Sent Post-Snapshot:** Any transactional message that was enqueued and sent *after* the snapshot timestamp will not exist in the restored database. If the business application re-emits them (e.g. user requests another password reset), the `idempotency_key` mechanism will process them normally.
+3. **Messages In-Flight During Host Crash:** Messages whose transmission was completed to the mail relay but whose status update to `sent` was interrupted by host failure will be restored as `processing` or `queued`.
+   - **MTA Deduplication Invariant:** `TransactionalMail` automatically embeds a deterministic RFC 5322 header:
+     $$\text{Message-ID: } <\text{uuid}@\text{domain}>$$
+     Compliant destination MTAs and receiving ESPs will detect matching `Message-ID` headers upon re-transmission and deduplicate identical deliveries.
+
+### 10.2 Post-Restore Queue Re-Synchronization Procedure
+Immediately following database restoration and prior to unpausing queue workers:
+
+```bash
+# 1. Inspect queue health and count stuck processing jobs
+php artisan tinker --execute="print_r(app(\App\Services\MailDeliveryService::class)->getOperationalStatus());"
+
+# 2. Sweep and rescue all records stuck in 'processing' status
+php artisan mail:recover-stale --stale-seconds=60
+
+# 3. Flush orphaned queue jobs in the jobs table to prevent stale worker execution
+php artisan queue:flush
+
+# 4. Start supervisor queue workers
+sudo supervisorctl start emailsaas-worker:*
+```
+
+### 10.3 Dead-Letter Triage Post-Restoration
+If network or mail relay outages caused deliveries to dead-letter during an incident:
+1. Query failed records:
+   ```sql
+   SELECT id, uuid, recipient_email, message_type, attempts, last_error FROM mail_deliveries WHERE status = 'failed';
+   ```
+2. Trigger selective administrative retry via API or CLI:
+   ```bash
+   curl -X POST -H "Authorization: Bearer <ADMIN_TOKEN>" https://panel.domain.com/api/admin/system/mail-deliveries/<ID>/retry
+   ```
+   *Note: Every administrative retry is automatically recorded in `audit_logs` with action `'admin.mail_delivery.retry'`.*

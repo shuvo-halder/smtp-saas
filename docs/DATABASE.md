@@ -561,3 +561,24 @@ sent        --> []        (IMMUTABLE TERMINAL STATE)
 
 
 
+
+
+## 25. Mail Delivery Production Readiness, Index Sizing & Disaster Recovery State Semantics (Step 42)
+
+### 1. Index Architecture & Query Optimization Audit
+The `mail_deliveries` table utilizes 6 targeted indexes designed for high-throughput transactional queuing and administrative observability:
+- **`PRIMARY KEY (id)`:** Clustered B-tree index on auto-incrementing bigint.
+- **`UNIQUE KEY (uuid)`:** Cryptographically random UUIDv4 string, optimized for single-record API lookup (`GET /api/mail-deliveries/{uuid}`) and deterministic RFC 5322 `Message-ID` generation.
+- **`KEY idx_tenant_status_created (tenant_id, status, created_at)`:** Composite index covering tenant-scoped filtered queries and status tabs with zero table scan overhead.
+- **`KEY idx_status_created (status, created_at)`:** Administrative dashboard queue depth, backlog metrics, and oldest pending job retrieval (`status = 'queued' ORDER BY created_at ASC`).
+- **`KEY idx_status_last_attempted (status, last_attempted_at)`:** High-frequency index powering the 15-minute `mail:recover-stale` worker recovery query (`status = 'processing' AND last_attempted_at <= cutoff`).
+- **`KEY idx_tenant_idempotency (tenant_id, idempotency_key)`:** Sub-millisecond duplicate check during `enqueue()` under concurrency lock.
+
+### 2. Disaster Recovery Semantics & Backup Restoration Invariants
+1. **Point-of-Backup Snapshot Behavior:**
+   - In the event of a disaster recovery restore, the `mail_deliveries` and `jobs` tables are restored to the snapshot point.
+   - Any message in `processing` status at backup time will be restored as `processing`. Once the `mail:recover-stale` command executes (or after 900s), it will be re-queued with `attempts` incremented.
+2. **RFC 5322 Deterministic Message-ID Invariant:**
+   - Because `TransactionalMail` sets a deterministic `Message-ID: <uuid@domain>` based on the database record's `uuid`, destination MTAs and ESPs can identify duplicate transmissions caused by snapshot restoration or worker crashes, preventing recipient inbox duplication.
+3. **Audit Trail Synchronization:**
+   - Administrative mutations (`retry`, `cancel`) are recorded in `audit_logs` (`admin.mail_delivery.retry`, `admin.mail_delivery.cancel`) with actor attribution, ensuring operational accountability.

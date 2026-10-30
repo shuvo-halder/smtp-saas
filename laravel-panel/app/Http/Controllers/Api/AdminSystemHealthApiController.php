@@ -5,11 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MailDeliveryRecordResource;
 use App\Models\ScheduledTaskRun;
+use App\Services\AuditService;
 use App\Services\Health\SystemHealthService;
 use App\Services\MailDeliveryService;
 use App\Services\TenantNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class AdminSystemHealthApiController extends Controller
 {
@@ -98,10 +101,26 @@ class AdminSystemHealthApiController extends Controller
      * Authenticated administrative endpoint to retry a failed or cancelled mail delivery.
      * Guarded by EnsureAdmin and RequireAdminPermission:admin.stats.read.
      */
-    public function retryMailDelivery(int $id, MailDeliveryService $deliveryService): JsonResponse
+    public function retryMailDelivery(int $id, MailDeliveryService $deliveryService, Request $request): JsonResponse
     {
         try {
-            $record = $deliveryService->retry($id);
+            $actor = $request->user();
+            $record = $deliveryService->retry($id, $actor);
+
+            try {
+                app(AuditService::class)->record(
+                    action: 'admin.mail_delivery.retry',
+                    entityType: 'MailDeliveryRecord',
+                    entityId: $record->id,
+                    before: ['status' => 'failed_or_cancelled'],
+                    after: ['status' => $record->status, 'attempts' => $record->attempts],
+                    actor: $actor,
+                    reason: 'Admin manually queued mail delivery for retry',
+                    request: $request
+                );
+            } catch (Throwable $e) {
+                Log::warning('Failed to record audit log for mail delivery retry: ' . $e->getMessage());
+            }
 
             return response()->json([
                 'message' => 'Mail delivery queued for retry.',
@@ -116,10 +135,26 @@ class AdminSystemHealthApiController extends Controller
      * Authenticated administrative endpoint to cancel a pending queued mail delivery.
      * Guarded by EnsureAdmin and RequireAdminPermission:admin.stats.read.
      */
-    public function cancelMailDelivery(int $id, MailDeliveryService $deliveryService): JsonResponse
+    public function cancelMailDelivery(int $id, MailDeliveryService $deliveryService, Request $request): JsonResponse
     {
         try {
-            $record = $deliveryService->cancel($id);
+            $actor = $request->user();
+            $record = $deliveryService->cancel($id, $actor);
+
+            try {
+                app(AuditService::class)->record(
+                    action: 'admin.mail_delivery.cancel',
+                    entityType: 'MailDeliveryRecord',
+                    entityId: $record->id,
+                    before: ['status' => 'queued'],
+                    after: ['status' => $record->status],
+                    actor: $actor,
+                    reason: 'Admin cancelled pending mail delivery',
+                    request: $request
+                );
+            } catch (Throwable $e) {
+                Log::warning('Failed to record audit log for mail delivery cancellation: ' . $e->getMessage());
+            }
 
             return response()->json([
                 'message' => 'Mail delivery cancelled.',

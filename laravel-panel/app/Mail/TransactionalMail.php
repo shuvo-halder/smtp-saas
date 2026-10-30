@@ -7,6 +7,7 @@ use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
+use Illuminate\Mail\Mailables\Headers;
 use Illuminate\Queue\SerializesModels;
 
 class TransactionalMail extends Mailable
@@ -60,5 +61,21 @@ class TransactionalMail extends Mailable
     public function attachments(): array
     {
         return [];
+    }
+
+    /**
+     * Get the message headers.
+     * Provides deterministic Message-ID and tracking headers for transport-level MTA deduplication.
+     */
+    public function headers(): Headers
+    {
+        $domain = parse_url(config('app.url', 'http://localhost'), PHP_URL_HOST) ?: 'mailsaas.local';
+
+        return new Headers(
+            messageId: "{$this->record->uuid}@{$domain}",
+            text: [
+                'X-Delivery-UUID' => $this->record->uuid,
+            ],
+        );
     }
 }

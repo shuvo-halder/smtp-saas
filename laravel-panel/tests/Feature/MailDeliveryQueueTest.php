@@ -401,6 +401,13 @@ class MailDeliveryQueueTest extends TestCase
         $this->assertEquals(0, $refreshed->attempts);
         $this->assertNull($refreshed->failed_at);
         Queue::assertPushed(ProcessMailDeliveryJob::class, 1);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'admin.mail_delivery.retry',
+            'entity_type' => 'MailDeliveryRecord',
+            'entity_id' => $record->id,
+            'actor_user_id' => $this->admin->id,
+        ]);
     }
 
     public function test_admin_can_cancel_queued_delivery_via_api(): void
@@ -428,6 +435,13 @@ class MailDeliveryQueueTest extends TestCase
         $refreshed = $record->fresh();
         $this->assertEquals(MailDeliveryRecord::STATUS_CANCELLED, $refreshed->status);
         $this->assertNotNull($refreshed->cancelled_at);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'admin.mail_delivery.cancel',
+            'entity_type' => 'MailDeliveryRecord',
+            'entity_id' => $record->id,
+            'actor_user_id' => $this->admin->id,
+        ]);
     }
 
     public function test_stale_processing_recovery_command(): void
@@ -467,5 +481,29 @@ class MailDeliveryQueueTest extends TestCase
         $this->assertContains($health['components']['mail_delivery']['status'], ['HEALTHY', 'DEGRADED']);
         $this->assertArrayHasKey('details', $health['components']['mail_delivery']);
         $this->assertArrayHasKey('dry_run_mode', $health['components']['mail_delivery']['details']);
+    }
+
+    public function test_transactional_mail_sets_deterministic_message_id_and_tracking_headers(): void
+    {
+        $record = MailDeliveryRecord::create([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'tenant_id' => $this->tenant->id,
+            'recipient_email' => 'mta_dedup@example.com',
+            'message_type' => 'security_alert',
+            'template_id' => 'security_alert',
+            'subject' => 'Security Alert',
+            'payload' => ['user_name' => 'Alice', 'alert_title' => 'Login from new IP', 'alert_message' => 'Details here'],
+            'status' => MailDeliveryRecord::STATUS_QUEUED,
+            'attempts' => 0,
+            'max_attempts' => 3,
+            'is_dry_run' => false,
+        ]);
+
+        $mailable = new \App\Mail\TransactionalMail($record);
+        $headers = $mailable->headers();
+
+        $this->assertNotNull($headers);
+        $this->assertStringContainsString($record->uuid, $headers->messageId);
+        $this->assertEquals($record->uuid, $headers->text['X-Delivery-UUID'] ?? null);
     }
 }

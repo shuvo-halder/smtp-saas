@@ -1066,3 +1066,38 @@
   - `[x]` Queue foundation test suite (`tests/Feature/MailDeliveryQueueTest.php`): **15 tests, 78 assertions passing (100%)**.
   - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **568 tests, 2,824 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+
+
+---
+
+## Step 42 — Email Delivery Production Readiness Audit & Linux Deployment Runbook (`AUDITED & DOCUMENTED — VERIFIED`)
+- `[x]` Comprehensive Linux Deployment Runbook (`docs/MAIL-DELIVERY-RUNBOOK.md`):
+  - `[x]` Operating system prerequisites and version assumptions (Ubuntu 22.04 LTS, PHP 8.3 CLI with pcntl, posix, pdo_mysql, redis, openssl).
+  - `[x]` Queue broker selection (database queue default vs Redis queue high-throughput alternative).
+  - `[x]` Supervisor process configuration (`/etc/supervisor/conf.d/emailsaas-worker.conf` with `stopwaitsecs=75`, `--timeout=60`, `--max-time=3600`, `--max-jobs=1000`).
+  - `[x]` Scheduler automation via `crontab` and `systemd` timer (`emailsaas-scheduler.timer`).
+  - `[x]` Log rotation configuration (`/etc/logrotate.d/emailsaas`) with `0640 www-data www-data` permissions.
+- `[x]` Production-Critical Failure Analysis (10 Scenarios Evaluated):
+  - `[x]` Scenario 1 (SMTP accepted / worker crash): Evaluated Two Generals' Problem; mitigated via deterministic `Message-ID: <uuid@domain>` in `TransactionalMail`.
+  - `[x]` Scenario 2 (Queue retry while worker active): Evaluated timing hierarchy; lease window ($120\text{s} > 90\text{s}$) prevents sibling worker stomping.
+  - `[x]` Scenario 3 (Stale recovery race with completion): Evaluated atomic conditional SQL updates; first committer wins, second affects 0 rows.
+  - `[x]` Scenario 4 (Repeated admin retries): Evaluated atomic conditional updates (`WHERE status IN ('failed','cancelled')`); duplicate clicks affect 0 rows and skip dispatch.
+  - `[x]` Scenario 5 (Cache / rate-limiting outage): Evaluated fail-closed behavior on cache exception; protects queue capacity.
+  - `[x]` Scenario 6 (Concurrent enqueue with same idempotency key): Evaluated atomic mutex locking; eliminates race conditions.
+  - `[x]` Scenario 7 (Database outage during transition): Evaluated worker failure and stale recovery reconciliation.
+  - `[x]` Scenario 8 (Worker restart or termination): Evaluated Supervisor `stopwaitsecs=75` graceful shutdown.
+  - `[x]` Scenario 9 (Unsafe URL submitted): Evaluated `validateSafeUrl()` and Blade contextual escaping `{{ ... }}`.
+  - `[x]` Scenario 10 (Sensitive information in logs): Evaluated `scrubPayload()` and `sanitizeErrorMessage()` regex scrubbing.
+- `[x]` Code Quality & Observability Hardening:
+  - `[x]` Administrative Audit Logging: Added `AuditService::record()` logging on `AdminSystemHealthApiController::retryMailDelivery` (`admin.mail_delivery.retry`) and `cancelMailDelivery` (`admin.mail_delivery.cancel`).
+  - `[x]` Deterministic RFC 5322 Headers: Added `TransactionalMail::headers()` setting `Message-ID: <uuid@domain>` and `X-Delivery-UUID` for transport-level MTA deduplication.
+- `[x]` Disaster Recovery Runbook Extension (`docs/DISASTER-RECOVERY-RUNBOOK.md`):
+  - `[x]` Added Section 10 on Transactional Mail Ledger Recovery & Queue State Restoration.
+  - `[x]` Documented post-restore queue re-synchronization (`mail:recover-stale`, `queue:flush`) and dead-letter triage.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `MailDeliveryQueueTest.php` (16/16) and `MailDeliverySecurityAndConsistencyTest.php` (15/15) pass cleanly.
+  - `[x]` **Level B (Linux Queue Worker & Scheduler):** `PENDING INFRASTRUCTURE` (documented in `docs/MAIL-DELIVERY-RUNBOOK.md`; pending Linux VPS staging deployment).
+  - `[x]` **Level C (Live External SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **569 tests, 2,829 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.

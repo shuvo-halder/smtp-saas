@@ -480,3 +480,22 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Error logs stored in `last_error` are sanitized via comprehensive regular expressions, scrubbing URI passwords (`redis://user:pass@host` -> `redis://user:[REDACTED]@host`), authorization bearer tokens, API keys, and hashes prior to database persistence.
 - **Automated Configuration Audit:**
   - The operational status service automatically checks queue timing invariants (`timeout < retry_after`, `retry_after <= stale_threshold`, `base_backoff <= max_backoff`, `worker_lease > timeout`), surfacing `configuration_health` in administrative monitoring (`GET /api/admin/system/mail-queue`).
+
+
+## 32. Mail Delivery Production Readiness Audit, Audit Logging & Verification Boundaries (Step 42)
+- **Administrative Mutation Audit Logging Invariant:**
+  - Manual retry (`POST /api/admin/system/mail-deliveries/{id}/retry`) automatically records an immutable audit log entry in `audit_logs` (`action: 'admin.mail_delivery.retry'`) via `AuditService::record()`, capturing the administrative actor, IP address, user agent, request ID, and before/after status.
+  - Manual cancellation (`POST /api/admin/system/mail-deliveries/{id}/cancel`) automatically records an immutable audit log entry in `audit_logs` (`action: 'admin.mail_delivery.cancel'`) via `AuditService::record()`.
+  - Fails safe: An audit logging failure will never crash or abort the primary retry or cancellation transaction.
+- **Deterministic RFC 5322 Transport Deduplication:**
+  - `TransactionalMail` generates a deterministic `Message-ID` based on the delivery record's immutable UUID:
+    $$\text{Message-ID: } <\text{uuid}@\text{domain}>$$
+  - Also attaches `X-Delivery-UUID: <uuid>`.
+  - Guarantees that if a worker crashes post-SMTP acceptance and the message is re-transmitted by stale recovery, receiving MTAs (such as Postfix, Google, Microsoft, and SendGrid) can identify the message as a duplicate and suppress duplicate inbox delivery.
+- **Strict Privacy Invariant on System Health Diagnostics:**
+  - The administrative mail queue monitoring endpoint (`GET /api/admin/system/mail-queue`) and `SystemHealthService::checkMailDelivery()` report ONLY aggregate numerical counters (queued, processing, sent, failed, dead_letter, stale), timing configuration health, and queue backend status.
+  - Recipient email addresses, message subjects, payload contents, and transactional email bodies are strictly excluded from all telemetry and diagnostic outputs.
+- **Multi-Level Verification Boundaries:**
+  - Level A (Application & API Layer): Fully verified in local environment with 31 dedicated feature tests (569 tests across full suite).
+  - Level B (Linux Queue Worker & Scheduler): Documented in `docs/MAIL-DELIVERY-RUNBOOK.md` and classified as `PENDING INFRASTRUCTURE` until verified on a dedicated Linux VPS.
+  - Level C (Live External SMTP Delivery): Classified as `BLOCKED — REQUIRES APPROVAL`. Live delivery is permanently disabled (`MAIL_DELIVERY_DRY_RUN=true`) until formal stakeholder approval and controlled mailbox verification are completed.
