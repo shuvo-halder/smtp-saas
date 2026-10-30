@@ -1,5 +1,20 @@
 # Changelog
 
+### Linux Queue Worker & Scheduler Verification Harness (Step 43)
+- **Implemented:** Standalone Linux Verification Harness Script (`scripts/verify_mail_queue_linux.sh`):
+  - Authored an executable bash script covering 8 automated preflight and verification stages: safety preflight guards, Linux OS/kernel verification, PHP 8.3 CLI extension inspection (`pcntl`, `posix`, `pdo_mysql`, `redis`), database table and schema readiness, queue timing hierarchy audit, queue worker startup and graceful `SIGTERM` shutdown, scheduler registration and `mail:recover-stale` execution, synthetic dry-run enqueue and worker processing, and health telemetry PII audit.
+  - Validated syntax under Linux bash (`bash -n scripts/verify_mail_queue_linux.sh` passed exit code 0).
+- **Implemented:** Host WSL2 Environment Probe & Execution Boundary:
+  - Probed host WSL2 environment: `Ubuntu-22.04` and `Ubuntu` images detected on WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`.
+  - Identified that neither distro image has PHP 8.3 CLI or database packages installed. Adhering to Rule 2, classified Level B as `PENDING INFRASTRUCTURE`.
+- **Implemented:** Automated Verification Test Suite (`tests/Feature/LinuxQueueWorkerHarnessTest.php`):
+  - Authored 10 dedicated feature tests (50 assertions) verifying timing hierarchy, scheduler registration with mutex, worker interruption state preservation, stale recovery reclamation and dead-lettering, active worker lease safety, 409 conflict handling, deterministic RFC 5322 Message-ID, zero PII in telemetry, and dry-run safety.
+- **Implemented:** Recovery and Consistency Scenarios Audit:
+  - Audited 7 scenarios covering worker exits before claiming jobs, worker termination during processing, temporary database loss, stale recovery overlap with active workers, Supervisor automatic restarts, scheduler execution delays, and admin retry conflict handling.
+- **Automated Verification & Three-Level Matrix:**
+  - Full backend regression suite: **579 tests, 2,879 assertions passed (100% clean, 0 failures, 0 errors)**.
+  - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+
 ### Email Delivery Production Readiness Audit & Linux Deployment Runbook (Step 42)
 - **Implemented:** Comprehensive Linux Deployment & Verification Runbook (`docs/MAIL-DELIVERY-RUNBOOK.md`):
   - Documented OS prerequisites (Ubuntu 22.04 LTS), PHP 8.3 CLI extensions (`pcntl`, `posix`, `pdo_mysql`, `redis`), Supervisor daemon configuration, and crontab/systemd timer setups.

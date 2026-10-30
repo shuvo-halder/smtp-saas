@@ -837,8 +837,28 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 43 — Linux Queue Worker & Scheduler Verification Harness (IMPLEMENTED & VERIFIED):**
+  - **Standalone Linux Verification Harness Script (`scripts/verify_mail_queue_linux.sh`):**
+    - Authored an executable bash script covering 8 automated preflight and verification stages: safety preflight guards, Linux OS/kernel verification, PHP 8.3 CLI extension inspection (`pcntl`, `posix`, `pdo_mysql`, `redis`), database table and schema readiness, queue timing hierarchy audit, queue worker startup and graceful `SIGTERM` shutdown, scheduler registration and `mail:recover-stale` execution, synthetic dry-run enqueue and worker processing, and health telemetry PII audit.
+    - Validated syntax under Linux bash (`bash -n scripts/verify_mail_queue_linux.sh` passed exit code 0).
+  - **Host WSL2 Environment Probe & Execution Boundary:**
+    - Probed host WSL2 environment: `Ubuntu-22.04` and `Ubuntu` images detected on WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`.
+    - Identified that neither distro image has PHP 8.3 CLI or database packages installed. Adhering to Rule 2, classified Level B as `PENDING INFRASTRUCTURE`.
+  - **Automated Verification Test Suite (`tests/Feature/LinuxQueueWorkerHarnessTest.php`):**
+    - Authored 10 dedicated feature tests (50 assertions) verifying timing hierarchy, scheduler registration with mutex, worker interruption state preservation, stale recovery reclamation and dead-lettering, active worker lease safety, 409 conflict handling, deterministic RFC 5322 Message-ID, zero PII in telemetry, and dry-run safety.
+  - **Recovery and Consistency Scenarios Audit:**
+    - Audited 7 scenarios covering worker exits before claiming jobs, worker termination during processing, temporary database loss, stale recovery overlap with active workers, Supervisor automatic restarts, scheduler execution delays, and admin retry conflict handling.
+  - **Three-Level Verification Matrix:**
+    - Level A (Application & API Layer): `VERIFIED`. `LinuxQueueWorkerHarnessTest` (10/10), `MailDeliveryQueueTest` (16/16), `MailDeliverySecurityAndConsistencyTest` (15/15) pass cleanly. Full regression suite: 579 tests, 2,879 assertions passing cleanly (100%).
+    - Level B (Linux Queue Worker & Scheduler): `PENDING INFRASTRUCTURE` (verification script created and syntax validated; actual execution pending staging Linux VPS or configured WSL PHP 8.3 runtime).
+    - Level C (Live External SMTP Delivery): `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained).
+  - **Automated Verification & Test Coverage:**
+    - Full regression test suite (`php vendor/bin/phpunit`): **579 tests, 2,879 assertions passed (100% clean, 0 failures, 0 errors)**.
+    - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
+    - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
+
 ## 5. Next Recommended Implementation Phase
-- **Step 43 — Transactional Mail Dispatch Integration & Event Triggering:**
+- **Step 44 — Transactional Mail Dispatch Integration & Event Triggering:**
   - Connect transactional mail queue dispatches to application events:
     - User registration & email verification dispatch.
     - Password reset request dispatch.

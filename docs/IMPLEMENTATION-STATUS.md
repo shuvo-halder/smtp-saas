@@ -1101,3 +1101,34 @@
 - `[x]` Automated Verification & Regression Testing:
   - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **569 tests, 2,829 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+
+
+---
+
+## Step 43 — Linux Queue Worker & Scheduler Verification Harness (`VERIFICATION HARNESS IMPLEMENTED — LEVEL B PENDING LINUX RUNTIME`)
+- `[x]` Standalone Linux Verification Harness Script (`scripts/verify_mail_queue_linux.sh`):
+  - `[x]` Authored executable bash verification script with 8 automated preflight stages: Safety preflight guards, OS/kernel diagnostics, PHP 8.3 CLI extension inspection (`pcntl`, `posix`, `pdo_mysql`, `redis`), database connectivity and table readiness (`mail_deliveries`, `jobs`, `failed_jobs`, `cache`, `cache_locks`), queue timing configuration audit, worker startup and `SIGTERM` graceful shutdown, scheduler registration and `mail:recover-stale` execution, synthetic dry-run enqueue and worker processing, and health telemetry PII audit.
+  - `[x]` Syntax validated directly under Linux bash (`bash -n scripts/verify_mail_queue_linux.sh` passed with exit code 0).
+- `[x]` Host WSL2 Environment Probe & Execution Boundary:
+  - `[x]` Probed host WSL2 environment: `Ubuntu-22.04` and `Ubuntu` images detected on WSL2 kernel `6.6.87.2-microsoft-standard-WSL2`.
+  - `[x]` Identified that neither distro image has PHP 8.3 CLI or database packages installed.
+  - `[x]` Strictly adhered to Rule 2 (*"Do not install new infrastructure... without explicit approval. If Linux execution is unavailable, create the verification scripts and runbook but mark actual Linux verification as PENDING"*). Classified Level B as `PENDING INFRASTRUCTURE`.
+- `[x]` Recovery & Consistency Scenarios Audit (7 Scenarios Evaluated):
+  - `[x]` Scenario 1 (Worker exits before processing queued job): Record remains `queued`; claimed by next available worker. Zero risk.
+  - `[x]` Scenario 2 (Worker terminates during processing): Rescued after 120s lease / 900s stale sweep; attempts incremented. Unresolved duplicate-send risk post-SMTP acceptance mitigated via deterministic RFC 5322 `Message-ID: <uuid@domain>`.
+  - `[x]` Scenario 3 (Database connectivity lost): Worker catches PDO exception, releases job; enqueue fails closed. Zero corrupt rows.
+  - `[x]` Scenario 4 (Stale recovery overlaps with active worker): MariaDB row locking ensures atomic transition; active workers within lease window are ignored. Zero race conditions.
+  - `[x]` Scenario 5 (Supervisor restarts failed worker): Process restarts automatically; resumes consuming from `jobs` table without admin intervention.
+  - `[x]` Scenario 6 (Scheduler execution delayed or repeated): Scheduler atomic mutex lock (`withoutOverlapping(10)`) prevents overlapping runs. Method is idempotent.
+  - `[x]` Scenario 7 (Admin requests retry while processing): Service checks `isProcessing()`, throws `InvalidDeliveryStateException`, API returns HTTP 409 Conflict. Zero double dispatch.
+- `[x]` Automated Verification Test Suite (`tests/Feature/LinuxQueueWorkerHarnessTest.php`):
+  - `[x]` Authored 10 dedicated feature tests (50 assertions) verifying timing hierarchy, scheduler registration with mutex, worker interruption state preservation, stale recovery reclamation and dead-lettering, active worker lease safety, 409 conflict handling, deterministic RFC 5322 Message-ID, zero PII in telemetry, and dry-run safety.
+- `[x]` Three-Level Verification Matrix:
+  - `[x]` **Level A (Application & API Layer):** `VERIFIED`. `LinuxQueueWorkerHarnessTest` (10/10), `MailDeliveryQueueTest` (16/16), `MailDeliverySecurityAndConsistencyTest` (15/15) pass cleanly. Full regression suite: 579 tests, 2,879 assertions passing cleanly (100%).
+  - `[x]` **Level B (Linux Queue Worker & Scheduler):** `PENDING INFRASTRUCTURE` (verification script created and syntax validated; actual execution pending staging Linux VPS or configured WSL PHP 8.3 runtime).
+  - `[x]` **Level C (Live External SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Harness test suite (`tests/Feature/LinuxQueueWorkerHarnessTest.php`): **10 tests, 50 assertions passing (100%)**.
+  - `[x]` All 3 transactional mail test suites: **41 tests, 184 assertions passing (100%)**.
+  - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **579 tests, 2,879 assertions passing cleanly (0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
