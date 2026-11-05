@@ -528,3 +528,32 @@ $$\text{Job Timeout (60s)} < \text{Queue Retry After (90s)} < \text{Worker Lease
   - Mathematically consistent timing audited: `job_timeout (60s) < retry_after (90s) < worker_lease (120s) < stale_threshold (900s)`.
   - Mutex lock protection verified on `mail:recover-stale` (`withoutOverlapping(10)`) and `subscription:send-expiry-reminders` (`withoutOverlapping(15)`).
 
+### 10. Step 48B WSL2 PHP 8.3 CLI Setup Audit & Linux Queue Runtime Verification (Blocked Status)
+- **WSL2 Environment Baseline Invariants:**
+  - Distribution: Ubuntu 22.04.5 LTS (jammy).
+  - Kernel: `Linux 6.6.87.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC`.
+  - User context: `root` (`uid=0`, `gid=0`).
+  - Storage & memory: 955 GB available disk space (1% used); 3.4 GB free RAM.
+  - Windows development environment & Laragon PHP 8.3.33 strictly isolated and preserved untouched.
+- **Repository Package Audit & Blocker Determination:**
+  - Standard Ubuntu 22.04 LTS official repositories (`archive.ubuntu.com/ubuntu jammy`, `jammy-updates`, `jammy-security`, `jammy-backports` in `main`, `restricted`, `universe`, `multiverse`) only ship with **PHP 8.1**.
+  - Secondary stopped distribution `Ubuntu` (Ubuntu 26.04.1 LTS resolute) only ships with **PHP 8.5**.
+  - `composer.json` declares `"php": "^8.2"`, rendering PHP 8.1 incompatible with the Laravel 11 application.
+  - The standard Debian/Ubuntu mechanism to install PHP 8.3 on Ubuntu 22.04 LTS requires adding Ondřej Surý's PPA (`ppa:ondrej/php`), which is a third-party Personal Package Archive.
+  - **Strict Safety Constraint Enforcement:** In adherence to the governing rule (*"If PHP 8.3 is unavailable in existing trusted repositories, STOP and report the blocker. Do not add a third-party PPA or repository without explicit approval"*), third-party PPA configuration was halted, and execution status is recorded as `STEP 48B BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET`.
+- **Target Minimum Package Set (Cataloged for Approved Provisioning):**
+  - CLI runtime: `php8.3-cli`
+  - Core database & caching drivers: `php8.3-mysql`, `php8.3-redis`
+  - Transitive Composer & Laravel 11 extensions: `php8.3-mbstring`, `php8.3-xml`, `php8.3-curl`, `php8.3-zip`, `php8.3-bcmath`, `php8.3-intl`
+  - UNIX signal handling (bundled with `php8.3-cli` on Ubuntu): `pcntl`, `posix`
+- **WSL2 Project Mount & Database Network Connectivity:**
+  - Project directory is mapped via 9P / WSL filesystem at `/mnt/c/Users/ome/Desktop/email-saas`.
+  - In WSL2 default NAT mode, `.env` setting `DB_HOST=127.0.0.1` connects to WSL's virtual loopback where no MySQL server is running (connection refused).
+  - Windows host MySQL 8.4 is accessible from WSL2 via the default gateway `172.21.192.1:3306` (verified: TCP connect succeeds).
+  - `.env` was strictly preserved without automated mutation.
+- **Harness Syntax & Test Verification:**
+  - Verification harness `scripts/verify_mail_queue_linux.sh` verified: `bash -n` exited 0.
+  - 5 transactional mail test suites: 74 passed, 349 assertions (100%).
+  - Full application regression test suite: 612 passed, 3,044 assertions (100%).
+
+

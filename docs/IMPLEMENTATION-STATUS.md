@@ -1249,44 +1249,6 @@
 
 ---
 
-## Step 48 — Linux Queue Worker & Scheduler Runtime Verification (`LEVEL B PENDING INFRASTRUCTURE — LINUX PHP 8.3 CLI ABSENT; LEVEL A APPLICATION EVIDENCE VERIFIED`)
-- `[x]` Host Linux Environment Probe & Execution Evidence:
-  - `[x]` Evaluated native WSL2 Linux environment on host: kernel `6.6.87.2-microsoft-standard-WSL2` present across `Ubuntu-22.04` and `Ubuntu`.
-  - `[x]` Executed verification harness `scripts/verify_mail_queue_linux.sh` directly in WSL2 `Ubuntu-22.04`:
-    - Stage 0 Safety Preflight: `[PASS]` Database host safety verified (`DB_HOST=127.0.0.1`, not `103.131.144.61`). Dry-run delivery safety verified (`MAIL_DELIVERY_DRY_RUN=true`).
-    - Stage 1 OS Detection: `[PASS]` Linux OS detected (`Linux 6.6.87.2-microsoft-standard-WSL2`).
-    - Stage 2 PHP CLI & Extensions: `[FAIL]` Aborted cleanly with `PHP executable not found in PATH` (prerequisite: `sudo apt install php8.3-cli php8.3-mysql php8.3-redis`).
-  - `[x]` Strict Safety Compliance: Adhering strictly to rule (*"Do not install new infrastructure without approval. If Linux PHP 8.3 is unavailable, report Level B as PENDING and document the exact blocker. Do not simulate a successful Linux runtime"*), Level B runtime verification is recorded as `PENDING INFRASTRUCTURE`.
-- `[x]` Composer Platform Requirements & Signal Handling Audit:
-  - `[x]` Executed `composer check-platform-reqs`: Confirmed PHP 8.3.33 and standard extensions pass.
-  - `[x]` Identified `"ext-pcntl": "*"` platform requirement in `composer.json` is missing on Windows. Confirmed that `pcntl` and `posix` are UNIX-only extensions essential for queue worker signal handling (`SIGTERM`/`SIGINT`) and Supervisor integration on Linux.
-- `[x]` Database Engine & Migration Verification:
-  - `[x]` Verified local database connection: MySQL 8.4.3 on `127.0.0.1` (`emailsaas_local`).
-  - `[x]` Verified all 23 database migrations are applied (`php artisan migrate:status` all `[Ran]`).
-- `[x]` MySQL 8.4 Native JSON Engine Encryption Compatibility:
-  - `[x]` Identified that MySQL 8.4 enforces strict JSON syntax validation on columns defined as `$table->json('payload')`. Bare Base64 ciphertext triggered SQL error `3140 Invalid JSON text`.
-  - `[x]` Hardened `EncryptedArrayWithFallback` to serialize ciphertext via `json_encode(Crypt::encrypt($value))` on `set()` and unwrap on `get()`.
-  - `[x]` Confirmed against MySQL 8.4: payload is completely encrypted at rest (`RAW_DB_PLAINTEXT_ABSENT: true`), in-memory decryption matches original payload (`DECRYPTED_PAYLOAD_MATCHES: true`), and legacy JSON rows fall back cleanly (`LEGACY_FALLBACK_WORKS: true`).
-- `[x]` Queue Timing Hierarchy & Mutex Validation:
-  - `[x]` Timing hierarchy audited via `MailDeliveryService::validateConfiguration()`: `IS_VALID: true`, `ISSUES: none`.
-  - `[x]` Parameters: `job_timeout (60s) < retry_after (90s) < worker_lease (120s) < stale_threshold (900s)`.
-  - `[x]` Mutex lock protection verified on `mail:recover-stale` (`withoutOverlapping(10)`) and `subscription:send-expiry-reminders` (`withoutOverlapping(15)`).
-- `[x]` Dry-Run Commands & Telemetry Verification:
-  - `[x]` `php artisan mail:recover-stale --dry-run`: 0 stale records found, 0 modified.
-  - `[x]` `php artisan subscription:send-expiry-reminders --dry-run`: Clean execution, 0 modified.
-  - `[x]` Operational telemetry probe verified (`status: HEALTHY`, zero PII exposed).
-- `[x]` Automated Verification & Regression Testing:
-  - `[x]` All 5 transactional mail test suites: **74 passed (349 assertions, 100%)**.
-  - `[x]` Full regression test suite (`php artisan test`): **612 passed (3,044 assertions, 0 failures, 0 errors, 100%)**.
-  - `[x]` Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
-- `[x]` Strict Safety & Git Invariants:
-  - `[x]` Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
-  - `[x]` Zero connections to legacy production database `103.131.144.61`.
-  - `[x]` Strictly zero staged changes (`git add`), zero commits (`git commit`), and zero pushes (`git push`).
-
-
----
-
 ## Step 47 — Transactional Mail Security Hardening & Event Deduplication (`SECURITY HARDENING & DEDUPLICATION VERIFIED`)
 - `[x]` Cryptographic Email Verification Hardening:
   - `[x]` Remediated vulnerability where knowing user ID and email permitted forging `sha1($email)` verification.
@@ -1373,5 +1335,38 @@
   - `[x]` Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
   - `[x]` Zero connections to legacy production database `103.131.144.61`.
   - `[x]` Strictly zero staged changes (`git add`), zero commits (`git commit`), and zero pushes (`git push`).
+
+---
+
+## Step 48B — WSL2 PHP 8.3 CLI Setup & Linux Queue Runtime Verification (`STEP 48B BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET`)
+- `[x]` WSL2 Environment Preflight & Invariant Verification:
+  - `[x]` Probed `Ubuntu-22.04` distribution: Ubuntu 22.04.5 LTS (jammy), Linux kernel `6.6.87.2-microsoft-standard-WSL2`, root user (`uid=0`), 955 GB available disk space (1% used), 3.4 GB available memory.
+  - `[x]` Confirmed APT (`/usr/bin/apt`), Git (2.34.1), and Bash (5.1.16) functional.
+  - `[x]` Windows development tools and Laragon PHP 8.3.33 preserved completely untouched.
+- `[x]` Repository Audit & Package Availability Analysis (Blocker Identification):
+  - `[x]` Inspected `/etc/apt/sources.list`: configured trusted sources include canonical `jammy`, `jammy-updates`, `jammy-security`, and `jammy-backports` (`main`, `restricted`, `universe`, `multiverse`).
+  - `[x]` Executed `apt-get update` across all configured repositories.
+  - `[x]` Audited available PHP versions: Only `php8.1` (`php8.1-cli`, `php8.1-mysql`, etc.) is packaged in standard Ubuntu 22.04 LTS official repositories.
+  - `[x]` Cross-checked stopped distribution `Ubuntu`: detected pre-release Ubuntu 26.04.1 LTS (resolute) shipping exclusively with `php8.5`.
+  - `[x]` Evaluated framework dependency: `composer.json` specifies `"php": "^8.2"` (Laravel 11 requirement); PHP 8.1 cannot satisfy the runtime.
+  - `[x]` Evaluated standard installation path: Installing PHP 8.3 on Ubuntu 22.04 requires adding Ondřej Surý's PPA (`ppa:ondrej/php`).
+  - `[x]` **Strict Safety Enforcement:** In strict compliance with instructions (*"If PHP 8.3 is unavailable in existing trusted repositories, STOP and report the blocker. Do not add a third-party PPA or repository without explicit approval"*), third-party PPA configuration was halted, and status is recorded as `STEP 48B BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET`.
+- `[x]` Dependency & Extension Inventory:
+  - `[x]` `composer.json` requirements: `php: ^8.2`, `ext-pcntl: *`.
+  - `[x]` `composer.lock` transitive extension requirements: `ctype`, `curl`, `dom`, `fileinfo`, `filter`, `hash`, `iconv`, `json`, `libxml`, `mbstring`, `openssl`, `pcre`, `session`, `tokenizer`.
+  - `[x]` Harness requirements: `pcntl`, `posix`, `pdo_mysql`, `redis`, `mbstring`, `openssl`, `curl`, `bcmath`.
+  - `[x]` Target package list cataloged for future approved provisioning: `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
+- `[x]` Project Access & WSL2 Network Connectivity Audit:
+  - `[x]` Verified Windows project mount at `/mnt/c/Users/ome/Desktop/email-saas`.
+  - `[x]` Audited database connectivity: `.env` specifies `DB_HOST=127.0.0.1`. Inside WSL2 (NAT mode), `127.0.0.1` directs to the virtual machine loopback (connection refused).
+  - `[x]` Probed host connectivity: Windows MySQL server is active and reachable from WSL2 via the default gateway `172.21.192.1:3306` (TCP connection established).
+  - `[x]` Strictly preserved `.env` without automatic modification.
+- `[x]` Verification Harness & Test Suite Invariants:
+  - `[x]` Validated bash syntax: `bash -n scripts/verify_mail_queue_linux.sh` passed exit 0.
+  - `[x]` All 5 transactional mail test suites executed on Windows PHP 8.3 baseline: **74 passed (349 assertions, 100%)**.
+  - `[x]` Full regression test suite executed: **612 passed (3,044 assertions, 0 errors, 100%)**.
+- `[x]` Strict Safety & Git Invariants:
+  - `[x]` Strictly local execution on Windows 10 + WSL2 (no VPS access, no remote database access).
+  - `[x]` Zero Git changes staged or committed (0 staged, 0 commits, 0 pushes).
 
 

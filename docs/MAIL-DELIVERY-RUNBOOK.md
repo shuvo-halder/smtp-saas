@@ -725,5 +725,46 @@ Step 45 implemented robust worker ownership and fencing protection for the trans
 | **Level B** | Linux Worker Process Lifecycle, Signals & Cron Scheduler | Linux / WSL2 Ubuntu 22.04 LTS (Kernel 6.6.87.2) | `scripts/verify_mail_queue_linux.sh` | **PENDING INFRASTRUCTURE** (Harness executed in WSL2; Stage 0-1 passed; Stage 2 failed closed due to missing Linux PHP 8.3 CLI) |
 | **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained; requires explicit approval) |
 
+---
+
+## 18. Step 48B — WSL2 PHP 8.3 CLI Setup Audit & Linux Queue Runtime Verification (Blocked Status)
+
+### 18.1 WSL2 Preflight Findings
+- Distribution: Ubuntu 22.04.5 LTS (jammy).
+- Kernel: `Linux 6.6.87.2-microsoft-standard-WSL2`.
+- Linux User Context: `root` (`uid=0`, `gid=0`).
+- Storage: 955 GB available disk space (1% used).
+- Memory: 3.4 GB available RAM.
+- Windows development tools & Laragon PHP 8.3.33 strictly preserved untouched.
+
+### 18.2 Repository Analysis & Blocker Identification
+- Inspected Ubuntu APT sources (`/etc/apt/sources.list`): Jammy official repositories (`main`, `restricted`, `universe`, `multiverse`).
+- Executed `apt-get update`.
+- Package query (`apt-cache search '^php8\.'`): Confirmed **only PHP 8.1** packages exist in Ubuntu 22.04 LTS official repositories.
+- Canonical does not ship PHP 8.3 in standard Ubuntu 22.04 LTS repositories.
+- `composer.json` declares `"php": "^8.2"`, rendering PHP 8.1 incompatible with Laravel 11.
+- Installing PHP 8.3 on Ubuntu 22.04 LTS requires Ondřej Surý's PPA (`ppa:ondrej/php`), which is a third-party PPA.
+- **Governing Safety Rule:** *"If PHP 8.3 is unavailable in existing trusted repositories, STOP and report the blocker. Do not add a third-party PPA or repository without explicit approval."*
+- **Outcome:** PPA addition was halted. Status is documented as:
+  $$\text{Level B Status: } \textbf{BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET (AWAITING PPA APPROVAL)}$$
+
+### 18.3 Cataloged Minimum Extension Inventory
+- `php8.3-cli`, `php8.3-mysql`, `php8.3-redis`, `php8.3-mbstring`, `php8.3-xml`, `php8.3-curl`, `php8.3-zip`, `php8.3-bcmath`, `php8.3-intl`.
+
+### 18.4 WSL2 Project Mount & Network Connectivity
+- Project directory mapped at `/mnt/c/Users/ome/Desktop/email-saas`.
+- In WSL2 NAT networking, `.env` setting `DB_HOST=127.0.0.1` connects to the virtual machine loopback (connection refused).
+- Windows MySQL server is active and accessible from WSL2 via the default gateway `172.21.192.1:3306` (TCP connection established).
+- `.env` strictly preserved without automated modification.
+
+### 18.5 Verification Matrix (Updated)
+
+| Level | Scope | Target Environment | Verification Method | Status |
+|---|---|---|---|---|
+| **Level A** | Application Mail Queue, Security, Token Encryption, MySQL 8.4 Compatibility | Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3) | PHPUnit (74 mail tests, 612 full suite tests, 3,044 assertions) + Next.js TypeScript (0 errors) | **PASS / VERIFIED** |
+| **Level B** | Linux Worker Process Lifecycle, Signals & Cron Scheduler | WSL2 Ubuntu 22.04 LTS (Kernel 6.6.87.2) | `scripts/verify_mail_queue_linux.sh` | **BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET** (Official repos lack PHP 8.3; awaiting approval for `ppa:ondrej/php`) |
+| **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained; requires explicit approval) |
+
+
 
 

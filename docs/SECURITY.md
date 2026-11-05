@@ -629,6 +629,22 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Adhering to safety rules (*"Do not install new infrastructure without approval. If Linux PHP 8.3 is unavailable, report Level B as PENDING and document the exact blocker"*), Level B runtime verification is recorded as `PENDING INFRASTRUCTURE`.
   - Maintained `MAIL_DELIVERY_DRY_RUN=true` and rejected all remote connections to `103.131.144.61`.
 
+## 38. WSL2 Infrastructure Security, Package Repositories & Isolation Boundary (Step 48B Audit)
+- **Third-Party Repository & Supply Chain Invariant:**
+  - Ubuntu 22.04 LTS official repositories provide `php8.1` only. Canonical does not backport minor PHP versions into Jammy releases.
+  - Installing PHP 8.3 requires third-party repositories (Ondřej Surý's `ppa:ondrej/php`).
+  - Strict security policy (*"Do not add an untrusted repository. If PHP 8.3 is unavailable in existing trusted repositories, STOP and report the blocker. Do not add a third-party PPA or repository without explicit approval"*): The agent stopped immediately, avoided adding third-party PPAs, and requested explicit user authorization.
+- **Host vs. WSL2 Network Isolation Invariant:**
+  - In default WSL2 NAT networking, loopback `127.0.0.1` binds exclusively to the virtual machine namespace.
+  - Services on the Windows host (such as Laragon's MySQL 8.4) are isolated from WSL's `127.0.0.1`.
+  - Windows host MySQL is reachable via the virtual bridge gateway `172.21.192.1`.
+  - The local `.env` configuration was preserved without mutation, upholding configuration integrity.
+- **Dry-Run & Transport Confinement:**
+  - Dry run mode strictly maintained (`MAIL_DELIVERY_DRY_RUN=true`).
+  - Zero external socket connections opened to production database `103.131.144.61` or SMTP relays.
+  - Zero Git stage or commit operations executed.
+
+
 
 
 

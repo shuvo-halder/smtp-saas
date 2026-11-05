@@ -1003,10 +1003,39 @@ This document is the operational starting point for any AI coding agent working 
     - Zero connections to remote production database `103.131.144.61`.
     - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
 
+- **Step 48B — WSL2 PHP 8.3 CLI Setup Audit & Linux Queue Runtime Verification (STEP 48B BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET):**
+  - **WSL2 Preflight Environment Verification:**
+    - Probed WSL2 `Ubuntu-22.04` distribution: Ubuntu 22.04.5 LTS (jammy), Linux kernel `6.6.87.2-microsoft-standard-WSL2`, root user, 955 GB available disk space (1% used), 3.4 GB available RAM.
+    - Preserved Windows development environment, Laragon, and PHP 8.3.33 completely untouched.
+  - **Repository Analysis & Blocker Identification:**
+    - Executed `apt-get update` across official `jammy` repositories.
+    - Confirmed via `apt-cache search` that Ubuntu 22.04 LTS official repositories provide **only PHP 8.1**.
+    - Confirmed `composer.json` specifies `"php": "^8.2"`, rendering PHP 8.1 incompatible with the Laravel 11 application.
+    - Installing PHP 8.3 on Ubuntu 22.04 requires adding Ondřej Surý's PPA (`ppa:ondrej/php`), which is a third-party Personal Package Archive.
+    - In strict compliance with the governing constraint (*"If PHP 8.3 is unavailable in existing trusted repositories, STOP and report the blocker. Do not add a third-party PPA or repository without explicit approval"*), third-party PPA addition was halted, and execution status is recorded as `STEP 48B BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET`.
+  - **Target Minimum Package Set (Cataloged for Approved Provisioning):**
+    - `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
+  - **Project Mount & Network Connectivity Audit:**
+    - Project accessible in WSL2 at `/mnt/c/Users/ome/Desktop/email-saas`.
+    - Identified that `DB_HOST=127.0.0.1` binds to the WSL VM namespace (connection refused). Host MySQL is reachable via default gateway `172.21.192.1:3306` (TCP connection established). Preserved `.env` untouched.
+  - **Harness & Regression Verification:**
+    - `bash -n scripts/verify_mail_queue_linux.sh` passed exit 0.
+    - 5 transactional mail test suites: 74 passed, 349 assertions (100%).
+    - Full regression test suite: 612 passed, 3,044 assertions (0 errors, 100%).
+  - **Three-Level Verification Matrix:**
+    - **Level A (Application & API Layer):** `PASS / VERIFIED` (74 mail tests, 612 full suite tests, 3,044 assertions passing 100%).
+    - **Level B (Linux Queue Worker & Scheduler):** `BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET` (Official Ubuntu 22.04 repos provide only PHP 8.1; awaiting approval to add `ppa:ondrej/php`).
+    - **Level C (Controlled SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly enforced).
+  - **Git & Safety Invariants:**
+    - Strictly local execution on Windows 10 + WSL2 (no VPS access, no remote database access).
+    - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ## 5. Next Recommended Implementation Phase
+- **Approval Decision Point: Provision PHP 8.3 CLI into WSL2 via PPA:**
+  - If approved, add Ondřej Surý's PPA (`add-apt-repository ppa:ondrej/php`), update package cache, and install `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
+  - Configure WSL2 bridge database access or local test database to run `bash scripts/verify_mail_queue_linux.sh` to completion.
 - **Step 49 — Linux Staging Environment Setup & Queue Worker End-to-End Execution:**
-  - Provision PHP 8.3 CLI runtime (`php8.3-cli`, `php8.3-mysql`, `php8.3-redis`, `ext-pcntl`, `ext-posix`) in an approved Linux environment (WSL2 or dedicated staging VPS).
-  - Execute `bash scripts/verify_mail_queue_linux.sh` to completion through Stage 8 to elevate Level B to `PASS / VERIFIED`.
+  - Execute `bash scripts/verify_mail_queue_linux.sh` through all 8 stages once runtime is provisioned to elevate Level B to `PASS / VERIFIED`.
   - Validate Supervisor queue worker lifecycle, `SIGTERM` graceful drain, and cron scheduler triggers under real Linux daemon conditions.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.

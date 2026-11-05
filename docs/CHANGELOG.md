@@ -1,5 +1,25 @@
 # Changelog
 
+### WSL2 PHP 8.3 CLI Setup Audit & Linux Queue Runtime Verification (Step 48B)
+- **Audited & Blocked:** WSL2 Repository Package Inspection & Infrastructure Preflight:
+  - Preflight verified in WSL2 Ubuntu 22.04.5 LTS (jammy, kernel `6.6.87.2-microsoft-standard-WSL2`, root, 955 GB available, 3.4 GB RAM free).
+  - Executed `apt-get update` across official `jammy` repositories.
+  - Determined that standard Ubuntu 22.04 LTS official repositories provide **only PHP 8.1**.
+  - Confirmed `composer.json` requires `"php": "^8.2"`, rendering PHP 8.1 incompatible.
+  - Identified that installing PHP 8.3 on Ubuntu 22.04 requires adding Ondřej Surý's PPA (`ppa:ondrej/php`).
+  - Enforced strict safety constraint (*"If PHP 8.3 is unavailable in existing trusted repositories, STOP and report the blocker. Do not add a third-party PPA or repository without explicit approval"*), halted PPA installation, and reported `STEP 48B BLOCKED — INFRASTRUCTURE PREREQUISITE NOT MET`.
+- **Audited:** Extension Requirements & Project Connectivity:
+  - Cataloged target package set: `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
+  - Mapped WSL2 project mount at `/mnt/c/Users/ome/Desktop/email-saas`.
+  - Identified WSL2 loopback limitation: `DB_HOST=127.0.0.1` binds to WSL VM; host MySQL is reachable via default gateway `172.21.192.1:3306` (TCP connection established). Preserved `.env` untouched.
+- **Verified:** Baseline Test Suite & Harness Syntax:
+  - `bash -n scripts/verify_mail_queue_linux.sh` syntax check: exit 0.
+  - 5 transactional mail test suites: 74 passed, 349 assertions (100%).
+  - Full PHPUnit regression suite (`php artisan test`): 612 passed, 3,044 assertions (0 failures, 0 errors, 100%).
+- **Git & Safety Invariants:**
+  - Strictly local development on Windows 10 + WSL2 (zero VPS connections, zero remote DB connections).
+  - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ### Linux Queue Worker & Scheduler Runtime Verification (Step 48)
 - **Verified:** Host Linux Runtime Environment Probe & Evidence:
   - Evaluated native WSL2 Linux environment: detected kernel `6.6.87.2-microsoft-standard-WSL2` across `Ubuntu-22.04` and `Ubuntu`.
