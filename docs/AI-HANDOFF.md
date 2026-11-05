@@ -1030,18 +1030,51 @@ This document is the operational starting point for any AI coding agent working 
     - Strictly local execution on Windows 10 + WSL2 (no VPS access, no remote database access).
     - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
 
+- **Step 48B-R1 — Approved WSL2 PHP 8.3 Provisioning & Linux Queue Runtime Verification (STEP 48B-R1 PARTIALLY COMPLETE — LEVEL B PARTIALLY VERIFIED):**
+  - **Approved WSL2 PPA & Package Provisioning:**
+    - Added owner-approved Ondřej Surý PPA (`ppa:ondrej/php`) inside WSL2 `Ubuntu-22.04` container with verified GPG fingerprint `B8DC7E53946656EFBCE4C1DD71DAEAAB4AD4CAB6`.
+    - Installed minimal approved package set: `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
+    - Verified PHP CLI binary: `PHP 8.3.36 (cli) (built Oct 21 2026)` located at `/usr/bin/php`.
+    - Verified mandatory extensions loaded: `pcntl` (enabled), `posix` (enabled), `pdo_mysql` (loaded), `redis` (loaded, v6.3.0), `mbstring`, `openssl`, `curl`, `bcmath`, `dom`, `xml`, `zip`, `intl`.
+    - Windows host environment, Laragon, and PHP 8.3.33 preserved completely untouched.
+  - **Composer Platform Requirements Resolution (Linux PHP 8.3):**
+    - Executed `composer check-platform-reqs` under Linux PHP 8.3.36: **100% SUCCESS**.
+    - All declared packages satisfied, including native resolution of `"ext-pcntl": "*"` and `"php": "^8.2"`, eliminating the platform gap observed on Windows.
+  - **Linux Queue Verification Harness Execution (`scripts/verify_mail_queue_linux.sh`):**
+    - Stage 0 Safety Preflight: `[PASS]` (`DB_HOST != 103.131.144.61`, `MAIL_DELIVERY_DRY_RUN=true`).
+    - Stage 1 OS Check: `[PASS]` (`Linux 6.6.87.2-microsoft-standard-WSL2`).
+    - Stage 2 PHP CLI & Extensions: `[PASS]` (PHP 8.3.36, all 8 required extensions confirmed).
+    - Stage 3 Database Readiness: `[BLOCKED]` — In WSL2 NAT mode, loopback `127.0.0.1` connects to VM loopback where no MySQL server is running (connection refused). Gateway `172.21.192.1:3306` passes TCP handshake, but authenticated application login is restricted by Windows Laragon MySQL grants (`SQLSTATE[HY000] [1130] Host '172.21.204.159' is not allowed to connect to this MySQL server` because only `root@localhost` exists). Following safety rules, `.env` and host MySQL grants were preserved without modification, and database-dependent stages were halted.
+    - Stage 4 Timing Hierarchy: `[PASS]` — Confirmed in Linux PHP: `job_timeout (60s) < retry_after (90s) < worker_lease (120s) < stale_threshold (900s)`.
+    - Stage 5 Worker Lifecycle & Signal Handling: `[PASS]` — Spawned background worker (`php artisan queue:work`), dispatched `kill -TERM $PID`, and verified worker trapped `SIGTERM` via `ext-pcntl` and exited gracefully within <1 second without hung processes.
+    - Stage 6 Scheduler Registration: `[PASS]` — Evaluated via `CACHE_STORE=array php artisan schedule:list` in Linux PHP: confirmed `mail:recover-stale` (every 15m) and `subscription:send-expiry-reminders` (daily at 08:00).
+  - **Encrypted Payload Compatibility in Linux PHP CLI:**
+    - Validated `App\Casts\EncryptedArrayWithFallback` in Linux PHP 8.3.36: payload serialized to valid JSON wrapping AES-256 ciphertext (`RAW_PAYLOAD_IS_VALID_JSON: true`), raw ciphertext contains zero plaintext (`RAW_PAYLOAD_CONTAINS_PLAINTEXT: false`), in-memory decryption matches original array (`DECRYPTED_PAYLOAD_MATCHES: true`), and legacy unencrypted JSON decodes cleanly via fallback (`LEGACY_FALLBACK_WORKS: true`).
+  - **Automated Verification & Test Suites:**
+    - Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+    - Windows PHP 8.3 regression suite (`php artisan test`): **612 passed (3,044 assertions, 0 failures, 0 errors, 100%)**.
+    - WSL2 Linux PHP 8.3 unit test (`php artisan test tests/Unit/ExampleTest.php`): **1 passed (1 assertion)**. Noted that feature tests utilizing `RefreshDatabase` require `php8.3-sqlite3` driver under Linux PHP.
+  - **Three-Level Verification Matrix (Step 48B-R1 Status):**
+    - **Level A (Application & API Layer):** `PASS / VERIFIED` (74 mail tests, 612 full suite tests, 3,044 assertions passing 100%).
+    - **Level B (Linux Queue Worker & Scheduler):** `PARTIALLY VERIFIED` (Linux PHP 8.3.36 runtime, Composer platform reqs, PCNTL SIGTERM graceful drain, scheduler registration, and payload encryption VERIFIED; authenticated DB stages 7–8 blocked by host MySQL grant table `root@localhost`).
+    - **Level C (Controlled SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained; requires explicit approval).
+  - **Git & Safety Invariants:**
+    - Strictly local execution on Windows 10 + WSL2 (no VPS access, zero remote database connections).
+    - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ## 5. Next Recommended Implementation Phase
-- **Approval Decision Point: Provision PHP 8.3 CLI into WSL2 via PPA:**
-  - If approved, add Ondřej Surý's PPA (`add-apt-repository ppa:ondrej/php`), update package cache, and install `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
-  - Configure WSL2 bridge database access or local test database to run `bash scripts/verify_mail_queue_linux.sh` to completion.
+- **Approval Decision Point: Database Connectivity for Complete Level B Verification:**
+  - Option 1 (Recommended for local WSL2): Create a local MySQL test user or grant `root@'172.21.%'` / `emailsaas_test` database access from WSL2, or run a local lightweight MySQL/MariaDB or SQLite database in WSL2 for full Stage 7–8 harness completion and Linux feature test execution.
+  - Option 2 (Recommended for staging): Defer Stages 7–8 to dedicated Linux VPS staging environment where Postfix, Dovecot, and MariaDB run natively on the same host.
 - **Step 49 — Linux Staging Environment Setup & Queue Worker End-to-End Execution:**
-  - Execute `bash scripts/verify_mail_queue_linux.sh` through all 8 stages once runtime is provisioned to elevate Level B to `PASS / VERIFIED`.
+  - Execute `bash scripts/verify_mail_queue_linux.sh` through all 8 stages once database connectivity is configured to elevate Level B to full `PASS / VERIFIED`.
   - Validate Supervisor queue worker lifecycle, `SIGTERM` graceful drain, and cron scheduler triggers under real Linux daemon conditions.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

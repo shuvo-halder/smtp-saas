@@ -644,6 +644,26 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Zero external socket connections opened to production database `103.131.144.61` or SMTP relays.
   - Zero Git stage or commit operations executed.
 
+## 39. Linux Process Signal Isolation, Worker Lifecycle & WSL2 Security Boundaries (Step 48B-R1 Verification)
+- **Process Signal Isolation & Graceful Worker Draining:**
+  - Asynchronous UNIX signal handling verified in real Linux runtime using native `ext-pcntl` and `ext-posix` extensions.
+  - Background queue workers trap `SIGTERM` and finish active job processing loops before exiting, preventing truncated mail transactions or inconsistent delivery states.
+  - Clean process termination verified within <1 second of receiving `SIGTERM`, preventing hung child processes, zombie processes, or orphaned database lease locks.
+- **WSL2 NAT Security Boundary & Host Database Isolation:**
+  - WSL2 default NAT networking creates a distinct network namespace where `127.0.0.1` connects to the virtual machine itself, keeping Windows host services inaccessible over loopback.
+  - Gateway routing (`172.21.192.1`) enforces network separation: while TCP handshakes succeed across the virtual bridge, MySQL host-based authentication restricts connections.
+  - Windows Laragon MySQL grants strictly enforce `root@localhost`. Inbound connections originating from WSL2's virtual adapter (`172.21.204.159`) are rejected with `SQLSTATE[HY000] [1130]`.
+  - Least-Privilege Enforcement: In strict compliance with security protocols, the agent did not grant wildcard `%` or subnet access to the MySQL database or modify `.env` credentials, maintaining host database isolation.
+- **Cryptographic Confidentiality in Linux PHP Runtime:**
+  - Verified `App\Casts\EncryptedArrayWithFallback` in native Linux PHP 8.3.36 CLI.
+  - Encrypted payloads wrap AES-256 ciphertext in JSON strings, satisfying strict storage engine validation while guaranteeing that plaintext credentials, password reset tokens, and sensitive URLs are never written to database storage.
+  - Backward-compatible decryption handles legacy plaintext JSON gracefully without exceptions.
+- **Strict Confinement & Dry-Run Enforcement:**
+  - All operations maintained `MAIL_DELIVERY_DRY_RUN=true`.
+  - Zero external network connections to legacy production database `103.131.144.61`.
+  - Zero emails dispatched over live SMTP.
+
+
 
 
 

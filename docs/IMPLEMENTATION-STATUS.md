@@ -1369,4 +1369,39 @@
   - `[x]` Strictly local execution on Windows 10 + WSL2 (no VPS access, no remote database access).
   - `[x]` Zero Git changes staged or committed (0 staged, 0 commits, 0 pushes).
 
+---
+
+## Step 48B-R1 — Approved WSL2 PHP 8.3 Provisioning & Linux Queue Runtime Verification (`STEP 48B-R1 PARTIALLY COMPLETE — LEVEL B PARTIALLY VERIFIED`)
+- `[x]` Approved WSL2 Repository Configuration & Provisioning:
+  - `[x]` Added owner-approved Ondřej Surý PPA (`ppa:ondrej/php`) inside WSL2 `Ubuntu-22.04` container with verified GPG fingerprint `B8DC7E53946656EFBCE4C1DD71DAEAAB4AD4CAB6`.
+  - `[x]` Installed minimal approved package set: `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
+  - `[x]` Verified Linux PHP CLI binary: `PHP 8.3.36 (cli) (built Oct 21 2026)` located at `/usr/bin/php`.
+  - `[x]` Verified mandatory extensions loaded: `pcntl` (enabled), `posix` (enabled), `pdo_mysql` (loaded), `redis` (loaded, v6.3.0), `mbstring`, `openssl`, `curl`, `bcmath`, `dom`, `xml`, `zip`, `intl`.
+  - `[x]` Preserved Windows host environment and Laragon PHP 8.3.33 completely untouched.
+- `[x]` Composer Platform Requirements Verification (Linux PHP 8.3):
+  - `[x]` Verified Composer 2.8.10 in WSL2 under PHP 8.3.36.
+  - `[x]` Executed `composer check-platform-reqs`: **100% SUCCESS** across all dependencies, including native resolution of `"ext-pcntl": "*"` and `"php": "^8.2"`.
+- `[x]` Linux Queue Verification Harness Execution (`scripts/verify_mail_queue_linux.sh`):
+  - `[x]` **Stage 0 (Safety Preflight):** `[PASS]` (`DB_HOST=127.0.0.1 != 103.131.144.61`, `MAIL_DELIVERY_DRY_RUN=true`).
+  - `[x]` **Stage 1 (OS & Kernel Detection):** `[PASS]` (`Linux 6.6.87.2-microsoft-standard-WSL2`).
+  - `[x]` **Stage 2 (PHP CLI & Extensions):** `[PASS]` (PHP 8.3.36, all 8 required extensions confirmed).
+  - `[x]` **Stage 3 (Database Readiness):** `[BLOCKED]` — In WSL2 NAT mode, loopback `127.0.0.1` connects to the VM loopback where no MySQL server is running (connection refused). Host gateway `172.21.192.1:3306` passes TCP handshake, but authenticated application login is restricted by Windows Laragon MySQL user privileges (`SQLSTATE[HY000] [1130] Host '172.21.204.159' is not allowed to connect to this MySQL server` because only `root@localhost` exists). Following safety rules, `.env` and host MySQL grants were preserved without modification, and database-dependent stages were halted.
+  - `[x]` **Stage 4 (Timing Hierarchy Consistency):** `[PASS]` — Validated in Linux PHP: `job_timeout (60s) < retry_after (90s) < worker_lease (120s) < stale_threshold (900s)`.
+  - `[x]` **Stage 5 (Worker Lifecycle & Signal Handling):** `[PASS]` — Spawned background Linux worker process (`php artisan queue:work --sleep=1 --tries=3 --timeout=60`), captured PID, dispatched `kill -TERM $PID`, and confirmed worker trapped `SIGTERM` and exited gracefully within <1 second. Zero hung processes or orphaned worker handles.
+  - `[x]` **Stage 6 (Scheduler Registration Audit):** `[PASS]` — Evaluated via `CACHE_STORE=array php artisan schedule:list` in Linux PHP. Confirmed active registration of `mail:recover-stale` (every 15m) and `subscription:send-expiry-reminders` (daily at 08:00).
+- `[x]` Encrypted Payload Compatibility in Linux PHP:
+  - `[x]` Verified `App\Casts\EncryptedArrayWithFallback` under Linux PHP 8.3.36 CLI.
+  - `[x]` Confirmed payload serialization generates valid JSON wrapping AES-256 ciphertext (`RAW_PAYLOAD_IS_VALID_JSON: true`).
+  - `[x]` Confirmed zero plaintext tokens exist in serialized data (`RAW_PAYLOAD_CONTAINS_PLAINTEXT: false`).
+  - `[x]` Confirmed in-memory decryption matches original payload (`DECRYPTED_PAYLOAD_MATCHES: true`).
+  - `[x]` Confirmed legacy plaintext JSON fallback decodes cleanly without errors (`LEGACY_FALLBACK_WORKS: true`).
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Frontend TypeScript check (`npx tsc --noEmit`): **0 errors (100%)**.
+  - `[x]` Windows PHP 8.3 regression suite (`php artisan test`): **612 passed (3,044 assertions, 0 failures, 0 errors, 100%)**.
+  - `[x]` WSL2 Linux PHP 8.3 unit test (`php artisan test tests/Unit/ExampleTest.php`): **1 passed (1 assertion)**. Noted that feature tests utilizing `RefreshDatabase` require `php8.3-sqlite3` driver under Linux PHP.
+- `[x]` Strict Safety & Git Invariants:
+  - `[x]` Strictly local execution on Windows 10 + WSL2 (no VPS access, zero remote database connections).
+  - `[x]` Strictly zero staged changes (`git add`), zero commits (`git commit`), and zero pushes (`git push`).
+
+
 

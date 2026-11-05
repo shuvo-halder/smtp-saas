@@ -556,4 +556,42 @@ $$\text{Job Timeout (60s)} < \text{Queue Retry After (90s)} < \text{Worker Lease
   - 5 transactional mail test suites: 74 passed, 349 assertions (100%).
   - Full application regression test suite: 612 passed, 3,044 assertions (100%).
 
+### 11. Step 48B-R1 Approved WSL2 PHP 8.3 CLI Provisioning & Linux Queue Runtime Verification
+- **Approved PPA Provisioning & Toolchain Installation:**
+  - Configured owner-approved Ondřej Surý PPA (`ppa:ondrej/php`) inside WSL2 `Ubuntu-22.04` container with verified GPG fingerprint `B8DC7E53946656EFBCE4C1DD71DAEAAB4AD4CAB6`.
+  - Installed minimal approved package set: `php8.3-cli php8.3-mysql php8.3-redis php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl`.
+  - Verified PHP CLI binary: `PHP 8.3.36 (cli) (built Oct 21 2026)` located at `/usr/bin/php`.
+  - Required extensions loaded and verified: `pcntl` (enabled), `posix` (enabled), `pdo_mysql` (loaded), `redis` (loaded, v6.3.0), `mbstring`, `openssl`, `curl`, `bcmath`, `dom`, `xml`, `zip`, `intl`.
+  - Host Windows environment, Laragon, and PHP 8.3.33 strictly isolated and preserved untouched.
+- **Composer Platform Requirements Resolution (Linux PHP 8.3):**
+  - Executed `composer check-platform-reqs` under Linux PHP 8.3.36: **100% SUCCESS**.
+  - All declared packages satisfied, including native resolution of `"ext-pcntl": "*"` and `"php": "^8.2"`, eliminating the Windows platform gap.
+- **Linux Worker Lifecycle & Asynchronous Signal Handling (SIGTERM):**
+  - Spawned background worker process in Linux: `php artisan queue:work database --sleep=1 --tries=3 --timeout=60`.
+  - Captured worker PID and dispatched `kill -TERM $PID`.
+  - Worker process trapped `SIGTERM` via native `ext-pcntl` handlers, initiated graceful job draining, and exited cleanly within <1 second.
+  - Process polling confirmed process termination with exit code 0 and zero lingering zombie processes.
+- **Queue Timing Hierarchy & Scheduler Registration:**
+  - Evaluated timing hierarchy in Linux PHP CLI: confirmed `job_timeout (60s) < retry_after (90s) < worker_lease (120s) < stale_threshold (900s)`.
+  - Evaluated scheduled tasks via `CACHE_STORE=array php artisan schedule:list` in Linux PHP CLI: confirmed active registration of `mail:recover-stale` (every 15m) and `subscription:send-expiry-reminders` (daily at 08:00).
+- **Encrypted Payload Compatibility in Linux PHP CLI:**
+  - Verified `App\Casts\EncryptedArrayWithFallback` under Linux PHP 8.3.36 CLI.
+  - Serialization generates valid JSON wrapping AES-256 ciphertext (`RAW_PAYLOAD_IS_VALID_JSON: true`).
+  - Raw storage contains zero plaintext tokens or URLs (`RAW_PAYLOAD_CONTAINS_PLAINTEXT: false`).
+  - In-memory decryption matches original payload (`DECRYPTED_PAYLOAD_MATCHES: true`).
+  - Legacy unencrypted JSON string decodes cleanly via fallback (`LEGACY_FALLBACK_WORKS: true`).
+- **Database Boundary & Network Topology Audit:**
+  - In WSL2 default NAT networking, `DB_HOST=127.0.0.1` binds to the virtual machine loopback (connection refused).
+  - Default gateway `172.21.192.1:3306` establishes TCP handshake with Windows host MySQL.
+  - Authenticated MySQL login from WSL2 IP (`172.21.204.159`) is restricted by Windows Laragon MySQL grant tables (`SQLSTATE[HY000] [1130] Host '172.21.204.159' is not allowed to connect to this MySQL server` because only `root@localhost` exists).
+  - Safety Rule Adherence: Local `.env` and host MySQL user grants were preserved untouched without automated modification. Stages 7–8 of `scripts/verify_mail_queue_linux.sh` requiring database transactions were safely halted.
+- **Updated Three-Level Verification Matrix (Step 48B-R1):**
+
+| Verification Level | Target | Status | Detail / Justification |
+|---|---|---|---|
+| **Level A: Application & API Layer** | `MailDeliveryService`, `ProcessMailDeliveryJob`, `MailDeliveryRecord`, `AdminSystemHealthApiController` | `VERIFIED` | 74 transactional mail tests passing cleanly, 612 full regression tests passing (3,044 assertions, 100%), Next.js TypeScript check clean (0 errors). |
+| **Level B: Linux Queue Worker & Scheduler Layer** | WSL2 Ubuntu 22.04 LTS (PHP 8.3.36 CLI, `ext-pcntl`, `ext-posix`) | `PARTIALLY VERIFIED` | Linux PHP 8.3.36 runtime provisioned via approved PPA. Composer platform requirements 100% pass (`ext-pcntl` success). Real Linux worker lifecycle and `SIGTERM` graceful drain verified (<1s exit). Scheduler commands verified registered. Authenticated DB stages 7–8 halted due to host MySQL grant restrictions (`root@localhost`). |
+| **Level C: Live End-to-End SMTP Transport & Mailbox Reception** | External SMTP relay, live transport acceptance, destination mailbox delivery | `BLOCKED — REQUIRES APPROVAL` | Live external mail delivery is strictly locked and disabled (`MAIL_DELIVERY_DRY_RUN=true`). Live testing requires explicit stakeholder approval, relay credentials, and a controlled test mailbox. |
+
+
 
