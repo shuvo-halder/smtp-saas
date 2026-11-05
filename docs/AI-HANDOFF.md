@@ -857,13 +857,36 @@ This document is the operational starting point for any AI coding agent working 
     - Frontend TypeScript typecheck: **`npx tsc --noEmit` passed with 0 errors**.
     - Local Git state: Clean working tree, zero staging, zero commits, zero pushes.
 
+- **Step 44 — Linux Verification Readiness & Evidence Audit (AUDIT COMPLETE — LEVEL B STATUS BASED ON ACTUAL EVIDENCE):**
+  - **Verification Harness Audit & Defect Remediation (`scripts/verify_mail_queue_linux.sh`):**
+    - Completed exhaustive line-by-line audit across all 8 stages.
+    - Remediated CLI option parsing: Added loop-based parsing for `--dry-run` and `--skip-worker-signal`.
+    - Hardened Stage 0 preflight guards: Added static check strictly rejecting remote host `103.131.144.61` and verifying `MAIL_DELIVERY_DRY_RUN=true`.
+    - Remediated Stage 5 worker termination: Implemented bounded 5-second polling on `kill -0` before `SIGKILL` fallback to prevent unkillable process hangs.
+    - Remediated Stage 7 synthetic dry-run isolation: Direct execution of `ProcessMailDeliveryJob($record->id)->handle()` with `jobs` table dequeue and `try/finally` cleanup, eliminating queue head contention and test data leakage.
+    - Syntax validated under Linux bash in WSL2 Ubuntu (`bash -n scripts/verify_mail_queue_linux.sh` passed exit code 0).
+  - **Ten-Point Queue Consistency & Distributed Recovery Audit:**
+    - Verified mathematical timing hierarchy: $\text{job\_timeout (60s)} < \text{retry\_after (90s)} < \text{worker\_lease (120s)} < \text{stale\_threshold (900s)}$ with Supervisor `stopwaitsecs=75s`.
+    - Audited undead worker lease expiry in distributed environments and formulated optimistic claim token / version column recommendation.
+    - Clarified RFC 5322 Message-ID deduplication as best-effort MTA transport deduplication vs application-level idempotency key.
+    - Confirmed fail-closed outage behavior and verified absolute absence of PII in telemetry endpoints.
+  - **Evidence Verification Matrix:**
+    - **Level A (Application & API Layer):** `PASS / VERIFIED` (31 mail feature tests, 10 harness tests, full suite 579 tests, 2,879 assertions passing 100%).
+    - **Level B (Linux Queue Worker & Scheduler):** `PENDING INFRASTRUCTURE` (Harness audit complete, bash syntax verified; execution pending PHP 8.3 CLI runtime in Linux host).
+    - **Level C (Controlled SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly enforced).
+  - **Strict Safety Invariants:**
+    - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+    - Zero connections to remote production database `103.131.144.61`.
+    - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ## 5. Next Recommended Implementation Phase
-- **Step 44 — Transactional Mail Dispatch Integration & Event Triggering:**
+- **Step 45 — Transactional Mail Dispatch Integration & Event Triggering:**
   - Connect transactional mail queue dispatches to application events:
     - User registration & email verification dispatch.
     - Password reset request dispatch.
     - Billing invoice payment confirmation & renewal reminders.
     - High-severity security and abuse incident alerts.
+  - Implement optimistic fencing token (`claim_token` UUID) on `mail_deliveries` to mathematically eliminate undead worker race conditions identified in Step 44 audit.
   - Ensure background job queuing is wrapped with fail-safe boundaries so primary transactions (registration, payment, password update) never fail if mail queue dispatch encounters transient failures.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.

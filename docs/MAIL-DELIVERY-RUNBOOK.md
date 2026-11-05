@@ -467,3 +467,71 @@ bash scripts/verify_mail_queue_linux.sh
 # 4. Expected Exit Status:
 # Exit Code 0: All 8 stages passed cleanly
 ```
+
+---
+
+## 14. Step 44 — Linux Verification Readiness & Evidence Audit
+
+### 14.1 Objective & Audit Scope
+Step 44 conducted an exhaustive, evidence-based audit of Step 43's Linux verification harness (`scripts/verify_mail_queue_linux.sh`), worker lifecycle, timing hierarchies, stale recovery mechanics, scheduler mutex locks, and distributed systems invariants.
+
+### 14.2 Ten-Point Queue Consistency & Recovery Audit Findings
+
+1. **Mathematical Timing Hierarchy ($T_{\text{job}} < T_{\text{retry}} < T_{\text{lease}} < T_{\text{stale}}$):**
+   - Configured: `job_timeout=60s` < `retry_after=90s` < `worker_lease=120s` < `stale_threshold=900s`. Supervisor `stopwaitsecs=75s`.
+   - Verified that `SystemHealthService` and `MailDeliveryService::validateConfiguration()` enforce this invariant before any queue worker operates.
+
+2. **Queue Retries vs. Application Attempts:**
+   - Laravel queue worker tracks raw delivery attempts in the `jobs` table (`attempts` column), capped by `ProcessMailDeliveryJob::$tries = 5`.
+   - `MailDeliveryRecord` tracks domain-level transactional attempts (`attempts` and `max_attempts = 3`).
+   - If an abrupt worker crash occurs mid-flight, Laravel's queue driver releases the job after `retry_after=90s`. When re-attempted, `claimForProcessing()` checks `$record->isProcessing()` and `$record->last_attempted_at > now()->subSeconds(120)`. Because 90s < 120s, the in-flight claim rejects concurrent double-execution and gracefully yields until the lease expires.
+
+3. **Stale Recovery Semantics (`mail:recover-stale`):**
+   - Atomic conditional update:
+     ```sql
+     UPDATE mail_deliveries 
+     SET status = 'queued', attempts = attempts + 1, last_attempted_at = NOW(), ...
+     WHERE id = ? AND status = 'processing' AND last_attempted_at <= ?
+     ```
+   - If `attempts >= max_attempts`, atomically dead-letters the record to `status = 'failed'`.
+   - Operates in scheduled batches of 100 with `withoutOverlapping(10)` mutex locking in `routes/console.php`.
+
+4. **Undead Worker / Fencing Token Gap (Distributed Systems Analysis):**
+   - In distributed systems, if a worker hangs (e.g. frozen network socket or GC pause) past the 15-minute `stale_threshold` (900s), stale recovery will re-queue the record to a second worker.
+   - If the original worker suddenly awakens and calls `markSent()`, the SQL update `UPDATE mail_deliveries SET status = 'sent' WHERE id = ? AND status = 'processing'` would succeed because the second worker had transitioned the status back to `processing`.
+   - *Audit Recommendation:* In Step 45/production hardening, introduce an atomic monotonic fencing token (`worker_claim_token` UUID or `version` integer) generated at each claim and verified on transition to `sent`.
+
+5. **Concurrency Safety of Administrative Actions (Retry / Cancel):**
+   - Both `retry()` and `cancel()` perform atomic conditional updates (`WHERE id = ? AND status = 'failed'` and `WHERE id = ? AND status = 'queued'`).
+   - In-flight `processing` records reject administrative intervention with HTTP 409 Conflict.
+   - Zero double-enqueue race conditions exist.
+
+6. **Outage & Partition Behavior:**
+   - In the event of database or cache disconnection, all transactional mail enqueue operations fail closed (`throw new Exception`), preventing ghost entries or phantom dispatches.
+
+7. **Transport Boundary & Two Generals' Problem:**
+   - Inherent to SMTP delivery: If the transport successfully hands an email to the relay (`250 2.0.0 OK`), but the worker process is terminated before it updates the local database to `sent`, stale recovery will eventually re-dispatch the message.
+   - This risk is minimized via short worker lease timeouts, atomic DB updates immediately following transport return, and deterministic Message-ID headers.
+
+8. **RFC 5322 Message-ID Deduplication Invariant:**
+   - `TransactionalMail` sets `Message-ID: <{uuid}@{domain}>` and `X-Delivery-UUID: {uuid}` identically across all retries.
+   - *Clarification:* RFC 5322 Message-ID is a transport-layer deduplication hint for RFC 5321 MTAs (Postfix, Gmail, Microsoft 365). It is **not** a universal guarantee against duplicate delivery if the recipient MTA ignores duplicate Message-IDs. Application-level idempotency remains the primary defense.
+
+9. **Environment Dependencies & Extensions:**
+   - Runtime dependencies audited: PHP 8.3 CLI, `ext-pcntl`, `ext-posix`, `ext-pdo_mysql`, `ext-redis`, `ext-mbstring`, `ext-openssl`, `ext-curl`, `ext-bcmath`.
+   - Missing `pcntl` and `posix` on Windows prevents asynchronous signal handling (`SIGTERM`/`SIGQUIT`), confirming that worker verification must be segregated into Windows (Level A) and Linux (Level B).
+
+10. **Harness Defect Remediation (`scripts/verify_mail_queue_linux.sh`):**
+    - Remediated CLI option parsing to support both `--dry-run` and `--skip-worker-signal`.
+    - Hardened Stage 0 preflight checks to strictly reject remote DB `103.131.144.61`.
+    - Added bounded 5-second polling on SIGTERM in Stage 5 to prevent hung child processes.
+    - Isolated Stage 7 execution by using direct job execution `(new ProcessMailDeliveryJob($record->id))->handle()` with `jobs` table dequeue and `try/finally` cleanup to prevent head-of-line contention and test record leakage.
+
+### 14.3 Evidence Verification Matrix
+
+| Level | Scope | Environment | Verification Method | Status |
+|---|---|---|---|---|
+| **Level A** | Application Mail Queue Logic, Security, Invariants | Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3) | PHPUnit (31 mail feature tests, 10 harness tests, 184 assertions) | **PASS** |
+| **Level B** | Linux Worker Process Lifecycle, Signals & Cron Scheduler | Linux / WSL2 Ubuntu 22.04 LTS | `scripts/verify_mail_queue_linux.sh` | **PENDING INFRASTRUCTURE** (Bash syntax verified; Linux PHP 8.3 CLI runtime uninstalled on host) |
+| **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (Explicit architecture approval required) |
+

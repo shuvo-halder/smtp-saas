@@ -582,3 +582,51 @@ The `mail_deliveries` table utilizes 6 targeted indexes designed for high-throug
    - Because `TransactionalMail` sets a deterministic `Message-ID: <uuid@domain>` based on the database record's `uuid`, destination MTAs and ESPs can identify duplicate transmissions caused by snapshot restoration or worker crashes, preventing recipient inbox duplication.
 3. **Audit Trail Synchronization:**
    - Administrative mutations (`retry`, `cancel`) are recorded in `audit_logs` (`admin.mail_delivery.retry`, `admin.mail_delivery.cancel`) with actor attribution, ensuring operational accountability.
+
+## 26. Distributed Lease Ownership, Fencing Tokens & Recovery Invariants (Step 44 Audit)
+
+### 1. Worker Lease Concurrency & Undead Worker Analysis
+In a distributed queue environment, worker leases expire based on `stale_threshold_seconds` (default: 900s / 15 minutes).
+- **Failure Boundary:** If Worker A encounters an extended thread stall (e.g. blocking I/O, OS paging, external DNS timeout) lasting longer than 900 seconds:
+  1. `mail:recover-stale` detects Worker A's lease as expired (`last_attempted_at <= NOW() - 900s`).
+  2. The recovery sweep atomically re-queues the record (`status = 'queued'`, `attempts = attempts + 1`).
+  3. Worker B claims the record (`status = 'processing'`, `last_attempted_at = NOW()`).
+  4. Worker A unfreezes and attempts to finalize delivery:
+     ```sql
+     UPDATE mail_deliveries 
+     SET status = 'sent', sent_at = NOW() 
+     WHERE id = ? AND status = 'processing';
+     ```
+  5. Because the row is currently in `status = 'processing'` (held by Worker B), Worker A's update matches the condition and commits `status = 'sent'`.
+  6. Worker B subsequently finishes and also commits `sent` or encounters a conflict, resulting in duplicate delivery state.
+
+### 2. Schema Hardening Recommendation (Step 45 / Production)
+To achieve mathematical fencing token safety in distributed MySQL/MariaDB deployments, the following schema modification is recommended:
+```sql
+ALTER TABLE mail_deliveries 
+  ADD COLUMN claim_token CHAR(36) NULL AFTER idempotency_key,
+  ADD COLUMN version BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER claim_token;
+```
+With optimistic fencing:
+```sql
+-- Worker Claim:
+UPDATE mail_deliveries 
+SET status = 'processing', 
+    claim_token = :new_token, 
+    version = version + 1, 
+    last_attempted_at = NOW() 
+WHERE id = :id AND (status = 'queued' OR (status = 'processing' AND last_attempted_at <= :cutoff));
+
+-- Worker Finalize:
+UPDATE mail_deliveries 
+SET status = 'sent', 
+    sent_at = NOW(), 
+    claim_token = NULL, 
+    version = version + 1 
+WHERE id = :id AND claim_token = :my_token AND status = 'processing';
+```
+If Worker A awakens after lease expiration, its `:my_token` will not match `:new_token`, affecting 0 rows and preventing undead worker state corruption.
+
+### 3. Test Isolation & Data Cleanliness Invariant
+- Verification harnesses and synthetic diagnostic probes must never pollute production or local tenant data.
+- All synthetic test records must dequeue their specific payload from the `jobs` table and delete the `mail_deliveries` record within an unhandled exception `finally` block.

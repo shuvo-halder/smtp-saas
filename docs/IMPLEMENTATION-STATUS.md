@@ -1132,3 +1132,34 @@
   - `[x]` All 3 transactional mail test suites: **41 tests, 184 assertions passing (100%)**.
   - `[x]` Full regression test suite (`php vendor/bin/phpunit`): **579 tests, 2,879 assertions passing cleanly (0 failures, 0 errors, 100%)**.
   - `[x]` Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+
+
+---
+
+## Step 44 — Linux Verification Readiness & Evidence Audit (`AUDIT COMPLETE — LEVEL B STATUS BASED ON ACTUAL EVIDENCE`)
+- `[x]` Verification Harness Audit & Defect Remediation (`scripts/verify_mail_queue_linux.sh`):
+  - `[x]` Line-by-line audit completed across all 8 verification stages.
+  - `[x]` Remediated CLI option parsing: Added loop-based parsing supporting `--dry-run` and `--skip-worker-signal`.
+  - `[x]` Hardened Stage 0 preflight guards: Static check against `103.131.144.61` and dry-run safety verification.
+  - `[x]` Remediated Stage 5 worker signal handling: Replaced open-ended `wait` with bounded 5-second polling on `kill -0` and `SIGKILL` fallback to prevent unkillable process hangs.
+  - `[x]` Remediated Stage 7 synthetic dry-run isolation: Direct execution of `ProcessMailDeliveryJob($record->id)->handle()` with `jobs` table dequeue and `try/finally` cleanup, eliminating queue head contention and test data leakage.
+  - `[x]` Syntax validated directly under Linux bash in WSL2 Ubuntu (`bash -n scripts/verify_mail_queue_linux.sh` passed with exit code 0).
+- `[x]` Ten-Point Queue Consistency & Recovery Audit:
+  - `[x]` 1. Timing Hierarchy: Verified $\text{job\_timeout (60s)} < \text{retry\_after (90s)} < \text{worker\_lease (120s)} < \text{stale\_threshold (900s)}$ with Supervisor `stopwaitsecs=75s`.
+  - `[x]` 2. Queue Retries vs. Application Attempts: Clean separation between Laravel queue `jobs.attempts` and domain-level `mail_deliveries.attempts`.
+  - `[x]` 3. Stale Recovery Semantics: Atomic conditional update (`WHERE id = ? AND status = 'processing' AND last_attempted_at <= cutoff`).
+  - `[x]` 4. Undead Worker / Fencing Token Gap: Identified edge-case where an un-fenced undead worker could write `sent` after lease expiration; documented optimistic claim token UUID / version column recommendation.
+  - `[x]` 5. Concurrency Safety: Admin retry/cancel reject in-flight processing records with HTTP 409 Conflict.
+  - `[x]` 6. Outage Behavior: Fails closed on database/cache loss.
+  - `[x]` 7. Transport Boundary: Two Generals' Problem at SMTP handoff documented with mitigation strategy.
+  - `[x]` 8. RFC 5322 Message-ID Deduplication: Clarified transport-level MTA deduplication vs application idempotency key.
+  - `[x]` 9. Environment Dependencies: Audited PHP 8.3 CLI, `pcntl`, `posix`, `pdo_mysql`, `redis`.
+  - `[x]` 10. Harness Hardening: Robust error handling, non-polluting test probe lifecycle, and clean execution.
+- `[x]` Three-Level Verification Evidence Matrix:
+  - `[x]` **Level A (Application & API Layer):** `PASS / VERIFIED` (31 mail feature tests, 10 harness tests, 579 full suite tests, 2,879 assertions passing cleanly).
+  - `[x]` **Level B (Linux Queue Worker & Scheduler):** `PENDING INFRASTRUCTURE` (Audit complete, harness syntax verified, pending PHP 8.3 CLI on Linux host).
+  - `[x]` **Level C (Live External SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained).
+- `[x]` Strict Safety & Git Invariants:
+  - `[x]` Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+  - `[x]` Zero connections to legacy production database `103.131.144.61`.
+  - `[x]` Strictly zero staged changes (`git add`), zero commits (`git commit`), and zero pushes (`git push`).

@@ -499,3 +499,27 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Level A (Application & API Layer): Fully verified in local environment with 31 dedicated feature tests (569 tests across full suite).
   - Level B (Linux Queue Worker & Scheduler): Documented in `docs/MAIL-DELIVERY-RUNBOOK.md` and classified as `PENDING INFRASTRUCTURE` until verified on a dedicated Linux VPS.
   - Level C (Live External SMTP Delivery): Classified as `BLOCKED — REQUIRES APPROVAL`. Live delivery is permanently disabled (`MAIL_DELIVERY_DRY_RUN=true`) until formal stakeholder approval and controlled mailbox verification are completed.
+
+
+## 33. Queue Worker Fencing, Transport Deduplication Limits & Verification Safety (Step 44 Audit)
+- **Undead Worker Lease Boundary & Fencing Token Analysis:**
+  - Distributed systems failure mode: A worker process experiences an extended stop-the-world GC pause, disk stall, or network socket freeze exceeding `stale_threshold_seconds` (900s).
+  - While frozen, `mail:recover-stale` marks the record `queued`, and a second worker claims the record and sets `status = 'processing'`.
+  - If the original worker awakens and issues `UPDATE mail_deliveries SET status = 'sent' WHERE id = ? AND status = 'processing'`, the conditional update matches the second worker's `processing` state and prematurely completes the record.
+  - *Hardening Requirement:* Implement optimistic concurrency control via a monotonic `claim_token` (UUID) or `version` (bigint) generated upon each claim. The transition to `sent` or `failed` must verify:
+    ```sql
+    UPDATE mail_deliveries 
+    SET status = 'sent', sent_at = NOW() 
+    WHERE id = ? AND claim_token = ? AND status = 'processing'
+    ```
+- **MTA Message-ID Deduplication Boundaries:**
+  - `TransactionalMail` sets RFC 5322 `Message-ID: <{uuid}@{domain}>` and `X-Delivery-UUID: {uuid}` identically across all retries.
+  - *Security Clarification:* While RFC 5321/5322 compliant MTAs (e.g. Postfix, Exim, Google Workspace, Microsoft 365) detect and deduplicate duplicate Message-IDs within their queue caches, SMTP protocol specifications do not mandate duplicate discard across all receiving MTA implementations.
+  - Consequently, Message-ID deduplication is a best-effort transport mitigation against network retries; the application-level `idempotency_key` unique index remains the strict guarantee against duplicate transaction generation.
+- **Verification Harness Security & Isolation Invariants:**
+  - Remote Database Blacklist: `scripts/verify_mail_queue_linux.sh` strictly enforces that `DB_HOST != 103.131.144.61`, aborting immediately if a connection to the legacy production database is attempted.
+  - Live Transport Lock: Aborts if `MAIL_DELIVERY_DRY_RUN == false`.
+  - Process Isolation: Signal testing employs bounded 5-second polling on `kill -0` before issuing `kill -KILL`, ensuring no hung child worker processes remain.
+  - Shared Queue Deconfliction: Synthetic probes dequeue their specific `jobs` row and execute directly via `ProcessMailDeliveryJob($record->id)->handle()`, preventing queue head-of-line blocking or worker race conditions.
+  - Guaranteed Zero State Pollution: Synthetic test records are cleaned in a `finally` block, ensuring no ghost rows persist in local storage.
+

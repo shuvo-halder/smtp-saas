@@ -1,5 +1,27 @@
 # Changelog
 
+### Linux Verification Readiness & Evidence Audit (Step 44)
+- **Audited & Remediated:** Linux Verification Harness (`scripts/verify_mail_queue_linux.sh`):
+  - Completed comprehensive line-by-line audit across all 8 stages.
+  - Remediated CLI option parsing: Added loop-based parsing for `--dry-run` and `--skip-worker-signal`.
+  - Hardened Stage 0 preflight guards: Added static check strictly rejecting remote host `103.131.144.61` and verifying `MAIL_DELIVERY_DRY_RUN=true`.
+  - Remediated Stage 5 worker termination: Implemented bounded 5-second polling on `kill -0` before `SIGKILL` fallback to prevent unkillable process hangs.
+  - Remediated Stage 7 synthetic dry-run isolation: Direct execution of `ProcessMailDeliveryJob($record->id)->handle()` with `jobs` table dequeue and `try/finally` cleanup, eliminating queue head contention and test data leakage.
+  - Syntax validated under Linux bash in WSL2 Ubuntu (`bash -n scripts/verify_mail_queue_linux.sh` passed exit code 0).
+- **Audited:** Ten-Point Queue Consistency & Distributed Recovery Audit:
+  - Verified mathematical timing hierarchy: $\text{job\_timeout (60s)} < \text{retry\_after (90s)} < \text{worker\_lease (120s)} < \text{stale\_threshold (900s)}$ with Supervisor `stopwaitsecs=75s`.
+  - Audited undead worker lease expiry in distributed environments and formulated optimistic claim token / version column recommendation.
+  - Clarified RFC 5322 Message-ID deduplication as best-effort MTA transport deduplication vs application-level idempotency key.
+  - Confirmed fail-closed outage behavior and verified absolute absence of PII in telemetry endpoints.
+- **Evidence Verification Matrix:**
+  - **Level A (Application & API Layer):** `PASS / VERIFIED` (31 mail feature tests, 10 harness tests, full suite 579 tests, 2,879 assertions passing 100%).
+  - **Level B (Linux Queue Worker & Scheduler):** `PENDING INFRASTRUCTURE` (Harness audit complete, bash syntax verified; execution pending PHP 8.3 CLI runtime in Linux host).
+  - **Level C (Controlled SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly enforced).
+- **Git & Safety Invariants:**
+  - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+  - Zero connection to remote production database `103.131.144.61`.
+  - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ### Linux Queue Worker & Scheduler Verification Harness (Step 43)
 - **Implemented:** Standalone Linux Verification Harness Script (`scripts/verify_mail_queue_linux.sh`):
   - Authored an executable bash script covering 8 automated preflight and verification stages: safety preflight guards, Linux OS/kernel verification, PHP 8.3 CLI extension inspection (`pcntl`, `posix`, `pdo_mysql`, `redis`), database table and schema readiness, queue timing hierarchy audit, queue worker startup and graceful `SIGTERM` shutdown, scheduler registration and `mail:recover-stale` execution, synthetic dry-run enqueue and worker processing, and health telemetry PII audit.
