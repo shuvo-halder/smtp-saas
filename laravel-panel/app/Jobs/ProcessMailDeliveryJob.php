@@ -13,6 +13,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use Throwable;
 
 class ProcessMailDeliveryJob implements ShouldQueue
@@ -32,11 +33,19 @@ class ProcessMailDeliveryJob implements ShouldQueue
     public int $timeout = 60;
 
     /**
+     * Unique ownership claim token established when claiming the delivery record.
+     */
+    public ?string $claimToken = null;
+
+    /**
      * Create a new job instance.
      */
     public function __construct(
-        public int $recordId
-    ) {}
+        public int $recordId,
+        ?string $claimToken = null
+    ) {
+        $this->claimToken = $claimToken;
+    }
 
     /**
      * Execute the job.
@@ -55,25 +64,18 @@ class ProcessMailDeliveryJob implements ShouldQueue
             return;
         }
 
+        $service = app(\App\Services\MailDeliveryService::class);
         $leaseSeconds = (int) config('mail_delivery.worker_lease_seconds', 120);
-        $cutoff = now()->subSeconds($leaseSeconds);
 
-        // Atomic transition to processing:
-        // Claim if status is 'queued', or reclaim if 'processing' and lease expired (worker crash recovery)
-        $affected = MailDeliveryRecord::where('id', $this->recordId)
-            ->where(function ($query) use ($cutoff) {
-                $query->where('status', MailDeliveryRecord::STATUS_QUEUED)
-                      ->orWhere(function ($sub) use ($cutoff) {
-                          $sub->where('status', MailDeliveryRecord::STATUS_PROCESSING)
-                              ->where('last_attempted_at', '<=', $cutoff);
-                      });
-            })
-            ->update([
-                'status'            => MailDeliveryRecord::STATUS_PROCESSING,
-                'last_attempted_at' => now(),
-            ]);
+        // Generate a cryptographically secure, unique claim token for this execution attempt if not preset
+        if (empty($this->claimToken)) {
+            $this->claimToken = (string) Str::uuid();
+        }
 
-        if ($affected === 0) {
+        // Atomic transition to processing with claim token fencing
+        $claimed = $service->claimForProcessing($this->recordId, $this->claimToken, $leaseSeconds);
+
+        if (!$claimed) {
             Log::info("ProcessMailDeliveryJob: Record #{$this->recordId} is active with another worker or in terminal state. Skipping.");
             return;
         }
@@ -92,15 +94,10 @@ class ProcessMailDeliveryJob implements ShouldQueue
                     'subject'      => $record->subject,
                 ]);
 
-                MailDeliveryRecord::where('id', $record->id)
-                    ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
-                    ->update([
-                        'status'     => MailDeliveryRecord::STATUS_SENT,
-                        'attempts'   => max(1, $record->attempts + 1),
-                        'sent_at'    => now(),
-                        'is_dry_run' => true,
-                        'last_error' => null,
-                    ]);
+                $completed = $service->completeDelivery($record->id, $this->claimToken, isDryRun: true, attempts: max(1, $record->attempts + 1));
+                if (!$completed) {
+                    Log::warning("ProcessMailDeliveryJob: Worker lost ownership for record #{$record->id} before dry-run completion. Fenced off.");
+                }
 
                 return;
             }
@@ -108,15 +105,10 @@ class ProcessMailDeliveryJob implements ShouldQueue
             // Live Mail Delivery Transport
             Mail::to($record->recipient_email)->send(new TransactionalMail($record));
 
-            MailDeliveryRecord::where('id', $record->id)
-                ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
-                ->update([
-                    'status'     => MailDeliveryRecord::STATUS_SENT,
-                    'attempts'   => max(1, $record->attempts + 1),
-                    'sent_at'    => now(),
-                    'is_dry_run' => false,
-                    'last_error' => null,
-                ]);
+            $completed = $service->completeDelivery($record->id, $this->claimToken, isDryRun: false, attempts: max(1, $record->attempts + 1));
+            if (!$completed) {
+                Log::warning("ProcessMailDeliveryJob: Worker lost ownership for record #{$record->id} before live send completion. Fenced off.");
+            }
         } catch (Throwable $e) {
             $this->handleFailure($record, $e);
         }
@@ -128,67 +120,53 @@ class ProcessMailDeliveryJob implements ShouldQueue
     public function handleFailure(MailDeliveryRecord $record, Throwable $e): void
     {
         $sanitizedError = $this->sanitizeErrorMessage($e->getMessage());
+        $isPermanent = ($e instanceof PermanentDeliveryException);
+        $service = app(\App\Services\MailDeliveryService::class);
 
         // 1. Permanent Failure: Do not retry
-        if ($e instanceof PermanentDeliveryException) {
+        if ($isPermanent) {
             Log::error("ProcessMailDeliveryJob: Permanent failure for record #{$record->id}: {$sanitizedError}", [
                 'record_uuid' => $record->uuid,
                 'error_class' => get_class($e),
             ]);
 
-            MailDeliveryRecord::where('id', $record->id)
-                ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
-                ->update([
-                    'status'     => MailDeliveryRecord::STATUS_FAILED,
-                    'failed_at'  => now(),
-                    'last_error' => $sanitizedError,
-                ]);
+            $result = $service->failDelivery(
+                recordId: $record->id,
+                claimToken: (string) $this->claimToken,
+                errorMessage: $sanitizedError,
+                isPermanent: true
+            );
+
+            if (!$result['affected']) {
+                Log::warning("ProcessMailDeliveryJob: Worker lost ownership for record #{$record->id} during permanent failure. Fenced off.");
+                return;
+            }
 
             $this->fail($e);
             return;
         }
 
         // 2. Retryable / Transient Failure
-        $newAttempts = $record->attempts + 1;
-        $maxAttempts = $record->max_attempts ?: (int) config('mail_delivery.default_max_attempts', 3);
+        $result = $service->failDelivery(
+            recordId: $record->id,
+            claimToken: (string) $this->claimToken,
+            errorMessage: $sanitizedError,
+            isPermanent: false
+        );
 
-        if ($newAttempts >= $maxAttempts) {
-            // Max attempts reached: Dead letter
-            Log::error("ProcessMailDeliveryJob: Dead-lettered record #{$record->id} after {$newAttempts} attempts: {$sanitizedError}", [
-                'record_uuid'  => $record->uuid,
-                'attempts'     => $newAttempts,
-                'max_attempts' => $maxAttempts,
-            ]);
+        if (!$result['affected']) {
+            Log::warning("ProcessMailDeliveryJob: Worker lost ownership for record #{$record->id} during transient failure. Fenced off.");
+            return;
+        }
 
-            MailDeliveryRecord::where('id', $record->id)
-                ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
-                ->update([
-                    'attempts'   => $newAttempts,
-                    'status'     => MailDeliveryRecord::STATUS_FAILED,
-                    'failed_at'  => now(),
-                    'last_error' => "Max attempts ({$maxAttempts}) exceeded: " . $sanitizedError,
-                ]);
-
+        if ($result['is_dead_letter']) {
+            Log::error("ProcessMailDeliveryJob: Dead-lettered record #{$record->id} after exceeding max attempts: {$sanitizedError}");
             $this->fail($e);
             return;
         }
 
-        // Release back to queue with exponential backoff & jitter
-        $baseBackoff = (int) config('mail_delivery.base_backoff_seconds', 60);
-        $maxBackoff = (int) config('mail_delivery.max_backoff_seconds', 900);
-        $delay = app(MailDeliveryService::class)->calculateBackoffSeconds($newAttempts, $baseBackoff, $maxBackoff);
-
-        Log::warning("ProcessMailDeliveryJob: Retrying record #{$record->id} (attempt {$newAttempts}/{$maxAttempts}) in {$delay}s: {$sanitizedError}");
-
-        MailDeliveryRecord::where('id', $record->id)
-            ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
-            ->update([
-                'attempts'   => $newAttempts,
-                'status'     => MailDeliveryRecord::STATUS_QUEUED,
-                'last_error' => $sanitizedError,
-            ]);
-
-        $this->release($delay);
+        Log::warning("ProcessMailDeliveryJob: Retrying record #{$record->id} in {$result['delay']}s: {$sanitizedError}");
+        $this->release($result['delay']);
     }
 
     /**
@@ -197,17 +175,33 @@ class ProcessMailDeliveryJob implements ShouldQueue
     public function failed(?Throwable $e): void
     {
         $record = MailDeliveryRecord::find($this->recordId);
-        if (!$record) {
+        if (!$record || $record->isSent() || $record->isCancelled()) {
             return;
+        }
+
+        // If record is currently processing with an active claim token,
+        // verify that this job instance holds the active claim.
+        // Fenced-off workers must never overwrite an active owner or terminal state.
+        if ($record->isProcessing() && $record->claim_token !== null) {
+            if (empty($this->claimToken) || !hash_equals($record->claim_token, $this->claimToken)) {
+                Log::warning("ProcessMailDeliveryJob: failed() callback fenced off for record #{$record->id}; owner mismatch.");
+                return;
+            }
         }
 
         $errorMessage = $e ? $this->sanitizeErrorMessage($e->getMessage()) : 'Job failed';
 
-        $record->update([
-            'status'     => MailDeliveryRecord::STATUS_FAILED,
-            'failed_at'  => now(),
-            'last_error' => $errorMessage,
-        ]);
+        MailDeliveryRecord::where('id', $record->id)
+            ->whereNotIn('status', [MailDeliveryRecord::STATUS_SENT, MailDeliveryRecord::STATUS_CANCELLED])
+            ->when($record->isProcessing() && !empty($this->claimToken), function ($q) {
+                $q->where('claim_token', $this->claimToken);
+            })
+            ->update([
+                'status'      => MailDeliveryRecord::STATUS_FAILED,
+                'claim_token' => null,
+                'failed_at'   => now(),
+                'last_error'  => $errorMessage,
+            ]);
     }
 
     /**

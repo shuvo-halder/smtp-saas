@@ -55,6 +55,7 @@ class MailDeliveryRecord extends Model
         'attempts',
         'max_attempts',
         'idempotency_key',
+        'claim_token',
         'last_attempted_at',
         'sent_at',
         'failed_at',
@@ -133,9 +134,37 @@ class MailDeliveryRecord extends Model
             });
     }
 
+    /**
+     * Scope query to an active non-null claim token.
+     */
+    public function scopeWithActiveClaim(Builder $query, string $claimToken): Builder
+    {
+        if ($claimToken === '') {
+            return $query->whereRaw('0 = 1');
+        }
+
+        return $query->whereNotNull('claim_token')->where('claim_token', $claimToken);
+    }
+
     // -------------------------------------------------------------------------
     // Helper Methods
     // -------------------------------------------------------------------------
+
+    /**
+     * Verify whether the record has an active claim token, optionally matching a specific token.
+     */
+    public function hasClaimToken(?string $token = null): bool
+    {
+        if ($this->claim_token === null || $this->claim_token === '') {
+            return false;
+        }
+
+        if ($token === null) {
+            return true;
+        }
+
+        return hash_equals($this->claim_token, $token);
+    }
 
     public function isQueued(): bool
     {

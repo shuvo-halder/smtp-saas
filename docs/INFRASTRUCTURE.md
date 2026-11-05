@@ -483,11 +483,11 @@ $$\text{Job Timeout (60s)} < \text{Queue Retry After (90s)} < \text{Worker Lease
 - Log paths: `/var/log/emailsaas/worker.log` and `/var/www/email-saas/laravel-panel/storage/logs/laravel.log`.
 - Logrotate configuration: `/etc/logrotate.d/emailsaas` (daily, 14-day retention, compressed, `0640 www-data www-data`).
 
-### 6. Three-Level Verification Matrix (Steps 40–44)
+### 6. Three-Level Verification Matrix (Steps 40–45)
 | Verification Level | Target | Status | Detail / Justification |
 |---|---|---|---|
-| **Level A: Application & API Layer** | `MailDeliveryService`, `ProcessMailDeliveryJob`, `MailDeliveryRecord`, `AdminSystemHealthApiController` | `VERIFIED` | 41 dedicated feature tests passing cleanly (`MailDeliveryQueueTest` 16/16, `MailDeliverySecurityAndConsistencyTest` 15/15, `LinuxQueueWorkerHarnessTest` 10/10). State machine transitions, 409 conflict handling, concurrency locks, URL scheme validation, Blade XSS escaping, secret sanitization, audit logging, and timing audits verified. Full test suite: 579/579 tests passing (2,879 assertions). |
-| **Level B: Linux Queue Worker & Scheduler Layer** | Linux Supervisor daemon, systemd timer, MariaDB queue tables, logrotate | `PENDING INFRASTRUCTURE` | Audited in Step 44. Local Windows environment probed; WSL2 Ubuntu-22.04 detected but lacks PHP 8.3 CLI runtime. Verification harness `scripts/verify_mail_queue_linux.sh` syntax validated exit 0. Hardened with robust CLI option parsing (`--dry-run`, `--skip-worker-signal`), bounded 5s SIGTERM polling, and job-isolated dry-run processing. Execution pending staging Linux VPS or configured WSL2 environment. |
+| **Level A: Application & API Layer** | `MailDeliveryService`, `ProcessMailDeliveryJob`, `MailDeliveryRecord`, `AdminSystemHealthApiController` | `VERIFIED` | 50 dedicated feature tests passing cleanly (`MailDeliveryWorkerFencingTest` 9/9, `MailDeliveryQueueTest` 16/16, `MailDeliverySecurityAndConsistencyTest` 15/15, `LinuxQueueWorkerHarnessTest` 10/10). State machine transitions, claim token fencing, 409 conflict handling, concurrency locks, URL scheme validation, Blade XSS escaping, secret sanitization, audit logging, and timing audits verified. Full test suite: 588/588 tests passing (2,941 assertions). |
+| **Level B: Linux Queue Worker & Scheduler Layer** | Linux Supervisor daemon, systemd timer, MariaDB queue tables, logrotate | `PENDING INFRASTRUCTURE` | Audited in Step 44, fenced in Step 45. Local Windows environment probed; WSL2 Ubuntu-22.04 detected but lacks PHP 8.3 CLI runtime. Verification harness `scripts/verify_mail_queue_linux.sh` syntax validated exit 0. Hardened with robust CLI option parsing (`--dry-run`, `--skip-worker-signal`), bounded 5s SIGTERM polling, and job-isolated dry-run processing. Actual Linux worker execution pending staging Linux VPS or configured WSL2 environment. |
 | **Level C: Live End-to-End SMTP Transport & Mailbox Reception** | External SMTP relay, live transport acceptance, destination mailbox delivery | `BLOCKED — REQUIRES APPROVAL` | Live external mail delivery is strictly locked and disabled (`MAIL_DELIVERY_DRY_RUN=true`). Live testing requires explicit stakeholder approval, relay credentials, and a controlled test mailbox. |
 
 ### 7. Step 43/44 Linux Verification Harness (`scripts/verify_mail_queue_linux.sh`)
@@ -499,6 +499,10 @@ $$\text{Job Timeout (60s)} < \text{Queue Retry After (90s)} < \text{Worker Lease
   2. Worker Process Supervision: Replaced open-ended `wait` with bounded 5-second polling loop and `SIGKILL` fallback to prevent orphaned worker hangs.
   3. Job Isolation in Dry-Run Stage 7: Removed shared-queue head-of-line contention by directly executing `ProcessMailDeliveryJob($record->id)->handle()` and cleaning test records in a `try/finally` block.
 
-### 8. Distributed System Invariants & Fencing Analysis (Step 44 Audit)
-- **Undead Worker Boundary:** When a worker hangs past `stale_threshold=900s`, `mail:recover-stale` safely reclaims the delivery record. However, if the old worker awakens and attempts `markSent()`, a race condition is theoretically possible. Recommended defense: Introduce a monotonic worker claim token / version column in Step 45.
+### 8. Distributed System Invariants & Worker Fencing Implementation (Step 45)
+- **Implemented Worker Fencing Mechanism:** Introduced nullable indexed `claim_token` (`VARCHAR(64)`) on `mail_deliveries`.
+  - When Worker A claims a record, it generates a unique UUIDv4 token.
+  - If Worker A hangs beyond `stale_threshold=900s`, `recoverStaleProcessing()` invalidates Worker A's token by resetting `claim_token = NULL`.
+  - When Worker B claims the record, it acquires a new token (`claim_token = token_B`).
+  - If Worker A awakens and attempts `completeDelivery()`, `failDelivery()`, or release, its update is conditioned on `WHERE claim_token = :token_A`. Because the record has `token_B`, the query affects 0 rows, completely fencing Worker A off.
 - **Message-ID Deduplication Boundary:** RFC 5322 `Message-ID` (`<{uuid}@{domain}>`) provides MTA-level deduplication for RFC 5321 compliant MTAs, but cannot guarantee client-side idempotency across non-compliant mail relays. Application-level idempotency keys (`idempotency_key` unique index) remain the definitive defense against duplicate message generation.

@@ -498,6 +498,7 @@ CREATE TABLE `mail_deliveries` (
   `attempts` tinyint unsigned NOT NULL DEFAULT '0',
   `max_attempts` tinyint unsigned NOT NULL DEFAULT '3',
   `idempotency_key` varchar(128) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `claim_token` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `last_attempted_at` timestamp NULL DEFAULT NULL,
   `sent_at` timestamp NULL DEFAULT NULL,
   `failed_at` timestamp NULL DEFAULT NULL,
@@ -514,6 +515,7 @@ CREATE TABLE `mail_deliveries` (
   KEY `mail_deliveries_status_created_at_index` (`status`,`created_at`),
   KEY `mail_deliveries_status_last_attempted_at_index` (`status`,`last_attempted_at`),
   KEY `mail_deliveries_tenant_id_idempotency_key_index` (`tenant_id`,`idempotency_key`),
+  KEY `mail_deliveries_claim_token_index` (`claim_token`),
   CONSTRAINT `mail_deliveries_tenant_id_foreign` FOREIGN KEY (`tenant_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
@@ -583,7 +585,7 @@ The `mail_deliveries` table utilizes 6 targeted indexes designed for high-throug
 3. **Audit Trail Synchronization:**
    - Administrative mutations (`retry`, `cancel`) are recorded in `audit_logs` (`admin.mail_delivery.retry`, `admin.mail_delivery.cancel`) with actor attribution, ensuring operational accountability.
 
-## 26. Distributed Lease Ownership, Fencing Tokens & Recovery Invariants (Step 44 Audit)
+## 26. Distributed Lease Ownership, Fencing Tokens & Recovery Invariants (Step 44 Audit & Step 45 Implementation)
 
 ### 1. Worker Lease Concurrency & Undead Worker Analysis
 In a distributed queue environment, worker leases expire based on `stale_threshold_seconds` (default: 900s / 15 minutes).
@@ -600,32 +602,45 @@ In a distributed queue environment, worker leases expire based on `stale_thresho
   5. Because the row is currently in `status = 'processing'` (held by Worker B), Worker A's update matches the condition and commits `status = 'sent'`.
   6. Worker B subsequently finishes and also commits `sent` or encounters a conflict, resulting in duplicate delivery state.
 
-### 2. Schema Hardening Recommendation (Step 45 / Production)
-To achieve mathematical fencing token safety in distributed MySQL/MariaDB deployments, the following schema modification is recommended:
-```sql
-ALTER TABLE mail_deliveries 
-  ADD COLUMN claim_token CHAR(36) NULL AFTER idempotency_key,
-  ADD COLUMN version BIGINT UNSIGNED NOT NULL DEFAULT 1 AFTER claim_token;
-```
-With optimistic fencing:
-```sql
--- Worker Claim:
-UPDATE mail_deliveries 
-SET status = 'processing', 
-    claim_token = :new_token, 
-    version = version + 1, 
-    last_attempted_at = NOW() 
-WHERE id = :id AND (status = 'queued' OR (status = 'processing' AND last_attempted_at <= :cutoff));
+### 2. Implemented Worker Ownership & Fencing Architecture (Step 45)
+Implemented via migration `2026_11_05_000001_add_claim_token_to_mail_deliveries_table.php`, introducing a nullable indexed `claim_token` column (`VARCHAR(64)`).
 
--- Worker Finalize:
-UPDATE mail_deliveries 
-SET status = 'sent', 
-    sent_at = NOW(), 
-    claim_token = NULL, 
-    version = version + 1 
-WHERE id = :id AND claim_token = :my_token AND status = 'processing';
-```
-If Worker A awakens after lease expiration, its `:my_token` will not match `:new_token`, affecting 0 rows and preventing undead worker state corruption.
+#### Atomic Ownership Invariants:
+1. **Worker Claiming:**
+   When a worker claims an eligible `queued` or lease-expired record (`ProcessMailDeliveryJob::handle()` / `MailDeliveryService::claimForProcessing()`):
+   ```sql
+   UPDATE mail_deliveries 
+   SET status = 'processing', 
+       claim_token = :worker_uuid, 
+       last_attempted_at = NOW() 
+   WHERE id = :id 
+     AND (status = 'queued' OR (status = 'processing' AND last_attempted_at <= :cutoff));
+   ```
+   If 0 rows are affected, ownership is refused and the worker skips execution.
+2. **Fenced Worker Completion:**
+   When completing simulated or live delivery (`completeDelivery()`):
+   ```sql
+   UPDATE mail_deliveries 
+   SET status = 'sent', 
+       claim_token = NULL, 
+       attempts = :attempts, 
+       sent_at = NOW(), 
+       last_error = NULL 
+   WHERE id = :id 
+     AND status = 'processing' 
+     AND claim_token IS NOT NULL 
+     AND claim_token = :worker_uuid;
+   ```
+   If Worker A was reclaimed by recovery or superseded by Worker B, Worker A's update matches 0 rows and is fenced off without modifying Worker B's state.
+3. **Fenced Failure & Release:**
+   When recording transient deferrals or permanent/dead-letter failures (`failDelivery()`):
+   All updates require `WHERE status = 'processing' AND claim_token IS NOT NULL AND claim_token = :worker_uuid`. Fenced-off workers cannot write error diagnostics or change the status.
+4. **Stale Recovery Revocation:**
+   When `recoverStaleProcessing()` re-queues or dead-letters a stale record, it sets `claim_token = NULL`, instantly revoking the stale worker's token before a new worker even claims the job.
+5. **Terminal State Immutability:**
+   Records in `sent`, `failed`, or `cancelled` reject all worker mutations regardless of tokens presented.
+6. **Backward Compatibility:**
+   Existing records with `claim_token = NULL` are handled safely; empty/null tokens are rejected by all mutation methods, guaranteeing old queue jobs cannot claim active ownership without acquiring a new token.
 
 ### 3. Test Isolation & Data Cleanliness Invariant
 - Verification harnesses and synthetic diagnostic probes must never pollute production or local tenant data.

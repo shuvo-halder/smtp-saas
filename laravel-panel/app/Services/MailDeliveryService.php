@@ -252,6 +252,7 @@ class MailDeliveryService
             ->whereIn('status', [MailDeliveryRecord::STATUS_FAILED, MailDeliveryRecord::STATUS_CANCELLED])
             ->update([
                 'status'            => MailDeliveryRecord::STATUS_QUEUED,
+                'claim_token'       => null,
                 'attempts'          => 0,
                 'failed_at'         => null,
                 'cancelled_at'      => null,
@@ -306,6 +307,7 @@ class MailDeliveryService
             ->where('status', MailDeliveryRecord::STATUS_QUEUED)
             ->update([
                 'status'       => MailDeliveryRecord::STATUS_CANCELLED,
+                'claim_token'  => null,
                 'cancelled_at' => now(),
             ]);
 
@@ -348,14 +350,16 @@ class MailDeliveryService
             $isDeadLetter = $newAttempts >= $maxAttempts;
 
             $updateData = $isDeadLetter ? [
-                'attempts'   => $newAttempts,
-                'status'     => MailDeliveryRecord::STATUS_FAILED,
-                'failed_at'  => now(),
-                'last_error' => "Worker timeout / crash beyond {$staleSeconds}s threshold. Max attempts reached.",
+                'attempts'    => $newAttempts,
+                'status'      => MailDeliveryRecord::STATUS_FAILED,
+                'claim_token' => null,
+                'failed_at'   => now(),
+                'last_error'  => "Worker timeout / crash beyond {$staleSeconds}s threshold. Max attempts reached.",
             ] : [
-                'attempts'   => $newAttempts,
-                'status'     => MailDeliveryRecord::STATUS_QUEUED,
-                'last_error' => "Recovered from interrupted processing state (attempt {$newAttempts}/{$maxAttempts}).",
+                'attempts'    => $newAttempts,
+                'status'      => MailDeliveryRecord::STATUS_QUEUED,
+                'claim_token' => null,
+                'last_error'  => "Recovered from interrupted processing state (attempt {$newAttempts}/{$maxAttempts}).",
             ];
 
             // Atomic conditional update ensuring record is STILL in processing and last_attempted_at is STILL stale
@@ -387,6 +391,163 @@ class MailDeliveryService
             'recovered'     => $recovered,
             'dead_lettered' => $deadLettered,
             'dry_run'       => false,
+        ];
+    }
+
+    /**
+     * Atomically claim a queued or lease-expired delivery record with a unique claim token.
+     *
+     * @param int $recordId
+     * @param string $claimToken
+     * @param int $leaseSeconds
+     * @return bool True if ownership was successfully acquired, false otherwise.
+     */
+    public function claimForProcessing(int $recordId, string $claimToken, int $leaseSeconds = 120): bool
+    {
+        if (empty($claimToken)) {
+            return false;
+        }
+
+        $cutoff = now()->subSeconds($leaseSeconds);
+
+        $affected = MailDeliveryRecord::where('id', $recordId)
+            ->where(function ($query) use ($cutoff) {
+                $query->where('status', MailDeliveryRecord::STATUS_QUEUED)
+                      ->orWhere(function ($sub) use ($cutoff) {
+                          $sub->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+                              ->where('last_attempted_at', '<=', $cutoff);
+                      });
+            })
+            ->update([
+                'status'            => MailDeliveryRecord::STATUS_PROCESSING,
+                'claim_token'       => $claimToken,
+                'last_attempted_at' => now(),
+            ]);
+
+        return $affected > 0;
+    }
+
+    /**
+     * Atomically complete delivery with ownership fencing.
+     * Only the active owner with matching claim_token in 'processing' status can complete the record.
+     *
+     * @param int $recordId
+     * @param string $claimToken
+     * @param bool $isDryRun
+     * @param int|null $attempts
+     * @return bool True if completed, false if fenced off.
+     */
+    public function completeDelivery(
+        int $recordId,
+        string $claimToken,
+        bool $isDryRun = true,
+        ?int $attempts = null
+    ): bool {
+        if (empty($claimToken)) {
+            return false;
+        }
+
+        $record = MailDeliveryRecord::find($recordId);
+        $finalAttempts = $attempts ?? ($record ? max(1, $record->attempts + 1) : 1);
+
+        $affected = MailDeliveryRecord::where('id', $recordId)
+            ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+            ->whereNotNull('claim_token')
+            ->where('claim_token', $claimToken)
+            ->update([
+                'status'      => MailDeliveryRecord::STATUS_SENT,
+                'claim_token' => null,
+                'attempts'    => $finalAttempts,
+                'sent_at'     => now(),
+                'is_dry_run'  => $isDryRun,
+                'last_error'  => null,
+            ]);
+
+        return $affected > 0;
+    }
+
+    /**
+     * Atomically record delivery failure with ownership fencing.
+     *
+     * @param int $recordId
+     * @param string $claimToken
+     * @param string $errorMessage
+     * @param bool $isPermanent
+     * @param int|null $maxAttempts
+     * @return array{affected: bool, is_dead_letter: bool, new_status: string, delay: int}
+     */
+    public function failDelivery(
+        int $recordId,
+        string $claimToken,
+        string $errorMessage,
+        bool $isPermanent = false,
+        ?int $maxAttempts = null
+    ): array {
+        if (empty($claimToken)) {
+            return [
+                'affected'       => false,
+                'is_dead_letter' => false,
+                'new_status'     => 'fenced',
+                'delay'          => 0,
+            ];
+        }
+
+        $record = MailDeliveryRecord::find($recordId);
+        if (!$record) {
+            return [
+                'affected'       => false,
+                'is_dead_letter' => false,
+                'new_status'     => 'not_found',
+                'delay'          => 0,
+            ];
+        }
+
+        $maxAttempts = $maxAttempts ?? ($record->max_attempts ?: (int) config('mail_delivery.default_max_attempts', 3));
+        $newAttempts = $record->attempts + 1;
+        $isDeadLetter = $isPermanent || ($newAttempts >= $maxAttempts);
+
+        if ($isDeadLetter) {
+            $affected = MailDeliveryRecord::where('id', $recordId)
+                ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+                ->whereNotNull('claim_token')
+                ->where('claim_token', $claimToken)
+                ->update([
+                    'attempts'    => $newAttempts,
+                    'status'      => MailDeliveryRecord::STATUS_FAILED,
+                    'claim_token' => null,
+                    'failed_at'   => now(),
+                    'last_error'  => $errorMessage,
+                ]);
+
+            return [
+                'affected'       => $affected > 0,
+                'is_dead_letter' => true,
+                'new_status'     => MailDeliveryRecord::STATUS_FAILED,
+                'delay'          => 0,
+            ];
+        }
+
+        // Transient failure: release back to queue with backoff
+        $baseBackoff = (int) config('mail_delivery.base_backoff_seconds', 60);
+        $maxBackoff = (int) config('mail_delivery.max_backoff_seconds', 900);
+        $delay = $this->calculateBackoffSeconds($newAttempts, $baseBackoff, $maxBackoff);
+
+        $affected = MailDeliveryRecord::where('id', $recordId)
+            ->where('status', MailDeliveryRecord::STATUS_PROCESSING)
+            ->whereNotNull('claim_token')
+            ->where('claim_token', $claimToken)
+            ->update([
+                'attempts'    => $newAttempts,
+                'status'      => MailDeliveryRecord::STATUS_QUEUED,
+                'claim_token' => null,
+                'last_error'  => $errorMessage,
+            ]);
+
+        return [
+            'affected'       => $affected > 0,
+            'is_dead_letter' => false,
+            'new_status'     => MailDeliveryRecord::STATUS_QUEUED,
+            'delay'          => $delay,
         ];
     }
 

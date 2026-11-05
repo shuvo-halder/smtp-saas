@@ -1,5 +1,28 @@
 # Changelog
 
+### Mail Queue Worker Fencing & Stale Ownership Protection (Step 45)
+- **Implemented:** Database Migration (`database/migrations/2026_11_05_000001_add_claim_token_to_mail_deliveries_table.php`):
+  - Added nullable indexed `claim_token` (`VARCHAR(64)`) to `mail_deliveries` table after `idempotency_key`. Verified migration and clean rollback.
+- **Implemented:** Model & Service Worker Fencing Integration:
+  - Updated `MailDeliveryRecord`: Added `claim_token` to `$fillable`, added `hasClaimToken()` with timing-safe `hash_equals`, and `scopeWithActiveClaim()`.
+  - Updated `MailDeliveryService`: Added atomic methods `claimForProcessing()`, `completeDelivery()`, and `failDelivery()`.
+  - Hardened `recoverStaleProcessing()`: Automatically invalidates expired worker leases by resetting `claim_token = null` on re-queuing or dead-lettering.
+  - Hardened `retry()` and `cancel()`: Reset `claim_token = null` to clear residual worker claims.
+- **Implemented:** Queue Worker Fencing (`app/Jobs/ProcessMailDeliveryJob.php`):
+  - Workers establish unique UUIDv4 claim tokens upon acquisition.
+  - Completion, failure, and release operations verify active token matching (`WHERE status = 'processing' AND claim_token IS NOT NULL AND claim_token = :token`), preventing fenced-off zombie workers from corrupting delivery states or error diagnostics.
+- **Implemented:** Dedicated Concurrency Verification Suite (`tests/Feature/MailDeliveryWorkerFencingTest.php`):
+  - Authored 9 feature tests (62 assertions) validating Scenarios A–I: old worker resume after reclaim, old worker failure after reclaim, old worker release after reclaim, recovery/completion race, duplicate worker contention, terminal state protection, admin conflict handling, backward compatibility with null tokens, and end-to-end execution.
+- **Automated Verification & Regression Testing:**
+  - Fencing tests: **9 passed (62 assertions)**.
+  - All 4 transactional mail test suites: **50 passed (246 assertions)**.
+  - Full backend regression suite: **588 passed (2,941 assertions, 0 failures, 0 errors, 100%)**.
+  - Frontend TypeScript typecheck: **0 errors (`npx tsc --noEmit`)**.
+- **Git & Safety Invariants:**
+  - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+  - Zero connections to remote production database `103.131.144.61`.
+  - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ### Linux Verification Readiness & Evidence Audit (Step 44)
 - **Audited & Remediated:** Linux Verification Harness (`scripts/verify_mail_queue_linux.sh`):
   - Completed comprehensive line-by-line audit across all 8 stages.

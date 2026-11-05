@@ -535,3 +535,58 @@ Step 44 conducted an exhaustive, evidence-based audit of Step 43's Linux verific
 | **Level B** | Linux Worker Process Lifecycle, Signals & Cron Scheduler | Linux / WSL2 Ubuntu 22.04 LTS | `scripts/verify_mail_queue_linux.sh` | **PENDING INFRASTRUCTURE** (Bash syntax verified; Linux PHP 8.3 CLI runtime uninstalled on host) |
 | **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (Explicit architecture approval required) |
 
+---
+
+## 15. Step 45 — Mail Queue Worker Fencing & Stale Ownership Protection
+
+### 15.1 Objective & Architecture Solution
+Step 45 implemented robust worker ownership and fencing protection for the transactional mail queue.
+- **Problem Addressed:** In distributed worker environments, if Worker A hangs past the lease threshold (e.g. 15 minutes) and `mail:recover-stale` re-queues the delivery to Worker B, Worker A could awaken and attempt to mark the delivery `sent` or `failed`. Without fencing tokens, Worker A's update would match `status = 'processing'` (established by Worker B) and corrupt the delivery state.
+- **Solution:** Introduced a nullable indexed `claim_token` column (`VARCHAR(64)`) on `mail_deliveries` (migration `2026_11_05_000001_add_claim_token_to_mail_deliveries_table.php`).
+
+### 15.2 Worker Ownership Lifecycle & Fencing Invariants
+```
+[ queued ] (claim_token: null)
+     │
+     ▼ (Worker A claims: sets claim_token = UUID_A, status = 'processing')
+[ processing ] (claim_token: UUID_A)
+     │
+     ├── Worker A crashes/hangs > 900s ──► recoverStaleProcessing()
+     │                                            │
+     │                                            ▼ (Invalidates token: claim_token = null, status = 'queued')
+     │                                     [ queued ]
+     │                                            │
+     │                                            ▼ (Worker B claims: claim_token = UUID_B, status = 'processing')
+     │                                     [ processing ] (claim_token: UUID_B)
+     │                                            │
+     ◄── Worker A wakes up and calls complete ───┘
+         WHERE claim_token = UUID_A matches 0 rows!
+         Worker A is fenced off; Worker B retains ownership.
+```
+
+1. **Atomic Worker Claim:**
+   `MailDeliveryService::claimForProcessing()` updates `status = 'processing'`, `claim_token = :token`, and `last_attempted_at = now()` atomically where `status = 'queued'` or `(status = 'processing' AND last_attempted_at <= cutoff)`.
+2. **Atomic Fenced Completion:**
+   `MailDeliveryService::completeDelivery()` requires `WHERE id = ? AND status = 'processing' AND claim_token IS NOT NULL AND claim_token = :token`. Affects 0 rows if token was superseded or revoked.
+3. **Atomic Fenced Failure & Release:**
+   `MailDeliveryService::failDelivery()` checks `claim_token = :token`. Stale workers cannot write failure diagnostics, dead-letter active deliveries, or release another worker's in-flight record.
+4. **Stale Recovery Token Revocation:**
+   `recoverStaleProcessing()` resets `claim_token = null` upon re-queuing or dead-lettering, revoking the expired lease immediately.
+5. **Terminal State Immutability:**
+   Records in `sent`, `failed`, or `cancelled` reject all worker claim and mutation attempts.
+6. **Backward Compatibility:**
+   Records with `claim_token = null` are handled safely; empty tokens are rejected upfront.
+
+### 15.3 Concurrency Test Evidence (`MailDeliveryWorkerFencingTest.php`)
+- **Scenario A:** Old worker resumes after reclaim — Fenced off (affected rows = 0; Worker B retains ownership).
+- **Scenario B:** Old worker fails after reclaim — Fenced off (affected rows = 0; Worker B diagnostic state preserved).
+- **Scenario C:** Old worker transient release after reclaim — Fenced off (cannot return record to queued).
+- **Scenario D:** Recovery races with worker completion — Only valid active owner can complete.
+- **Scenario E:** Duplicate worker execution contention — Exactly 1 worker acquires claim.
+- **Scenario F:** Terminal state protection — Stale workers cannot overwrite `sent`, `failed`, or `cancelled`.
+- **Scenario G:** Admin retry/cancel — Preserves HTTP 409 Conflict on processing; clears claim token on reset.
+- **Scenario H:** Backward compatibility — Null claim tokens never match empty token queries.
+- **Scenario I:** End-to-end `ProcessMailDeliveryJob` execution — Full lifecycle with fencing verified.
+
+| **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (Explicit architecture approval required) |
+

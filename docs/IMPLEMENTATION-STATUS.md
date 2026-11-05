@@ -1163,3 +1163,39 @@
   - `[x]` Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
   - `[x]` Zero connections to legacy production database `103.131.144.61`.
   - `[x]` Strictly zero staged changes (`git add`), zero commits (`git commit`), and zero pushes (`git push`).
+
+---
+
+## Step 45 — Mail Queue Worker Fencing & Stale Ownership Protection (`WORKER FENCING IMPLEMENTED AND APPLICATION-LEVEL VERIFIED`)
+- `[x]` Database Migration (`database/migrations/2026_11_05_000001_add_claim_token_to_mail_deliveries_table.php`):
+  - `[x]` Added nullable indexed `claim_token` (`VARCHAR(64)`) to `mail_deliveries` table after `idempotency_key`.
+  - `[x]` Tested migration and safe reversible rollback (`migrate:rollback` & `migrate`) on local database.
+- `[x]` Model & Service Layer Fencing Integration:
+  - `[x]` Updated `MailDeliveryRecord`: Added `claim_token` to `$fillable`, added helper `hasClaimToken(?string $token = null): bool` using timing-safe `hash_equals`, and scope `scopeWithActiveClaim(Builder $query, string $claimToken): Builder`.
+  - `[x]` Updated `MailDeliveryService`: Added atomic methods `claimForProcessing(int $recordId, string $claimToken, int $leaseSeconds = 120): bool`, `completeDelivery(int $recordId, string $claimToken, bool $isDryRun = true, ?int $attempts = null): bool`, and `failDelivery(int $recordId, string $claimToken, string $errorMessage, bool $isPermanent = false, ?int $maxAttempts = null): array`.
+  - `[x]` Hardened `recoverStaleProcessing()`: Automatically invalidates expired worker leases by resetting `claim_token = null` upon re-queuing or dead-lettering.
+  - `[x]` Hardened `retry()` and `cancel()`: Reset `claim_token = null` to clear any residual worker claim on administrative transitions.
+- `[x]` Queue Worker Job Fencing (`app/Jobs/ProcessMailDeliveryJob.php`):
+  - `[x]` Establishes unique cryptographically secure claim token (`(string) Str::uuid()`) upon each worker claim attempt.
+  - `[x]` Atomic fenced completion (`completeDelivery`): Conditioned strictly on `WHERE status = 'processing' AND claim_token IS NOT NULL AND claim_token = :my_token`. Fenced-off workers affect 0 rows.
+  - `[x]` Atomic fenced failure & retry release (`failDelivery`): Conditioned strictly on active ownership. Prevents zombie workers from writing errors or dead-lettering records.
+  - `[x]` Queue worker `failed(?Throwable $e)` handler: Fenced against worker mismatch and terminal states.
+- `[x]` Concurrency Scenarios Verification (`tests/Feature/MailDeliveryWorkerFencingTest.php`):
+  - `[x]` Scenario A (Old worker resumes after reclaim): Worker A affects 0 rows; Worker B maintains active ownership and completes delivery.
+  - `[x]` Scenario B (Old worker fails after reclaim): Worker A's failure is rejected; Worker B's state is preserved.
+  - `[x]` Scenario C (Old worker releases after reclaim): Worker A cannot return a newly owned delivery to the queue.
+  - `[x]` Scenario D (Recovery races with completion): Atomic conditional updates ensure only valid owner completes.
+  - `[x]` Scenario E (Duplicate worker execution contention): Exactly 1 worker acquires ownership.
+  - `[x]` Scenario F (Terminal state protection): Stale workers cannot overwrite `sent`, `failed`, or `cancelled` records.
+  - `[x]` Scenario G (Admin retry/cancel): Preserves HTTP 409 Conflict on processing; clears residual tokens on reset.
+  - `[x]` Scenario H (Backward compatibility): Null claim tokens safely handled; empty tokens rejected by all mutations.
+  - `[x]` Scenario I (End-to-end execution): Full worker execution with fencing token verified.
+- `[x]` Automated Verification & Regression Testing:
+  - `[x]` Fencing test suite (`tests/Feature/MailDeliveryWorkerFencingTest.php`): **9 passed (62 assertions)**.
+  - `[x]` All 4 transactional mail test suites: **50 passed (246 assertions)**.
+  - `[x]` Full regression test suite (`php artisan test`): **588 passed (2,941 assertions, 0 failures, 0 errors, 100%)**.
+  - `[x]` Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+- `[x]` Strict Safety & Git Invariants:
+  - `[x]` Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+  - `[x]` Zero connections to legacy production database `103.131.144.61`.
+  - `[x]` Strictly zero staged changes (`git add`), zero commits (`git commit`), and zero pushes (`git push`).
