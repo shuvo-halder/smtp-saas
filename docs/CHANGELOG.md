@@ -1,5 +1,37 @@
 # Changelog
 
+### Linux Queue Worker & Scheduler Runtime Verification (Step 48)
+- **Verified:** Host Linux Runtime Environment Probe & Evidence:
+  - Evaluated native WSL2 Linux environment: detected kernel `6.6.87.2-microsoft-standard-WSL2` across `Ubuntu-22.04` and `Ubuntu`.
+  - Executed `scripts/verify_mail_queue_linux.sh` in WSL2 Ubuntu-22.04.
+  - Stage 0 Safety Preflight (`DB_HOST != 103.131.144.61`, `MAIL_DELIVERY_DRY_RUN=true`) and Stage 1 OS Check passed cleanly.
+  - Stage 2 failed closed due to missing `php` CLI binary in WSL.
+  - Adhering strictly to prompt rules, Level B is recorded as `PENDING INFRASTRUCTURE`.
+- **Audited:** Composer Platform Requirements & Signal Trapping:
+  - Verified `composer check-platform-reqs`: standard extensions pass.
+  - Confirmed `"ext-pcntl": "*"` platform requirement in `composer.json` is missing on Windows. Highlighted that `pcntl` and `posix` are UNIX-only extensions essential for queue worker signal handling (`SIGTERM`/`SIGINT`) and Supervisor process lifecycle on Linux.
+- **Verified:** Database Engine & Schema State:
+  - Confirmed connection to MySQL 8.4.3 on `127.0.0.1` (`emailsaas_local`).
+  - Confirmed all 23 database migrations are applied (`php artisan migrate:status` all `[Ran]`).
+- **Remediated & Verified:** MySQL 8.4 Native JSON Engine Encryption Compatibility:
+  - Identified that MySQL 8.4 strict SQL mode rejects bare Base64 ciphertext strings in `$table->json('payload')` columns (`SQLSTATE[22032] Invalid JSON text`).
+  - Hardened `EncryptedArrayWithFallback` to serialize ciphertext via `json_encode(Crypt::encrypt($value))` on `set()` and unwrap on `get()`.
+  - Verified against MySQL 8.4: payload is completely encrypted at rest, in-memory decryption matches original payload, and legacy JSON rows fall back cleanly.
+- **Verified:** Queue Timing Hierarchy & Mutex Validation:
+  - Confirmed `MailDeliveryService::validateConfiguration()` passes with 0 issues (`job_timeout=60s < retry_after=90s < worker_lease=120s < stale_threshold=900s`).
+  - Confirmed mutex lock protection on `mail:recover-stale` (`withoutOverlapping(10)`) and `subscription:send-expiry-reminders` (`withoutOverlapping(15)`).
+- **Verified:** Dry-Run Commands & Telemetry:
+  - Verified `php artisan mail:recover-stale --dry-run` and `php artisan subscription:send-expiry-reminders --dry-run` execute cleanly without database mutations.
+  - Verified `MailDeliveryService::getOperationalStatus()` reports `status: HEALTHY` with zero recipient PII exposed.
+- **Automated Verification & Regression Testing:**
+  - All 5 transactional mail test suites: **74 passed (349 assertions, 100%)**.
+  - Full PHPUnit regression suite (`php artisan test`): **612 passed (3,044 assertions, 0 failures, 0 errors, 100%)**.
+  - Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+- **Git & Safety Invariants:**
+  - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+  - Zero connections to remote production database `103.131.144.61`.
+  - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ### Transactional Mail Security Hardening & Event Deduplication (Step 47)
 - **Implemented:** Cryptographic Email Verification Hardening (`AuthController.php`):
   - Neutralized vulnerability where knowing user ID and email allowed forging account verification without mailbox access.

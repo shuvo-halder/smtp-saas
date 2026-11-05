@@ -506,3 +506,25 @@ $$\text{Job Timeout (60s)} < \text{Queue Retry After (90s)} < \text{Worker Lease
   - When Worker B claims the record, it acquires a new token (`claim_token = token_B`).
   - If Worker A awakens and attempts `completeDelivery()`, `failDelivery()`, or release, its update is conditioned on `WHERE claim_token = :token_A`. Because the record has `token_B`, the query affects 0 rows, completely fencing Worker A off.
 - **Message-ID Deduplication Boundary:** RFC 5322 `Message-ID` (`<{uuid}@{domain}>`) provides MTA-level deduplication for RFC 5321 compliant MTAs, but cannot guarantee client-side idempotency across non-compliant mail relays. Application-level idempotency keys (`idempotency_key` unique index) remain the definitive defense against duplicate message generation.
+
+### 9. Step 48 Linux Runtime Environment Probe & Platform Verification
+- **Host WSL2 Environment Probe & Execution Evidence:**
+  - Evaluated native WSL2 Linux environment on host: kernel `6.6.87.2-microsoft-standard-WSL2` present across `Ubuntu-22.04` and `Ubuntu` distributions.
+  - Verification harness `scripts/verify_mail_queue_linux.sh` executed directly in WSL2 `Ubuntu-22.04`:
+    - Stage 0 Safety Preflight: `[PASS]` Database host safety verified (`DB_HOST=127.0.0.1`, not `103.131.144.61`). Dry-run delivery safety verified (`MAIL_DELIVERY_DRY_RUN=true`).
+    - Stage 1 OS Detection: `[PASS]` Linux OS detected (`Linux 6.6.87.2-microsoft-standard-WSL2`).
+    - Stage 2 PHP CLI & Extensions: `[FAIL]` Aborted cleanly with `PHP executable not found in PATH` (prerequisite: `sudo apt install php8.3-cli php8.3-mysql php8.3-redis`).
+  - Strict Rule Adherence: Per safety rules (*"Do not install new infrastructure without approval. If Linux PHP 8.3 is unavailable, report Level B as PENDING and document the exact blocker. Do not simulate a successful Linux runtime"*), Level B is officially classified as `PENDING INFRASTRUCTURE`.
+- **Composer Platform Requirements Audit:**
+  - Executed `composer check-platform-reqs`: All platform requirements pass (`php 8.3.33`, `curl`, `dom`, `fileinfo`, `filter`, `hash`, `iconv`, `json`, `libxml`, `openssl`, `pcre`, `phar`, `session`, `tokenizer`, `xml`, `xmlwriter`) with the exception of `ext-pcntl` on Windows.
+  - Confirmed that `composer.json` specifies `"ext-pcntl": "*"`, a UNIX-only extension required for asynchronous signal handling (`SIGTERM`, `SIGINT`) in queue workers and Supervisor integration.
+- **Database Engine & Migration Verification:**
+  - Verified local database connection: MySQL 8.4.3 on `127.0.0.1` (`emailsaas_local`).
+  - Verified all 23 database migrations are applied (`php artisan migrate:status` all `[Ran]`).
+- **MySQL 8.4 Native JSON Engine Encryption Compatibility:**
+  - Audited interaction between MySQL 8.4 strict `JSON` column validation on `mail_deliveries.payload` and AES-256 ciphertext storage.
+  - Remediated `EncryptedArrayWithFallback` to serialize ciphertext via `json_encode(Crypt::encrypt($value))`, satisfying MySQL native JSON syntax checks while enforcing full AES-256 payload encryption at rest with zero plaintext tokens or URLs in database dumps.
+- **Timing Hierarchy & Mutex Verification:**
+  - Mathematically consistent timing audited: `job_timeout (60s) < retry_after (90s) < worker_lease (120s) < stale_threshold (900s)`.
+  - Mutex lock protection verified on `mail:recover-stale` (`withoutOverlapping(10)`) and `subscription:send-expiry-reminders` (`withoutOverlapping(15)`).
+

@@ -26,11 +26,13 @@ class EncryptedArrayWithFallback implements CastsAttributes
         }
 
         try {
-            $decrypted = Crypt::decrypt($value);
+            // Unquote JSON string if wrapped for MySQL JSON column compatibility
+            $unwrapped = is_string($value) ? (json_decode($value, true) ?? $value) : $value;
+            $decrypted = Crypt::decrypt($unwrapped);
             return is_array($decrypted) ? $decrypted : json_decode((string) $decrypted, true);
         } catch (Throwable) {
             // Graceful fallback for legacy records stored as plaintext JSON
-            $decoded = json_decode((string) $value, true);
+            $decoded = is_array($value) ? $value : json_decode((string) $value, true);
             return is_array($decoded) ? $decoded : null;
         }
     }
@@ -51,6 +53,9 @@ class EncryptedArrayWithFallback implements CastsAttributes
             return null;
         }
 
-        return Crypt::encrypt($value);
+        // MySQL 8.0/8.4 native JSON columns enforce strict JSON syntax at the database engine level.
+        // Wrapping the encrypted ciphertext with json_encode() satisfies MySQL JSON column validation
+        // while preserving AES-256 ciphertext encryption at rest.
+        return json_encode(Crypt::encrypt($value));
     }
 }

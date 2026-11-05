@@ -973,16 +973,47 @@ This document is the operational starting point for any AI coding agent working 
     - Zero connections to remote production database `103.131.144.61`.
     - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
 
+- **Step 48 — Linux Queue Worker & Scheduler Runtime Verification (LEVEL B PENDING INFRASTRUCTURE — LINUX PHP 8.3 CLI ABSENT; LEVEL A APPLICATION EVIDENCE VERIFIED):**
+  - **Host Linux Environment Probe & Execution Evidence:**
+    - Evaluated native WSL2 Linux environment on host: kernel `6.6.87.2-microsoft-standard-WSL2` present across `Ubuntu-22.04` and `Ubuntu`.
+    - Executed verification harness `scripts/verify_mail_queue_linux.sh` directly in WSL2 `Ubuntu-22.04`: Stage 0 Safety Preflight (`DB_HOST != 103.131.144.61`, `MAIL_DELIVERY_DRY_RUN=true`) and Stage 1 OS Check passed cleanly; Stage 2 failed closed due to missing `php` CLI binary in WSL.
+    - Strict Safety Compliance: Adhering strictly to rule (*"Do not install new infrastructure without approval. If Linux PHP 8.3 is unavailable, report Level B as PENDING and document the exact blocker. Do not simulate a successful Linux runtime"*), Level B runtime verification is recorded as `PENDING INFRASTRUCTURE`.
+  - **Composer Platform Requirements & Signal Handling Audit:**
+    - Executed `composer check-platform-reqs`: Confirmed PHP 8.3.33 and standard extensions pass.
+    - Confirmed `"ext-pcntl": "*"` platform requirement in `composer.json` is missing on Windows. Highlighted that `pcntl` and `posix` are UNIX-only extensions essential for queue worker signal handling (`SIGTERM`/`SIGINT`) and Supervisor process lifecycle on Linux.
+  - **Database Engine & Migration Verification:**
+    - Confirmed connection to MySQL 8.4.3 on `127.0.0.1` (`emailsaas_local`).
+    - Confirmed all 23 database migrations are applied (`php artisan migrate:status` all `[Ran]`).
+  - **MySQL 8.4 Native JSON Engine Encryption Compatibility:**
+    - Identified that MySQL 8.4 strict SQL mode rejects bare Base64 ciphertext strings in `$table->json('payload')` columns (`SQLSTATE[22032] Invalid JSON text`).
+    - Hardened `EncryptedArrayWithFallback` to serialize ciphertext via `json_encode(Crypt::encrypt($value))` on `set()` and unwrap on `get()`.
+    - Verified against MySQL 8.4: payload is completely encrypted at rest, in-memory decryption matches original payload, and legacy JSON rows fall back cleanly.
+  - **Queue Timing Hierarchy & Mutex Validation:**
+    - Confirmed `MailDeliveryService::validateConfiguration()` passes with 0 issues (`job_timeout=60s < retry_after=90s < worker_lease=120s < stale_threshold=900s`).
+    - Confirmed mutex lock protection on `mail:recover-stale` (`withoutOverlapping(10)`) and `subscription:send-expiry-reminders` (`withoutOverlapping(15)`).
+  - **Dry-Run Commands & Telemetry:**
+    - Verified `php artisan mail:recover-stale --dry-run` and `php artisan subscription:send-expiry-reminders --dry-run` execute cleanly without database mutations.
+    - Verified `MailDeliveryService::getOperationalStatus()` reports `status: HEALTHY` with zero recipient PII exposed.
+  - **Three-Level Verification Matrix:**
+    - **Level A (Application & API Layer):** `PASS / VERIFIED` (74 mail tests, 612 full suite tests, 3,044 assertions passing 100%).
+    - **Level B (Linux Queue Worker & Scheduler):** `PENDING INFRASTRUCTURE` (Harness executed in WSL2; Stage 0-1 passed; Stage 2 failed closed due to missing Linux PHP 8.3 CLI).
+    - **Level C (Controlled SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly enforced).
+  - **Git & Safety Invariants:**
+    - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+    - Zero connections to remote production database `103.131.144.61`.
+    - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ## 5. Next Recommended Implementation Phase
-- **Step 48 — Live External SMTP Transport Verification Drill & ESP Integration Plan:**
-  - Transition from dry-run mode (`MAIL_DELIVERY_DRY_RUN=false`) in an isolated, approved staging environment.
-  - Establish connection tests for primary SMTP transport (Postfix local port 25/587 or upstream relay).
-  - Verify TLS certificate validation, SASL authentication handshakes, and RFC 5321/5322 compliance.
+- **Step 49 — Linux Staging Environment Setup & Queue Worker End-to-End Execution:**
+  - Provision PHP 8.3 CLI runtime (`php8.3-cli`, `php8.3-mysql`, `php8.3-redis`, `ext-pcntl`, `ext-posix`) in an approved Linux environment (WSL2 or dedicated staging VPS).
+  - Execute `bash scripts/verify_mail_queue_linux.sh` to completion through Stage 8 to elevate Level B to `PASS / VERIFIED`.
+  - Validate Supervisor queue worker lifecycle, `SIGTERM` graceful drain, and cron scheduler triggers under real Linux daemon conditions.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

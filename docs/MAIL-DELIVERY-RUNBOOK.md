@@ -647,4 +647,83 @@ Step 45 implemented robust worker ownership and fencing protection for the trans
 | **Level B** | Linux Worker Process Lifecycle, Signals & Cron Scheduler | Linux / WSL2 Ubuntu 22.04 LTS | `scripts/verify_mail_queue_linux.sh` | **PENDING INFRASTRUCTURE** (Harness syntax verified; pending Linux PHP 8.3 CLI on host) |
 | **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (`MAIL_DELIVERY_DRY_RUN=true` strictly enforced; requires explicit approval) |
 
+---
+
+## 17. Step 48 — Linux Queue Worker & Scheduler Runtime Verification
+
+### 17.1 Environment Probe & Execution Evidence
+1. **Linux Runtime Environment Probe:**
+   - Host WSL2 environment: Ubuntu-22.04 (default) and Ubuntu distributions.
+   - Linux kernel: `6.6.87.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 5 18:30:46 UTC 2025 x86_64`.
+   - Toolchain probe: `which php` returned exit code 1 (`php: command not found`).
+2. **Verification Harness Execution (`scripts/verify_mail_queue_linux.sh`):**
+   ```bash
+   wsl -d Ubuntu-22.04 -e bash -c "cd /mnt/c/Users/ome/Desktop/email-saas && bash scripts/verify_mail_queue_linux.sh"
+   ```
+   **Output:**
+   ```text
+   [0/8] Safety Preflight & Environment Checks...
+     [PASS] Database host safety verified: 127.0.0.1
+     [PASS] Dry-run delivery safety verified: MAIL_DELIVERY_DRY_RUN=true
+
+   [1/8] Verifying Operating System & Kernel Environment...
+     [PASS] Linux OS detected: Linux (6.6.87.2-microsoft-standard-WSL2)
+
+   [2/8] Verifying PHP CLI & Mandatory Extensions...
+          Prerequisite: Install PHP 8.3 CLI (sudo apt install php8.3-cli php8.3-mysql php8.3-redis)
+   [FAIL] PHP executable not found in PATH.
+   ```
+   - Stage 0 Safety Preflight: Passed cleanly (`DB_HOST != 103.131.144.61`, `MAIL_DELIVERY_DRY_RUN=true`).
+   - Stage 1 OS Check: Passed cleanly (`Linux 6.6.87.2-microsoft-standard-WSL2`).
+   - Stage 2 PHP CLI: Failed closed due to missing PHP binary in WSL container.
+3. **Strict Compliance with Rules:**
+   - As mandated (*"Do not install new infrastructure without approval. If Linux PHP 8.3 is unavailable, report Level B as PENDING and document the exact blocker. Do not simulate a successful Linux runtime"*), Level B runtime verification is documented as:
+     $$\text{Level B Status: } \textbf{PENDING INFRASTRUCTURE (LINUX PHP 8.3 CLI ABSENT)}$$
+
+### 17.2 Composer Platform Requirements & Signal Trapping
+- Executed `composer check-platform-reqs`:
+  - `php 8.3.33`: success
+  - `ext-curl`, `ext-dom`, `ext-fileinfo`, `ext-filter`, `ext-hash`, `ext-iconv`, `ext-json`, `ext-libxml`, `ext-openssl`, `ext-pcre`, `ext-phar`, `ext-session`, `ext-tokenizer`, `ext-xml`, `ext-xmlwriter`: success
+  - `ext-pcntl`: **missing** on Windows (`emailsaas/panel requires ext-pcntl (*)`).
+- **Technical Significance:** `ext-pcntl` is a POSIX/UNIX-only extension required for queue worker signal trapping (`SIGTERM`, `SIGINT`) and Supervisor process lifecycle integration. This confirms the architectural requirement for a dedicated Linux host for production queue worker execution.
+
+### 17.3 Database Connectivity & Schema State
+- Evaluated against local database:
+  - Database Driver: `mysql`
+  - Engine Version: `8.4.3`
+  - Database Name: `emailsaas_local`
+  - Host: `127.0.0.1:3306`
+  - Tables Verified Present: `mail_deliveries`, `jobs`, `failed_jobs`, `cache`, `cache_locks`, `users`, `tenant_notifications`, `audit_logs`.
+- Verified Migration Status (`php artisan migrate:status`):
+  - All 23 migrations have `[Ran]` status with zero pending migrations.
+
+### 17.4 MySQL 8.4 Native JSON Engine Encryption Compatibility
+- **Issue Identified:** MySQL 8.4 strictly validates syntax on columns defined as `$table->json('payload')`. Inserting bare Base64 ciphertext strings throws `SQLSTATE[22032] Invalid JSON text`.
+- **Remediation:** Updated `EncryptedArrayWithFallback` to serialize ciphertext using `json_encode(Crypt::encrypt($value))` upon `set()` and unwrapping prior to `Crypt::decrypt()` on `get()`.
+- **Verification Evidence:**
+  - `MailDeliveryRecord::create()` succeeds seamlessly on MySQL 8.4.
+  - `RAW_DB_PLAINTEXT_ABSENT: true` — Raw SQL reads confirm the payload is completely encrypted at rest with zero plaintext tokens or URLs.
+  - `DECRYPTED_PAYLOAD_MATCHES: true` — In-memory Eloquent access decrypts transparently via `APP_KEY`.
+  - `LEGACY_FALLBACK_WORKS: true` — Unencrypted legacy JSON rows are decoded into arrays without throwing exceptions.
+
+### 17.5 Scheduler & Recovery Execution
+1. **Queue Timing Consistency (`MailDeliveryService::validateConfiguration()`):**
+   - `IS_VALID: true`, `ISSUES: none`.
+   - Timing: `job_timeout=60s < retry_after=90s < worker_lease=120s < stale_threshold=900s`.
+2. **Scheduler Mutex & Overlap Protection (`routes/console.php`):**
+   - `mail:recover-stale`: Runs every 15 minutes with `withoutOverlapping(10)` mutex lock.
+   - `subscription:send-expiry-reminders`: Runs daily at 08:00 with `withoutOverlapping(15)` mutex lock.
+3. **Dry-Run Command Execution:**
+   - `php artisan mail:recover-stale --dry-run`: Scanned 0 stale records, 0 modified.
+   - `php artisan subscription:send-expiry-reminders --dry-run`: Scanned 0 approaching expirations, 0 modified.
+
+### 17.6 Verification Evidence Matrix (Step 48)
+
+| Level | Scope | Target Environment | Verification Method | Status |
+|---|---|---|---|---|
+| **Level A** | Application Mail Queue, Security, Token Encryption, MySQL 8.4 Compatibility | Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3) | PHPUnit (74 mail tests, 612 full suite tests, 3,044 assertions) + Next.js TypeScript (0 errors) | **PASS / VERIFIED** |
+| **Level B** | Linux Worker Process Lifecycle, Signals & Cron Scheduler | Linux / WSL2 Ubuntu 22.04 LTS (Kernel 6.6.87.2) | `scripts/verify_mail_queue_linux.sh` | **PENDING INFRASTRUCTURE** (Harness executed in WSL2; Stage 0-1 passed; Stage 2 failed closed due to missing Linux PHP 8.3 CLI) |
+| **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (`MAIL_DELIVERY_DRY_RUN=true` strictly maintained; requires explicit approval) |
+
+
 

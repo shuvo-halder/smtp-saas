@@ -609,5 +609,27 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - *Architectural Recommendation:* A durable Transactional Outbox Pattern requires writing a pending outbox record into the database within the primary business transaction (sharing the same database transaction boundary) and subsequently reading/dispatching outbox rows via a background sweeper. Formulated and classified as `REQUIRES ARCHITECTURE APPROVAL`.
 
 
+## 37. Linux Runtime Environment Security, Signal Handling & Engine Compatibility (Step 48 Implementation)
+- **Process Signals & UNIX Environment Boundary:**
+  - Queue workers require asynchronous signal handling (`SIGTERM`, `SIGINT`) to drain and complete active in-flight jobs gracefully before termination.
+  - Signal trapping relies strictly on `ext-pcntl` and `ext-posix`, which are UNIX-only extensions unavailable in Windows PHP runtimes.
+  - Production deployments require a Linux Supervisor worker environment configured with `stopwaitsecs=75` (exceeding `job_timeout=60s`), `killasgroup=true`, and `stopasgroup=true`.
+- **MySQL 8.4 Engine-Level JSON Validation & Payload Encryption Security:**
+  - MySQL 8.4 strict SQL mode validates syntax on columns typed as `JSON` at the storage engine level.
+  - Serializing raw Base64 strings triggers SQL error `3140 (Invalid JSON text)`.
+  - Hardened `EncryptedArrayWithFallback` to serialize ciphertext via `json_encode(Crypt::encrypt($value))`, which satisfies engine-level JSON syntax validation as a quoted string literal while enforcing complete AES-256 cryptographic confidentiality at rest.
+  - Verification: Direct queries against MySQL 8.4 (`DB::table('mail_deliveries')->value('payload')`) confirm zero plaintext tokens, passwords, or URLs exist in storage, while `fresh()->payload` decrypts transparently in application memory.
+- **Worker Claim Fencing & Stale Recovery Security Invariant:**
+  - Monotonic UUID claim tokens (`claim_token`) verified against MySQL 8.4 InnoDB conditional updates.
+  - Superseded or expired workers match 0 rows (`WHERE claim_token = :token`), preventing undead worker state corruption.
+  - Stale processing recovery (`mail:recover-stale`) safely re-queues expired records after 900s while clearing `claim_token = NULL`.
+- **Host Isolation & Execution Boundary:**
+  - Host environment probe confirmed WSL2 Ubuntu-22.04 with kernel `6.6.87.2-microsoft-standard-WSL2`.
+  - Execution of `scripts/verify_mail_queue_linux.sh` failed closed on Stage 2 due to uninstalled PHP 8.3 CLI packages.
+  - Adhering to safety rules (*"Do not install new infrastructure without approval. If Linux PHP 8.3 is unavailable, report Level B as PENDING and document the exact blocker"*), Level B runtime verification is recorded as `PENDING INFRASTRUCTURE`.
+  - Maintained `MAIL_DELIVERY_DRY_RUN=true` and rejected all remote connections to `103.131.144.61`.
+
+
+
 
 
