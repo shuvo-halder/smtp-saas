@@ -590,5 +590,61 @@ Step 45 implemented robust worker ownership and fencing protection for the trans
 - **Scenario H:** Backward compatibility — Null claim tokens never match empty token queries.
 - **Scenario I:** End-to-end `ProcessMailDeliveryJob` execution — Full lifecycle with fencing verified.
 
-| **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (Explicit architecture approval required) |
+---
+
+## 16. Step 46 & Step 47 — Transactional Mail Dispatch Integration & Security Hardening
+
+### 16.1 Cryptographic Email Verification & Anti-Enumeration
+1. **Verification URL Generation:**
+   - Generated during user registration (`AuthController::register`):
+     ```php
+     $expires = now()->addHours(24)->timestamp;
+     $hash = sha1($user->email);
+     $signature = hash_hmac('sha256', "id={$user->id}&hash={$hash}&expires={$expires}", config('app.key'));
+     $verificationUrl = config('app.frontend_url') . "/verify-email?id={$user->id}&hash={$hash}&expires={$expires}&signature={$signature}";
+     ```
+2. **Verification Verification & Idempotency (`POST /api/auth/verify-email`):**
+   - Timing-safe HMAC validation via `hash_equals()`.
+   - Expiration validation against current Unix timestamp (24-hour lifetime).
+   - If user is already verified, returns HTTP 200 without error or state mutation.
+3. **Anti-Enumeration Resend (`POST /api/auth/resend-verification`):**
+   - Returns generic HTTP 200 response regardless of user existence or verification state.
+   - Throttled per-user via idempotency key: `registration_verification:user_{id}:resend_{Y-m-d_H}`.
+
+### 16.2 Database Payload Encryption at Rest
+1. **Encryption Mechanism:**
+   - `MailDeliveryRecord` utilizes `App\Casts\EncryptedArrayWithFallback`.
+   - Raw database entries in `mail_deliveries.payload` are AES-256 encrypted using `Crypt::encrypt()` keyed by `APP_KEY`.
+   - Plaintext passwords, tokens, and reset URLs are never exposed in raw SQL dumps, database replicas, or log files.
+2. **Operational Key Dependency (`APP_KEY`):**
+   > [!IMPORTANT]
+   > Changing or regenerating `APP_KEY` without re-encrypting existing payloads will render queued or historical payloads unreadable. Always backup `APP_KEY` securely.
+3. **Legacy Fallback Compatibility:**
+   - If an unencrypted legacy JSON string is read from the database, `EncryptedArrayWithFallback` automatically falls back to `json_decode`, ensuring zero worker interruption during upgrades.
+
+### 16.3 Recursive Credential Scrubbing & Error Sanitization
+- `MailDeliveryService::scrubPayload()` recursively strips sensitive keys (`password`, `secret`, `token`, `bearer`, `credential`, `private_key`, `api_key`).
+- Error messages in `last_error` are sanitized via `sanitizeErrorMessage()`, scrubbing query parameters (`token=...`, `signature=...`) and bearer tokens before database writes.
+
+### 16.4 Event Deduplication & Crash Window Analysis
+1. **Event Deduplication Keys:**
+   - Registration: `registration_verification:user_{id}`
+   - Password Reset: `password_reset:user_{id}:{tokenHash}`
+   - Invoice Payment: `billing_paid:invoice_{id}`
+   - Subscription Renewal: `billing_renewal:invoice_{id}`
+   - Expiry Reminder: `subscription_expiry_reminder:user_{id}:{days}d:{date}`
+   - Security Alert: `security_alert:incident_{uuid}`
+   - Account Suspension: `account_suspended_mail:{tenant_id}:{date}`
+2. **Crash Window & Transactional Outbox Formulation:**
+   - Dual-write risk: In `DB::afterCommit()`, if the worker process crashes after MariaDB commits the transaction but before `enqueue()` completes, the business transaction succeeds but the mail job is lost.
+   - Mitigated via fail-safe logging; permanent architectural solution requires a Transactional Outbox table within the primary business transaction boundary (`REQUIRES ARCHITECTURE APPROVAL`).
+
+### 16.5 Verification Evidence Matrix (Step 47)
+
+| Level | Scope | Environment | Verification Method | Status |
+|---|---|---|---|---|
+| **Level A** | Application Mail Queue, Security, Token Encryption, HMAC Verification | Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3) | PHPUnit (24 dispatch tests, 74 mail tests, 612 full suite tests, 3,044 assertions) | **PASS** |
+| **Level B** | Linux Worker Process Lifecycle, Signals & Cron Scheduler | Linux / WSL2 Ubuntu 22.04 LTS | `scripts/verify_mail_queue_linux.sh` | **PENDING INFRASTRUCTURE** (Harness syntax verified; pending Linux PHP 8.3 CLI on host) |
+| **Level C** | Controlled Live SMTP Delivery | Remote Linux VPS + Postfix/DNS | Live SMTP handshake & DMARC/SPF/DKIM alignment | **BLOCKED** (`MAIL_DELIVERY_DRY_RUN=true` strictly enforced; requires explicit approval) |
+
 

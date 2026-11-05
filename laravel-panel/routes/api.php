@@ -21,6 +21,7 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::post('/auth/login', [AuthController::class, 'login']);
     Route::post('/auth/verify-email', [AuthController::class, 'verifyEmail']);
+    Route::post('/auth/resend-verification', [AuthController::class, 'resendVerification']);
     Route::post('/auth/forgot-password', [PasswordResetController::class, 'forgotPassword']);
     Route::post('/auth/reset-password', [PasswordResetController::class, 'resetPassword']);
 

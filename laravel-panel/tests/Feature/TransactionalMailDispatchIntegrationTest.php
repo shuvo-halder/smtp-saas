@@ -78,7 +78,13 @@ class TransactionalMailDispatchIntegrationTest extends TestCase
         $this->assertEquals("registration_verification:user_{$user->id}", $mailRecord->idempotency_key);
         $this->assertStringContainsString('Verify your EmailSaaS account', $mailRecord->subject);
         $this->assertNotEmpty($mailRecord->payload['verification_url']);
-        $this->assertStringContainsString((string) $user->id, $mailRecord->payload['verification_url']);
+
+        // Invariant: verification URL must contain signed, expiring query parameters
+        $url = $mailRecord->payload['verification_url'];
+        $this->assertStringContainsString("id={$user->id}", $url);
+        $this->assertStringContainsString("hash=", $url);
+        $this->assertStringContainsString("expires=", $url);
+        $this->assertStringContainsString("signature=", $url);
     }
 
     public function test_user_registration_succeeds_even_if_mail_enqueue_fails(): void
@@ -102,38 +108,152 @@ class TransactionalMailDispatchIntegrationTest extends TestCase
         $this->assertDatabaseHas('users', ['email' => 'bob@example.com']);
     }
 
-    public function test_email_verification_endpoint_verifies_valid_hash_and_rejects_tampered_hash(): void
+    public function test_email_verification_with_valid_signed_parameters_succeeds(): void
     {
         $user = User::factory()->create([
-            'email'             => 'verify-me@example.com',
+            'email'             => 'verify-valid@example.com',
             'email_verified_at' => null,
         ]);
 
-        $validHash = sha1($user->email);
-        $invalidHash = sha1('tampered@example.com');
+        $expires = now()->addHour()->timestamp;
+        $hash = sha1($user->email);
+        $signature = hash_hmac('sha256', "id={$user->id}&hash={$hash}&expires={$expires}", (string) config('app.key'));
 
-        // Tampered hash rejected
-        $badResponse = $this->postJson('/api/auth/verify-email', [
-            'id'   => $user->id,
-            'hash' => $invalidHash,
+        $response = $this->postJson('/api/auth/verify-email', [
+            'id'        => $user->id,
+            'hash'      => $hash,
+            'expires'   => $expires,
+            'signature' => $signature,
         ]);
-        $badResponse->assertStatus(400);
-        $this->assertNull($user->fresh()->email_verified_at);
 
-        // Valid hash accepted
-        $goodResponse = $this->postJson('/api/auth/verify-email', [
-            'id'   => $user->id,
-            'hash' => $validHash,
-        ]);
-        $goodResponse->assertStatus(200);
+        $response->assertStatus(200);
         $this->assertNotNull($user->fresh()->email_verified_at);
+    }
 
-        // Subsequent verification returns 200 already verified
-        $repeatResponse = $this->postJson('/api/auth/verify-email', [
-            'id'   => $user->id,
-            'hash' => $validHash,
+    public function test_email_verification_rejects_expired_verification_link(): void
+    {
+        $user = User::factory()->create([
+            'email'             => 'verify-expired@example.com',
+            'email_verified_at' => null,
         ]);
-        $repeatResponse->assertStatus(200);
+
+        // Expired in the past
+        $expires = now()->subMinutes(10)->timestamp;
+        $hash = sha1($user->email);
+        $signature = hash_hmac('sha256', "id={$user->id}&hash={$hash}&expires={$expires}", (string) config('app.key'));
+
+        $response = $this->postJson('/api/auth/verify-email', [
+            'id'        => $user->id,
+            'hash'      => $hash,
+            'expires'   => $expires,
+            'signature' => $signature,
+        ]);
+
+        $response->assertStatus(400);
+        $response->assertJson(['message' => 'Verification link has expired.']);
+        $this->assertNull($user->fresh()->email_verified_at);
+    }
+
+    public function test_email_verification_rejects_tampered_signature(): void
+    {
+        $user = User::factory()->create([
+            'email'             => 'verify-tampered@example.com',
+            'email_verified_at' => null,
+        ]);
+
+        $expires = now()->addHour()->timestamp;
+        $hash = sha1($user->email);
+
+        $response = $this->postJson('/api/auth/verify-email', [
+            'id'        => $user->id,
+            'hash'      => $hash,
+            'expires'   => $expires,
+            'signature' => 'forged-or-tampered-signature-12345',
+        ]);
+
+        $response->assertStatus(400);
+        $response->assertJson(['message' => 'Invalid or tampered verification signature.']);
+        $this->assertNull($user->fresh()->email_verified_at);
+    }
+
+    public function test_email_verification_rejects_modified_user_id_or_hash(): void
+    {
+        $userA = User::factory()->create(['email' => 'usera@example.com', 'email_verified_at' => null]);
+        $userB = User::factory()->create(['email' => 'userb@example.com', 'email_verified_at' => null]);
+
+        $expires = now()->addHour()->timestamp;
+        $hashA = sha1($userA->email);
+        $signatureA = hash_hmac('sha256', "id={$userA->id}&hash={$hashA}&expires={$expires}", (string) config('app.key'));
+
+        // Attempt to apply User A's signature to User B
+        $response = $this->postJson('/api/auth/verify-email', [
+            'id'        => $userB->id,
+            'hash'      => $hashA,
+            'expires'   => $expires,
+            'signature' => $signatureA,
+        ]);
+
+        $response->assertStatus(400);
+        $this->assertNull($userB->fresh()->email_verified_at);
+    }
+
+    public function test_email_verification_is_idempotent_for_already_verified_account(): void
+    {
+        $user = User::factory()->create([
+            'email'             => 'already-verified@example.com',
+            'email_verified_at' => now()->subDay(),
+        ]);
+
+        $originalVerifiedAt = $user->email_verified_at;
+        $expires = now()->addHour()->timestamp;
+        $hash = sha1($user->email);
+        $signature = hash_hmac('sha256', "id={$user->id}&hash={$hash}&expires={$expires}", (string) config('app.key'));
+
+        $response = $this->postJson('/api/auth/verify-email', [
+            'id'        => $user->id,
+            'hash'      => $hash,
+            'expires'   => $expires,
+            'signature' => $signature,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['message' => 'Email already verified.']);
+        $this->assertEquals($originalVerifiedAt->toDateTimeString(), $user->fresh()->email_verified_at->toDateTimeString());
+    }
+
+    public function test_resend_verification_enqueues_email_and_prevents_enumeration(): void
+    {
+        $unverified = User::factory()->create([
+            'email'             => 'unverified@example.com',
+            'email_verified_at' => null,
+        ]);
+
+        $verified = User::factory()->create([
+            'email'             => 'verified@example.com',
+            'email_verified_at' => now(),
+        ]);
+
+        // 1. Unverified user receives verification email
+        $res1 = $this->postJson('/api/auth/resend-verification', ['email' => 'unverified@example.com']);
+        $res1->assertStatus(200);
+        $this->assertDatabaseHas('mail_deliveries', [
+            'recipient_email' => 'unverified@example.com',
+            'message_type'    => 'account_verification',
+        ]);
+
+        // 2. Already verified user returns generic 200 without enqueuing
+        $res2 = $this->postJson('/api/auth/resend-verification', ['email' => 'verified@example.com']);
+        $res2->assertStatus(200);
+        $this->assertDatabaseMissing('mail_deliveries', [
+            'recipient_email' => 'verified@example.com',
+        ]);
+
+        // 3. Nonexistent email returns generic 200 without enqueuing (anti-enumeration)
+        $res3 = $this->postJson('/api/auth/resend-verification', ['email' => 'ghost@example.com']);
+        $res3->assertStatus(200);
+        $this->assertDatabaseMissing('mail_deliveries', [
+            'recipient_email' => 'ghost@example.com',
+        ]);
     }
 
     // ─── 2. PASSWORD RESET FLOW & TOKEN SECURITY ───────────────────────────────
@@ -162,6 +282,106 @@ class TransactionalMailDispatchIntegrationTest extends TestCase
 
         // Invariant: raw 'token' key must NEVER be stored unredacted in database payload
         $this->assertArrayNotHasKey('token', $record->payload);
+    }
+
+    public function test_password_reset_token_is_encrypted_at_rest_and_never_persisted_in_plaintext_db_payload(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'encrypted-token-test@example.com',
+        ]);
+
+        $this->postJson('/api/auth/forgot-password', [
+            'email' => 'encrypted-token-test@example.com',
+        ])->assertStatus(200);
+
+        $record = MailDeliveryRecord::where('recipient_email', 'encrypted-token-test@example.com')->first();
+        $this->assertNotNull($record);
+
+        // Fetch RAW un-casted database value directly from MySQL/SQLite
+        $rawDatabasePayload = DB::table('mail_deliveries')->where('id', $record->id)->value('payload');
+
+        // Extract the plain token from the decrypted model attribute
+        preg_match('/token=([^&]+)/', $record->payload['reset_url'], $matches);
+        $this->assertNotEmpty($matches[1]);
+        $plainToken = $matches[1];
+
+        // INVARIANT: Raw database payload MUST NOT contain the plaintext token!
+        $this->assertStringNotContainsString($plainToken, $rawDatabasePayload, 'VULNERABILITY: Plaintext reset token is exposed in database storage!');
+
+        // INVARIANT: Raw database payload MUST NOT contain plaintext reset URL
+        $this->assertStringNotContainsString('reset-password', $rawDatabasePayload, 'VULNERABILITY: Plaintext reset URL is exposed in database storage!');
+
+        // Model attribute decryption works seamlessly in-memory
+        $this->assertIsArray($record->payload);
+        $this->assertStringContainsString("token={$plainToken}", $record->payload['reset_url']);
+    }
+
+    public function test_scrub_payload_recursively_redacts_nested_secret_keys(): void
+    {
+        $service = app(MailDeliveryService::class);
+
+        $dirtyPayload = [
+            'public_info'      => 'Safe Info',
+            'api_token'        => 'secret_api_token_123',
+            'security_context' => ['user_password' => 'secret_pass_456'],
+            'deep'             => [
+                'nested' => [
+                    'private_key'   => 'secret_privkey_789',
+                    'session_token' => 'secret_token_000',
+                ],
+            ],
+        ];
+
+        $cleaned = $service->scrubPayload($dirtyPayload);
+
+        $this->assertEquals('Safe Info', $cleaned['public_info']);
+        $this->assertEquals('[REDACTED]', $cleaned['api_token']);
+        $this->assertEquals('[REDACTED]', $cleaned['security_context']['user_password']);
+        $this->assertEquals('[REDACTED]', $cleaned['deep']['nested']['private_key']);
+        $this->assertEquals('[REDACTED]', $cleaned['deep']['nested']['session_token']);
+    }
+
+    public function test_password_reset_event_is_dispatched_exactly_once_on_success_and_never_on_failure(): void
+    {
+        Event::fake([\Illuminate\Auth\Events\PasswordReset::class]);
+
+        $user = User::factory()->create([
+            'email'    => 'event-test@example.com',
+            'password' => Hash::make('OldPassword123!'),
+        ]);
+
+        $token = Password::broker()->createToken($user);
+
+        // 1. Invalid reset attempt: event must NOT be dispatched
+        $this->postJson('/api/auth/reset-password', [
+            'email'                 => 'event-test@example.com',
+            'token'                 => 'invalid-token',
+            'password'              => 'NewValidPassword123!',
+            'password_confirmation' => 'NewValidPassword123!',
+        ])->assertStatus(400);
+
+        Event::assertNotDispatched(\Illuminate\Auth\Events\PasswordReset::class);
+
+        // 2. Successful reset attempt: event must be dispatched EXACTLY once
+        $this->postJson('/api/auth/reset-password', [
+            'email'                 => 'event-test@example.com',
+            'token'                 => $token,
+            'password'              => 'NewValidPassword123!',
+            'password_confirmation' => 'NewValidPassword123!',
+        ])->assertStatus(200);
+
+        Event::assertDispatched(\Illuminate\Auth\Events\PasswordReset::class, 1);
+
+        // 3. Replay with the same token: token is already consumed/deleted, must fail and NOT dispatch again
+        $this->postJson('/api/auth/reset-password', [
+            'email'                 => 'event-test@example.com',
+            'token'                 => $token,
+            'password'              => 'AnotherPassword456!',
+            'password_confirmation' => 'AnotherPassword456!',
+        ])->assertStatus(400);
+
+        // Still dispatched only once across the entire test
+        Event::assertDispatched(\Illuminate\Auth\Events\PasswordReset::class, 1);
     }
 
     public function test_forgot_password_for_nonexistent_or_suspended_user_does_not_enqueue_mail(): void

@@ -1,5 +1,38 @@
 # Changelog
 
+### Transactional Mail Security Hardening & Event Deduplication (Step 47)
+- **Implemented:** Cryptographic Email Verification Hardening (`AuthController.php`):
+  - Neutralized vulnerability where knowing user ID and email allowed forging account verification without mailbox access.
+  - Implemented HMAC-SHA256 signature verification keyed by `config('app.key')` covering `id`, `hash`, and `expires`.
+  - Enforced 24-hour expiration check (`$expires < now()->timestamp` -> HTTP 400).
+  - Enforced timing-safe signature comparison with `hash_equals()`.
+  - Added idempotency handling: already-verified accounts return HTTP 200 without error or duplicate audit records.
+  - Added anti-enumeration resend endpoint `POST /api/auth/resend-verification` returning generic HTTP 200 response with hourly rate-limiting/idempotency key `registration_verification:user_{id}:resend_{Y-m-d_H}`.
+- **Implemented:** Database Payload Encryption at Rest (`EncryptedArrayWithFallback.php`):
+  - Created Eloquent cast `App\Casts\EncryptedArrayWithFallback` encrypting `mail_deliveries.payload` with AES-256 via `Crypt::encrypt()` at rest using `APP_KEY`.
+  - In-memory transparent decryption for queue workers.
+  - Automatic fallback to `json_decode` for legacy unencrypted JSON rows.
+  - Plaintext password reset URLs and raw tokens are completely unreadable in raw database dumps and SQL queries.
+- **Implemented:** Deep Recursive Secret Scrubbing & Error Sanitization:
+  - Hardened `MailDeliveryService::scrubPayload` to recursively scrub exact keys and regex substrings (`password`, `secret`, `token`, `bearer`, `credential`, `private_key`, `api_key`).
+  - Added `MailDeliveryService::sanitizeErrorMessage()` and updated `failDelivery()` to scrub URL parameters, passwords, and tokens before persisting in `last_error`.
+  - Hardened `ProcessMailDeliveryJob::sanitizeErrorMessage()` URL regex.
+- **Audited & Hardened:** PasswordReset Event Deduplication:
+  - Audited `Illuminate\Auth\Passwords\PasswordBroker::reset()` to confirm it does not auto-dispatch `PasswordReset`.
+  - Guaranteed `PasswordReset` event is dispatched exactly once inside the success callback, 0 times on failure, 0 times on token replay.
+- **Audited:** Dual-Write Crash Window & Transactional Outbox:
+  - Documented dual-write crash window between MariaDB transaction commit and queue enqueue in `DB::afterCommit()`.
+  - Formulated Transactional Outbox Pattern requirement as `REQUIRES ARCHITECTURE APPROVAL`.
+- **Automated Verification & Regression Testing:**
+  - Expanded `TransactionalMailDispatchIntegrationTest` from 16 to 24 tests (103 assertions).
+  - All 5 transactional mail test suites: **74 passed (349 assertions, 100%)**.
+  - Full PHPUnit regression suite: **612 passed (3,044 assertions, 0 failures, 0 errors, 100%)**.
+  - Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+- **Git & Safety Invariants:**
+  - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+  - Zero connections to remote production database `103.131.144.61`.
+  - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ### Transactional Mail Dispatch Integration & Event Triggering (Step 46)
 - **Implemented:** Transactional Message Types & Blade Templates:
   - Added `subscription_renewal` and `subscription_expiry_reminder` to `MailDeliveryService::MESSAGE_TYPES`.

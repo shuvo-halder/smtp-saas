@@ -67,7 +67,7 @@ class MailDeliveryRecord extends Model
     protected function casts(): array
     {
         return [
-            'payload'           => 'array',
+            'payload'           => \App\Casts\EncryptedArrayWithFallback::class,
             'is_dry_run'        => 'boolean',
             'attempts'          => 'integer',
             'max_attempts'      => 'integer',

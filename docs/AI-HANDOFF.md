@@ -943,8 +943,38 @@ This document is the operational starting point for any AI coding agent working 
     - Zero connections to remote production database `103.131.144.61`.
     - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
 
+- **Step 47 — Transactional Mail Security Hardening & Event Deduplication (SECURITY HARDENING & DEDUPLICATION VERIFIED):**
+  - **Cryptographic Email Verification Links (`AuthController.php`):**
+    - Neutralized vulnerability where knowing user ID and email allowed forging account verification without mailbox access.
+    - Links require `id`, `hash` (`sha1($user->email)`), `expires` (24h Unix timestamp), and HMAC-SHA256 `signature` keyed by `config('app.key')`.
+    - `POST /api/auth/verify-email`: Validates expiration (`$expires < now()->timestamp` -> HTTP 400), timing-safe HMAC via `hash_equals()`, target user match, and idempotent HTTP 200 for already verified accounts without duplicate audit records.
+    - Added anti-enumeration resend endpoint `POST /api/auth/resend-verification` returning generic HTTP 200 response with hourly rate-limiting/idempotency key `registration_verification:user_{id}:resend_{Y-m-d_H}`.
+  - **Database Payload Encryption at Rest (`EncryptedArrayWithFallback.php`):**
+    - Custom Eloquent cast `App\Casts\EncryptedArrayWithFallback` encrypts `mail_deliveries.payload` with AES-256 (`Crypt::encrypt()`) at rest using `APP_KEY`.
+    - In-memory transparent decryption for queue workers.
+    - Automatic fallback to `json_decode` for legacy unencrypted JSON rows.
+    - Plaintext password reset URLs and raw tokens are completely unreadable in raw database dumps and SQL queries.
+  - **Deep Recursive Secret Scrubbing & Error Sanitization:**
+    - Hardened `MailDeliveryService::scrubPayload` to recursively scrub exact keys and regex substrings (`password`, `secret`, `token`, `bearer`, `credential`, `private_key`, `api_key`).
+    - Added `MailDeliveryService::sanitizeErrorMessage()` and updated `failDelivery()` to scrub URL query parameters, passwords, and tokens before persisting in `last_error`.
+    - Hardened `ProcessMailDeliveryJob::sanitizeErrorMessage()` URL regex.
+  - **PasswordReset Event Deduplication & Audit:**
+    - Audited `Illuminate\Auth\Passwords\PasswordBroker::reset()`: Confirmed it does not auto-dispatch `PasswordReset`.
+    - Guaranteed `PasswordReset` event is dispatched exactly once inside the success callback, 0 times on failure, 0 times on token replay.
+  - **Dual-Write Crash Window & Transactional Outbox:**
+    - Documented dual-write crash window between MariaDB transaction commit and queue enqueue in `DB::afterCommit()`.
+    - Formulated Transactional Outbox Pattern requirement as `REQUIRES ARCHITECTURE APPROVAL`.
+  - **Three-Level Verification Matrix:**
+    - **Level A (Application & API Layer):** `PASS / VERIFIED` (24 dispatch tests, 74 mail tests, 612 full suite tests, 3,044 assertions passing 100%).
+    - **Level B (Linux Queue Worker & Scheduler):** `PENDING INFRASTRUCTURE` (Security & token logic fully verified at application level; execution pending Linux PHP 8.3 CLI on host).
+    - **Level C (Controlled SMTP Delivery):** `BLOCKED — REQUIRES APPROVAL` (`MAIL_DELIVERY_DRY_RUN=true` strictly enforced).
+  - **Git & Safety Invariants:**
+    - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+    - Zero connections to remote production database `103.131.144.61`.
+    - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ## 5. Next Recommended Implementation Phase
-- **Step 47 — Live External SMTP Transport Verification Drill & ESP Integration Plan:**
+- **Step 48 — Live External SMTP Transport Verification Drill & ESP Integration Plan:**
   - Transition from dry-run mode (`MAIL_DELIVERY_DRY_RUN=false`) in an isolated, approved staging environment.
   - Establish connection tests for primary SMTP transport (Postfix local port 25/587 or upstream relay).
   - Verify TLS certificate validation, SASL authentication handshakes, and RFC 5321/5322 compliance.
@@ -953,10 +983,7 @@ This document is the operational starting point for any AI coding agent working 
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
   - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
-  - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
-  - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
-  - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
-  - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
+
 
 
 

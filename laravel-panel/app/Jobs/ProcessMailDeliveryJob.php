@@ -213,7 +213,7 @@ class ProcessMailDeliveryJob implements ShouldQueue
         $patterns = [
             '/:\/\/([^:\s]+):([^@\s]+)@/'             => '://$1:[REDACTED]@',
             '/password=([^;\s]+)/i'                   => 'password=[REDACTED]',
-            '/(token|secret|key|api_key)=([^;\s]+)/i' => '$1=[REDACTED]',
+            '/(token|secret|key|api_key)=([^;&\s]+)/i' => '$1=[REDACTED]',
             '/bearer\s+[a-zA-Z0-9_\-\.]+/i'           => 'Bearer [REDACTED]',
             '/authorization:\s*([^\r\n]+)/i'          => 'Authorization: [REDACTED]',
             '/[a-zA-Z0-9]{32,}/'                      => '[REDACTED_HASH]',

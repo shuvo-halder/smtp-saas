@@ -49,9 +49,13 @@ class AuthController extends Controller
 
         event(new \Illuminate\Auth\Events\Registered($user));
 
-        // Enqueue account verification email fail-safely
+        // Enqueue account verification email fail-safely with cryptographic signature and expiration
         try {
-            $verificationUrl = config('app.frontend_url', config('app.url')) . '/verify-email?id=' . $user->id . '&hash=' . sha1($user->email);
+            $expires = now()->addHours(24)->timestamp;
+            $hash = sha1($user->email);
+            $signature = hash_hmac('sha256', "id={$user->id}&hash={$hash}&expires={$expires}", (string) config('app.key'));
+            $verificationUrl = config('app.frontend_url', config('app.url')) . "/verify-email?id={$user->id}&hash={$hash}&expires={$expires}&signature={$signature}";
+
             app(\App\Services\MailDeliveryService::class)->enqueue(
                 tenantId: $user->id,
                 recipientEmail: $user->email,
@@ -108,23 +112,45 @@ class AuthController extends Controller
     public function verifyEmail(Request $request)
     {
         $validated = $request->validate([
-            'id'   => 'required|integer',
-            'hash' => 'required|string',
+            'id'        => 'required|integer',
+            'hash'      => 'required|string',
+            'expires'   => 'required|integer',
+            'signature' => 'required|string',
         ]);
 
+        // 1. Expiration validation
+        if (now()->timestamp > $validated['expires']) {
+            return response()->json(['message' => 'Verification link has expired.'], 400);
+        }
+
+        // 2. Cryptographic signature validation with timing-safe comparison
+        $expectedSignature = hash_hmac(
+            'sha256',
+            "id={$validated['id']}&hash={$validated['hash']}&expires={$validated['expires']}",
+            (string) config('app.key')
+        );
+
+        if (!hash_equals($expectedSignature, $validated['signature'])) {
+            return response()->json(['message' => 'Invalid or tampered verification signature.'], 400);
+        }
+
+        // 3. User account resolution
         $user = User::find($validated['id']);
         if (!$user) {
             return response()->json(['message' => 'User not found.'], 404);
         }
 
+        // 4. Idempotency: Already verified accounts return 200 safely without mutating state
         if ($user->email_verified_at !== null) {
             return response()->json(['message' => 'Email already verified.'], 200);
         }
 
+        // 5. Account integrity: ensure email matches the signed hash
         if (!hash_equals(sha1($user->email), $validated['hash'])) {
-            return response()->json(['message' => 'Invalid or expired verification hash.'], 400);
+            return response()->json(['message' => 'Verification target does not match user account.'], 400);
         }
 
+        // 6. Mark verified and record audit trail
         $user->forceFill(['email_verified_at' => now()])->save();
 
         app(\App\Services\AuditService::class)->record(
@@ -134,10 +160,49 @@ class AuthController extends Controller
             before: ['email_verified_at' => null],
             after: ['email_verified_at' => $user->email_verified_at->toIso8601String()],
             actor: $user,
-            reason: 'User successfully completed email verification',
+            reason: 'User successfully completed email verification via signed link',
             request: $request
         );
 
         return response()->json(['message' => 'Email verified successfully.'], 200);
+    }
+
+    public function resendVerification(Request $request)
+    {
+        $validated = $request->validate([
+            'email' => 'required|email',
+        ]);
+
+        $user = User::where('email', $validated['email'])->first();
+
+        // Only dispatch for existing, unverified, non-suspended accounts
+        if ($user && $user->email_verified_at === null && $user->status !== 'suspended') {
+            try {
+                $expires = now()->addHours(24)->timestamp;
+                $hash = sha1($user->email);
+                $signature = hash_hmac('sha256', "id={$user->id}&hash={$hash}&expires={$expires}", (string) config('app.key'));
+                $verificationUrl = config('app.frontend_url', config('app.url')) . "/verify-email?id={$user->id}&hash={$hash}&expires={$expires}&signature={$signature}";
+
+                app(\App\Services\MailDeliveryService::class)->enqueue(
+                    tenantId: $user->id,
+                    recipientEmail: $user->email,
+                    messageType: 'account_verification',
+                    subject: 'Verify your EmailSaaS account',
+                    payload: [
+                        'name'             => $user->name,
+                        'verification_url' => $verificationUrl,
+                    ],
+                    idempotencyKey: "registration_verification:user_{$user->id}:resend_" . date('Y-m-d_H'),
+                );
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to resend verification email: ' . $e->getMessage(), [
+                    'user_id' => $user->id,
+                ]);
+            }
+        }
+
+        return response()->json([
+            'message' => 'If your account is registered and unverified, a new verification link has been sent.',
+        ], 200);
     }
 }

@@ -507,6 +507,7 @@ class MailDeliveryService
         $maxAttempts = $maxAttempts ?? ($record->max_attempts ?: (int) config('mail_delivery.default_max_attempts', 3));
         $newAttempts = $record->attempts + 1;
         $isDeadLetter = $isPermanent || ($newAttempts >= $maxAttempts);
+        $safeErrorMessage = $this->sanitizeErrorMessage($errorMessage);
 
         if ($isDeadLetter) {
             $affected = MailDeliveryRecord::where('id', $recordId)
@@ -518,7 +519,7 @@ class MailDeliveryService
                     'status'      => MailDeliveryRecord::STATUS_FAILED,
                     'claim_token' => null,
                     'failed_at'   => now(),
-                    'last_error'  => $errorMessage,
+                    'last_error'  => $safeErrorMessage,
                 ]);
 
             return [
@@ -542,7 +543,7 @@ class MailDeliveryService
                 'attempts'    => $newAttempts,
                 'status'      => MailDeliveryRecord::STATUS_QUEUED,
                 'claim_token' => null,
-                'last_error'  => $errorMessage,
+                'last_error'  => $safeErrorMessage,
             ]);
 
         return [
@@ -869,8 +870,9 @@ class MailDeliveryService
         foreach ($payload as $k => $v) {
             $keyStr = strtolower((string) $k);
 
-            // Redact or mask sensitive keys
-            if (in_array($keyStr, self::SENSITIVE_KEYS, true)) {
+            // Redact or mask sensitive keys (exact match or sensitive substring)
+            if (in_array($keyStr, self::SENSITIVE_KEYS, true) ||
+                preg_match('/(password|secret|token|bearer|credential|private_key|api_key)/i', $keyStr)) {
                 $cleaned[$k] = '[REDACTED]';
                 continue;
             }
@@ -894,5 +896,24 @@ class MailDeliveryService
     {
         $jitter = rand(1, 10);
         return (int) min($maxBackoff, ($baseBackoff * pow(2, max(0, $attempt - 1))) + $jitter);
+    }
+
+    /**
+     * Sanitize error message to prevent leaking passwords, tokens, or internal trace secrets.
+     */
+    public function sanitizeErrorMessage(string $message): string
+    {
+        $patterns = [
+            '/:\/\/([^:\s]+):([^@\s]+)@/'              => '://$1:[REDACTED]@',
+            '/password=([^;\s]+)/i'                    => 'password=[REDACTED]',
+            '/(token|secret|key|api_key)=([^;&\s]+)/i' => '$1=[REDACTED]',
+            '/bearer\s+[a-zA-Z0-9_\-\.]+/i'            => 'Bearer [REDACTED]',
+            '/authorization:\s*([^\r\n]+)/i'           => 'Authorization: [REDACTED]',
+            '/[a-zA-Z0-9]{32,}/'                       => '[REDACTED_HASH]',
+        ];
+
+        $cleaned = preg_replace(array_keys($patterns), array_values($patterns), $message);
+
+        return mb_substr($cleaned ?? $message, 0, 500);
     }
 }

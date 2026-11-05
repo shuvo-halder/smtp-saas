@@ -573,4 +573,41 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - Invariant: Guarantees that webhook replays, scheduler loops, or duplicate requests cannot trigger duplicate mail delivery records.
 
 
+## 36. Transactional Mail Security Hardening, Payload Encryption & Cryptographic Link Verification (Step 47 Implementation)
+- **Cryptographic Email Verification Links & Tamper Resistance:**
+  - Eliminated deterministic calculation vulnerability (`sha1($email)`) where an adversary with user ID and email knowledge could verify an account without mailbox access.
+  - Verification links require four parameters: `id`, `hash` (`sha1($user->email)`), `expires` (UNIX timestamp, 24-hour expiration), and `signature` (HMAC-SHA256).
+  - Signature is generated using `hash_hmac('sha256', "id={$id}&hash={$hash}&expires={$expires}", config('app.key'))`.
+  - Verification endpoint (`POST /api/auth/verify-email`) strictly validates:
+    1. Mandatory fields: `id`, `hash`, `expires`, `signature`.
+    2. Expiration threshold: If `now()->timestamp > (int) $expires`, rejects with HTTP 400 (`"Verification link has expired."`).
+    3. Cryptographic integrity: Validates signature via timing-safe `hash_equals($expectedSignature, $signature)`, rejecting tampered signatures with HTTP 400.
+    4. Target identity alignment: Validates that resolved target user ID matches the URL `id` parameter.
+    5. Already-verified idempotency: If `user->hasVerifiedEmail()` is true, returns HTTP 200 (`"Email is already verified."`) without error, state mutation, or duplicate audit logs.
+- **Anti-Enumeration Email Verification Resend:**
+  - Resend endpoint (`POST /api/auth/resend-verification`) returns a generic HTTP 200 response (`"If your account is unverified, a new verification link has been sent."`) regardless of whether the email exists, is already verified, or is invalid.
+  - Rate-limited and deduplicated using an hourly idempotency key: `registration_verification:user_{$user->id}:resend_{date('Y-m-d_H')}`.
+- **Payload Encryption at Rest with Backward Compatibility:**
+  - `MailDeliveryRecord::$casts` utilizes custom cast `App\Casts\EncryptedArrayWithFallback` (`laravel-panel/app/Casts/EncryptedArrayWithFallback.php`).
+  - Serializes database payloads to encrypted strings at rest using Laravel `Crypt::encrypt()` (AES-256-CBC/AES-256-GCM authenticated via application `APP_KEY`).
+  - Plaintext reset URLs, tokens, and recipient parameters are completely unreadable in raw database dumps, storage snapshots, replication streams, and direct SQL queries.
+  - Automatic fallback: If legacy unencrypted JSON payload is encountered during reads, safely falls back to standard `json_decode`, preventing worker crashes or data loss during schema transition.
+- **Deep Recursive Secret Scrubbing & Error Sanitization:**
+  - `MailDeliveryService::scrubPayload()` recursively traverses multidimensional payloads to redact values whose keys match exact names or substring patterns (`password`, `secret`, `token`, `bearer`, `credential`, `private_key`, `api_key`).
+  - `MailDeliveryService::sanitizeErrorMessage()` and `ProcessMailDeliveryJob::sanitizeErrorMessage()` sanitize error messages before persistence in `last_error`, redacting query parameters (`?token=...`, `&signature=...`), passwords, authorization bearer headers, and cryptographic hashes.
+- **PasswordReset Event Exact-Once Dispatch Guarantee:**
+  - Audited `Illuminate\Auth\Passwords\PasswordBroker::reset()`, confirming it delegates execution to the caller-supplied callback and does NOT fire `PasswordReset` automatically.
+  - `PasswordResetController` dispatches `event(new PasswordReset($user))` explicitly inside the successful reset callback:
+    - Exactly 1 dispatch on successful password reset.
+    - 0 dispatches on invalid token.
+    - 0 dispatches on expired token or replay.
+- **Registration Verification Interaction & Mailer Deconfliction:**
+  - Confirmed `App\Models\User` does not implement `Illuminate\Contracts\Auth\MustVerifyEmail`, preventing Laravel's default synchronous mail listener from emitting duplicate or conflicting emails.
+  - Enqueue uses deterministic idempotency key `registration_verification:user_{$user->id}`.
+- **Crash Window & Transactional Outbox Pattern Formulation:**
+  - Distributed systems failure mode (Dual-Write Problem): In `DB::afterCommit()`, if the database transaction commits to MariaDB but the application process crashes, loses power, or experiences network failure before `MailDeliveryService::enqueue()` completes, the primary business change commits but the transactional email is lost.
+  - *Architectural Recommendation:* A durable Transactional Outbox Pattern requires writing a pending outbox record into the database within the primary business transaction (sharing the same database transaction boundary) and subsequently reading/dispatching outbox rows via a background sweeper. Formulated and classified as `REQUIRES ARCHITECTURE APPROVAL`.
+
+
+
 

@@ -491,3 +491,48 @@ This document describes the current implementation state of the EmailSaaS projec
   - All 5 transactional mail test suites: **66 passed (314 assertions, 100%)**.
   - Full regression test suite (`php artisan test`): **604 passed (3,009 assertions, 0 failures, 0 errors, 100%)**.
   - Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+
+## 24. Step 47 — Transactional Mail Security Hardening & Event Deduplication
+
+### Implementation Summary
+- **Cryptographic Email Verification Links (`AuthController.php`):**
+  - Updated `AuthController::register`: Generates tamper-resistant verification links containing `id`, `hash` (`sha1($user->email)`), `expires` (`now()->addHours(24)->timestamp`), and HMAC-SHA256 `signature` keyed by `config('app.key')`.
+  - Updated `AuthController::verifyEmail`:
+    - Validates presence of `id`, `hash`, `expires`, `signature`.
+    - Enforces 24-hour expiration (`$expires < now()->timestamp` -> HTTP 400).
+    - Verifies cryptographic signature using timing-safe `hash_equals()`.
+    - Ensures target identity matches authenticated/queried user.
+    - Idempotency: Returns HTTP 200 for already verified accounts without mutation.
+    - Persistent audit logging: Records `auth.email_verified` via `AuditService::record()`.
+  - Added anti-enumeration resend endpoint `POST /api/auth/resend-verification` (`AuthController::resendVerification`):
+    - Always returns generic HTTP 200 response (`"If your account is unverified, a new verification link has been sent."`).
+    - Enqueues signed verification mail for unverified active tenants with hourly idempotency key `registration_verification:user_{id}:resend_{Y-m-d_H}`.
+  - Added route in `routes/api.php`: `Route::post('/auth/resend-verification', [AuthController::class, 'resendVerification'])->middleware('throttle:6,1');`.
+- **Database Payload Encryption at Rest (`EncryptedArrayWithFallback.php`):**
+  - Implemented custom Eloquent Cast `App\Casts\EncryptedArrayWithFallback` (`laravel-panel/app/Casts/EncryptedArrayWithFallback.php`).
+  - Serializes payloads to AES-256 encrypted ciphertext via `Crypt::encrypt()` upon database persistence (`mail_deliveries.payload`).
+  - Automatically decrypts back to an array in memory for queue workers.
+  - Backward compatibility: If unencrypted JSON payload is detected on read, safely falls back to `json_decode`, preventing crashes during migration.
+  - Updated `MailDeliveryRecord::$casts` to use `EncryptedArrayWithFallback::class`.
+- **Deep Recursive Secret Scrubbing & Error Sanitization:**
+  - Hardened `MailDeliveryService::scrubPayload`: Recursively redacts exact keys and substring matches (`password`, `secret`, `token`, `bearer`, `credential`, `private_key`, `api_key`).
+  - Added `MailDeliveryService::sanitizeErrorMessage()` and updated `failDelivery()`: Sanitizes error messages before writing to `last_error`.
+  - Hardened `ProcessMailDeliveryJob::sanitizeErrorMessage()` URL regex to `([^;&\s]+)`.
+- **PasswordReset Event Deduplication & Audit:**
+  - Audited `Illuminate\Auth\Passwords\PasswordBroker::reset()`: Confirmed it does not auto-dispatch `PasswordReset`.
+  - Ensured `PasswordResetController` fires `event(new PasswordReset($user))` exactly once inside the success callback, 0 times on failure, 0 times on token replay.
+- **Automated Verification & Regression Testing:**
+  - Expanded `TransactionalMailDispatchIntegrationTest` from 16 to 24 tests (103 assertions):
+    - Valid signed verification parameters succeed.
+    - Expired link (>24h or in past) rejected with HTTP 400.
+    - Tampered signature rejected with HTTP 400.
+    - User ID or email mismatch rejected with HTTP 400.
+    - Idempotent HTTP 200 for already verified account.
+    - Anti-enumeration resend (generic HTTP 200 for nonexistent/verified accounts).
+    - Database payload encrypted at rest: Raw SQL `DB::table('mail_deliveries')->value('payload')` asserted NOT to contain plaintext token or `"reset-password"`, while `$record->payload` decrypts cleanly.
+    - Deep nested secret key scrubbing verified.
+    - `PasswordReset` event asserted dispatched exactly 1 time on success, 0 on failure, 0 on token replay.
+  - All 5 transactional mail test suites: **74 passed (349 assertions, 100%)**.
+  - Full PHPUnit regression suite (`php artisan test`): **612 passed (3,044 assertions, 0 failures, 0 errors, 100%)**.
+  - Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+
