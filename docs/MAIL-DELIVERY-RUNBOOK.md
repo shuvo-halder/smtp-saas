@@ -16,6 +16,8 @@ The subsystem manages mission-critical platform transactional emails:
 - Account verification notices (`account_verification`)
 - Password reset requests (`password_reset`)
 - Billing invoices and payment receipts (`billing_invoice`)
+- Subscription renewal confirmations (`subscription_renewal`)
+- Upcoming subscription expiry reminders (`subscription_expiry_reminder`)
 - High-severity security and abuse incident alerts (`security_alert`)
 
 ### Key Architecture & Invariant Rules
@@ -176,7 +178,7 @@ sudo supervisorctl restart emailsaas-worker:*
 
 ## 6. Linux Scheduler Configuration
 
-The Laravel scheduler coordinates periodic maintenance, including stale worker recovery (`mail:recover-stale` every 15 minutes).
+The Laravel scheduler coordinates periodic maintenance, including stale worker recovery (`mail:recover-stale` every 15 minutes) and subscription expiry reminders (`subscription:send-expiry-reminders` daily at 08:00).
 
 ### 6.1 Crontab Configuration
 Add to the `www-data` user crontab (`sudo crontab -u www-data -e`):

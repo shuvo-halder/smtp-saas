@@ -128,7 +128,32 @@ class AbuseIncidentService
                             'mailbox_email' => $incident->mailbox_email,
                         ]
                     );
-                } catch (Throwable $e) {}
+
+                    // Transactional Security Alert Mail (Strictly high severity, sanitized payload, zero credentials)
+                    if ($incident->severity === 'critical' && !empty($incident->tenant_email)) {
+                        $alertTitle = 'Security Alert: ' . ucfirst(str_replace('_', ' ', $incident->incident_type));
+                        $fullActionUrl = config('app.frontend_url', config('app.url')) . ($category === 'smtp_quota' ? '/smtp' : '/dashboard');
+
+                        app(\App\Services\MailDeliveryService::class)->enqueue(
+                            tenantId: (int) $tenantId,
+                            recipientEmail: $incident->tenant_email,
+                            messageType: 'security_alert',
+                            subject: $alertTitle,
+                            payload: [
+                                'alert_title' => $alertTitle,
+                                'severity'    => $incident->severity,
+                                'description' => strip_tags($incident->summary),
+                                'action_url'  => $fullActionUrl,
+                            ],
+                            idempotencyKey: "security_alert:incident_{$incident->uuid}",
+                        );
+                    }
+                } catch (Throwable $e) {
+                    Log::channel('abuse')->error('AbuseIncidentService: Failed to dispatch notification or mail alert: ' . $e->getMessage(), [
+                        'incident_id' => $incident->id,
+                        'tenant_id'   => $tenantId,
+                    ]);
+                }
             }
 
             return $incident;

@@ -47,6 +47,29 @@ class AuthController extends Controller
             request: $request
         );
 
+        event(new \Illuminate\Auth\Events\Registered($user));
+
+        // Enqueue account verification email fail-safely
+        try {
+            $verificationUrl = config('app.frontend_url', config('app.url')) . '/verify-email?id=' . $user->id . '&hash=' . sha1($user->email);
+            app(\App\Services\MailDeliveryService::class)->enqueue(
+                tenantId: $user->id,
+                recipientEmail: $user->email,
+                messageType: 'account_verification',
+                subject: 'Verify your EmailSaaS account',
+                payload: [
+                    'name'             => $user->name,
+                    'verification_url' => $verificationUrl,
+                ],
+                idempotencyKey: "registration_verification:user_{$user->id}",
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to enqueue registration verification email: ' . $e->getMessage(), [
+                'user_id' => $user->id,
+                'email'   => $user->email,
+            ]);
+        }
+
         return response()->json(new UserResource($user), 201);
     }
 
@@ -80,5 +103,41 @@ class AuthController extends Controller
     public function user(Request $request)
     {
         return new UserResource($request->user()->load('plan'));
+    }
+
+    public function verifyEmail(Request $request)
+    {
+        $validated = $request->validate([
+            'id'   => 'required|integer',
+            'hash' => 'required|string',
+        ]);
+
+        $user = User::find($validated['id']);
+        if (!$user) {
+            return response()->json(['message' => 'User not found.'], 404);
+        }
+
+        if ($user->email_verified_at !== null) {
+            return response()->json(['message' => 'Email already verified.'], 200);
+        }
+
+        if (!hash_equals(sha1($user->email), $validated['hash'])) {
+            return response()->json(['message' => 'Invalid or expired verification hash.'], 400);
+        }
+
+        $user->forceFill(['email_verified_at' => now()])->save();
+
+        app(\App\Services\AuditService::class)->record(
+            action: 'auth.email_verified',
+            entityType: 'User',
+            entityId: $user->id,
+            before: ['email_verified_at' => null],
+            after: ['email_verified_at' => $user->email_verified_at->toIso8601String()],
+            actor: $user,
+            reason: 'User successfully completed email verification',
+            request: $request
+        );
+
+        return response()->json(['message' => 'Email verified successfully.'], 200);
     }
 }

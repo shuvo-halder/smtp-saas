@@ -108,6 +108,28 @@ class SuspendExpiredTenants extends Command
                         );
                     } catch (Throwable $e) {}
 
+                    $tenantId = $tenant->id;
+                    $tenantEmail = $tenant->email;
+                    DB::afterCommit(function () use ($tenantId, $tenantEmail) {
+                        try {
+                            app(\App\Services\MailDeliveryService::class)->enqueue(
+                                tenantId: $tenantId,
+                                recipientEmail: $tenantEmail,
+                                messageType: 'security_alert',
+                                subject: 'Account Suspended: Subscription Expired',
+                                payload: [
+                                    'alert_title' => 'Account Suspended: Subscription Expired',
+                                    'severity'    => 'critical',
+                                    'description' => 'Your EmailSaaS subscription has expired. Mailbox sending and domain routing are temporarily suspended. Please renew to restore full service.',
+                                    'action_url'  => config('app.frontend_url', config('app.url')) . '/billing',
+                                ],
+                                idempotencyKey: "account_suspended_mail:{$tenantId}:" . date('Y-m-d'),
+                            );
+                        } catch (Throwable $e) {
+                            Log::error("Failed to enqueue suspension mail for tenant ID {$tenantId}: " . $e->getMessage());
+                        }
+                    });
+
                     Log::info("Suspended expired tenant ID: {$tenant->id}, Email: {$tenant->email}");
                     $this->info("Suspended tenant: {$tenant->email}");
                     $successCount++;

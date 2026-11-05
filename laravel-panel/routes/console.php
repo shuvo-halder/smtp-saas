@@ -38,4 +38,7 @@ Schedule::command('tenant:reconcile-usage')->dailyAt('05:00')->withoutOverlappin
 // Schedule recovery of stale processing mail delivery records every 15 minutes
 Schedule::command('mail:recover-stale')->everyFifteenMinutes()->withoutOverlapping(10);
 
+// Schedule daily subscription expiry reminders at 08:00
+Schedule::command('subscription:send-expiry-reminders')->dailyAt('08:00')->withoutOverlapping(15);
+
 

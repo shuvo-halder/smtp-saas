@@ -542,3 +542,35 @@ Laravel runs as `www-data`, but creating `/var/vmail/` directories and DKIM keys
   - 9 dedicated concurrency scenarios verified in `tests/Feature/MailDeliveryWorkerFencingTest.php` (62 assertions): old worker resume after reclaim, old worker failure after reclaim, old worker release after reclaim, recovery/completion race, duplicate worker contention, terminal state protection, admin conflict handling, backward compatibility with null tokens, and end-to-end execution.
 
 
+## 35. Transactional Event Dispatch Security, Token Handling & Transaction Boundaries (Step 46 Implementation)
+- **Database Transaction Integrity & Worker Rollback Isolation:**
+  - Business transactions (such as `BillingService::markInvoicePaid()` and `SuspendExpiredTenants::handle()`) enqueue transactional mail delivery jobs strictly via `DB::afterCommit(function () use (...) { ... })`.
+  - Invariant: Queue workers can never fetch or process a transactional mail delivery job before the associated business transaction has committed to durable storage.
+  - Rollback Safety: If a business transaction is aborted or rolls back due to a database exception, the `DB::afterCommit` callback never executes, guaranteeing zero phantom email dispatches.
+- **Fail-Safe Dispatch Boundaries:**
+  - Mail queue dispatch operations are wrapped in isolated `try/catch (Throwable $e)` blocks.
+  - Invariant: A failure in the mail dispatch subsystem (such as Redis downtime, rate limiting, or connection timeout) must NEVER abort, roll back, or fail the primary business operation (user registration, payment verification, password reset, or abuse incident logging).
+- **Password Reset Token Security & Credential Redaction:**
+  - Plaintext tokens are strictly forbidden from database payloads or audit logs.
+  - The raw `token` parameter is automatically scrubbed by `MailDeliveryService::scrubPayload` (`token => '[REDACTED]'`).
+  - Safe reset URLs pass the token strictly as an HTTPS query parameter to the authorized frontend domain (`/reset-password?token=...&email=...`), preventing token disclosure in backend logs or database dumps.
+- **Account Enumeration Mitigation (Forgot Password):**
+  - `PasswordResetController::forgotPassword()` always returns a generic HTTP 200 response (`"If an account exists for this email address, a password reset link has been sent."`) regardless of whether the email exists, is invalid, or is suspended.
+  - Prevents external adversaries from performing user enumeration or credential stuffing discovery.
+- **Timing-Safe Email Verification Hash Comparison:**
+  - `AuthController::verifyEmail()` verifies the user email verification hash using `hash_equals(sha1($user->email), $hash)` to eliminate timing side-channel attacks.
+- **Sensitive Evidence Redaction on Abuse & Security Alerts:**
+  - `AbuseIncidentService` enqueues security alert emails for `critical` incidents while strictly sanitizing the payload:
+  - Raw evidence files, passwords, authorization tokens, session headers, and internal server paths are purged from the mail payload, transmitting only high-level incident titles, severities, and sanitized summaries.
+- **Deterministic Event Idempotency Keys:**
+  - Registration verification: `registration_verification:user_{id}`
+  - Password reset: `password_reset:user_{id}:{tokenHash}`
+  - Invoice payment: `billing_paid:invoice_{id}`
+  - Subscription renewal: `billing_renewal:invoice_{id}`
+  - Subscription expiry reminder: `subscription_expiry_reminder:user_{id}:{days}d:{date}`
+  - Security incident alert: `security_alert:incident_{uuid}`
+  - Account suspension: `account_suspended_mail:{tenant_id}:{date}`
+  - Invariant: Guarantees that webhook replays, scheduler loops, or duplicate requests cannot trigger duplicate mail delivery records.
+
+
+

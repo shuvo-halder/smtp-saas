@@ -444,3 +444,50 @@ This document describes the current implementation state of the EmailSaaS projec
   - Queue foundation test suite: `MailDeliveryQueueTest.php` (15/15 tests passing, 78 assertions, 100%).
   - Full PHPUnit regression suite: 568/568 tests passing (2,824 assertions, 100%).
   - Frontend TypeScript validation: `npx tsc --noEmit` (0 errors).
+
+## 22. Step 45 — Mail Queue Worker Fencing & Stale Ownership Protection
+
+### Implementation Summary
+- **Database Claim Token Migration (`2026_11_05_000001_add_claim_token_to_mail_deliveries_table.php`):**
+  - Added indexed nullable `claim_token` (`VARCHAR(64)`) to `mail_deliveries` table after `idempotency_key`.
+- **Model & Service Atomic Fencing Methods:**
+  - `MailDeliveryRecord`: Added `claim_token` to `$fillable`, added timing-safe `hasClaimToken()`, and `scopeWithActiveClaim()`.
+  - `MailDeliveryService`: Added atomic methods `claimForProcessing()`, `completeDelivery()`, and `failDelivery()` enforcing active ownership conditions.
+  - Stale recovery and administrative retry/cancel reset `claim_token = null` to clear residual leases.
+- **Worker Claim Enforcement (`ProcessMailDeliveryJob.php`):**
+  - Generates UUIDv4 claim token upon claiming job. Fenced-off zombie workers affect 0 rows upon completion or failure.
+
+## 23. Step 46 — Transactional Mail Dispatch Integration & Event Triggering
+
+### Implementation Summary
+- **Message Types & Semantic Templates:**
+  - Added `subscription_renewal` and `subscription_expiry_reminder` to `MailDeliveryService::MESSAGE_TYPES`.
+  - Mapped views in `TransactionalMail::TEMPLATE_VIEWS` and authored semantic Blade templates:
+    - `resources/views/emails/transactional/subscription_renewal.blade.php`
+    - `resources/views/emails/transactional/subscription_expiry_reminder.blade.php`
+  - Validated payload schemas and URLs in `validatePayload()` and defined descriptive subjects in `getDefaultSubject()`.
+- **User Registration & Email Verification (`AuthController.php`):**
+  - `register()` fires `event(new Registered($user))` and enqueues `account_verification` mail delivery inside fail-safe try/catch with idempotency key `registration_verification:user_{$user->id}`.
+  - Added public email verification endpoint `POST /api/auth/verify-email`: Validates user ID and timing-safe hash, updates `email_verified_at`, and logs audit trail.
+- **Password Reset Flow (`PasswordResetController.php`):**
+  - `POST /api/auth/forgot-password`: Generates reset token via `Password::broker()->createToken($user)`, builds frontend reset link (`/reset-password?token=...&email=...`), enqueues `password_reset` mail delivery with deterministic idempotency key, records audit log, and returns generic response to prevent user enumeration.
+  - `POST /api/auth/reset-password`: Validates token, email, and password confirmation, executes reset via `Password::broker()->reset()`, fires `PasswordReset` event, updates password hash, records audit log, and returns localized response.
+  - Plaintext tokens are strictly excluded from database storage (scrubbed by `MailDeliveryService::scrubPayload`).
+- **Billing Payment & Subscription Renewal (`BillingService.php`):**
+  - Registered mail enqueue inside `\Illuminate\Support\Facades\DB::afterCommit(...)` in `markInvoicePaid()`.
+  - Initial payments enqueue `billing_invoice` (`billing_paid:invoice_{id}`); active renewals enqueue `subscription_renewal` (`billing_renewal:invoice_{id}`).
+  - Fail-safe boundary: Wrap in try/catch guarantees transactional mail errors never abort or roll back confirmed payments.
+- **Upcoming Subscription Expiry Reminders (`SendSubscriptionExpiryRemindersCommand.php`):**
+  - Command: `subscription:send-expiry-reminders` (`--days=7,3,1` and `--dry-run`).
+  - Scans active non-admin tenants with upcoming expiration, enqueues `subscription_expiry_reminder` transactional mail with idempotency key `subscription_expiry_reminder:user_{id}:{days}d:{date}`, and dispatches in-app `TenantNotification`.
+  - Scheduled daily at 08:00 in `routes/console.php` with `withoutOverlapping(15)`.
+- **Security & Abuse Incidents (`AbuseIncidentService.php`):**
+  - Enqueues `security_alert` transactional email for `critical` incidents with idempotency key `security_alert:incident_{uuid}`.
+  - Strict tenant isolation and omission of raw evidence, passwords, tokens, or internal paths from mail payloads.
+- **Account Auto-Suspension Mail (`SuspendExpiredTenants.php`):**
+  - Enqueues `security_alert` suspension notification mail to expired tenants inside `DB::afterCommit` with idempotency key `account_suspended_mail:{tenant_id}:{date}`.
+- **Automated Verification & Regression Testing:**
+  - Dedicated Integration Suite (`tests/Feature/TransactionalMailDispatchIntegrationTest.php`): **16 passed (68 assertions)**.
+  - All 5 transactional mail test suites: **66 passed (314 assertions, 100%)**.
+  - Full regression test suite (`php artisan test`): **604 passed (3,009 assertions, 0 failures, 0 errors, 100%)**.
+  - Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.

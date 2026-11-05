@@ -274,6 +274,71 @@ class BillingService
                 );
             } catch (\Throwable $e) {}
 
+            // Transactional Mail Dispatch (Executed strictly after transaction commits)
+            $isRenewal = ($beforeState['user_status'] === 'active' || !empty($beforeState['plan_expires_at']));
+            $userId = $user->id;
+            $userEmail = $user->email;
+            $invoiceId = $lockedInvoice->id;
+            $invoiceNumber = $lockedInvoice->invoice_number;
+            $invoiceTotal = (float) $lockedInvoice->total;
+            $invoiceCurrency = $lockedInvoice->currency ?? 'BDT';
+            $resolvedPlanName = $lockedInvoice->plan?->name ?? 'EmailSaaS Subscription';
+            $expiresFormatted = $newExpires->format('M d, Y');
+
+            \Illuminate\Support\Facades\DB::afterCommit(function () use (
+                $userId,
+                $userEmail,
+                $invoiceId,
+                $invoiceNumber,
+                $invoiceTotal,
+                $invoiceCurrency,
+                $resolvedPlanName,
+                $expiresFormatted,
+                $isRenewal
+            ) {
+                try {
+                    $mailService = app(\App\Services\MailDeliveryService::class);
+                    $invoiceUrl = config('app.frontend_url', config('app.url')) . '/billing/invoices/' . $invoiceId;
+
+                    if ($isRenewal) {
+                        $mailService->enqueue(
+                            tenantId: $userId,
+                            recipientEmail: $userEmail,
+                            messageType: 'subscription_renewal',
+                            subject: "Subscription Renewal Confirmed - Invoice #{$invoiceNumber}",
+                            payload: [
+                                'invoice_number' => $invoiceNumber,
+                                'amount'         => $invoiceTotal,
+                                'currency'       => $invoiceCurrency,
+                                'plan_name'      => $resolvedPlanName,
+                                'expires_at'     => $expiresFormatted,
+                                'invoice_url'    => $invoiceUrl,
+                            ],
+                            idempotencyKey: "billing_renewal:invoice_{$invoiceId}",
+                        );
+                    } else {
+                        $mailService->enqueue(
+                            tenantId: $userId,
+                            recipientEmail: $userEmail,
+                            messageType: 'billing_invoice',
+                            subject: "Payment Received: Invoice #{$invoiceNumber}",
+                            payload: [
+                                'invoice_number' => $invoiceNumber,
+                                'amount'         => $invoiceTotal,
+                                'currency'       => $invoiceCurrency,
+                                'invoice_url'    => $invoiceUrl,
+                            ],
+                            idempotencyKey: "billing_paid:invoice_{$invoiceId}",
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::error('Failed to enqueue billing transactional email after commit: ' . $e->getMessage(), [
+                        'invoice_id' => $invoiceId,
+                        'user_id'    => $userId,
+                    ]);
+                }
+            });
+
             Log::info('Invoice paid and subscription activated', [
                 'invoice_id' => $lockedInvoice->id,
                 'user_id'    => $user->id,

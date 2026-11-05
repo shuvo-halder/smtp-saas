@@ -18,10 +18,12 @@ class TransactionalMail extends Mailable
      * Map of template IDs to Blade views.
      */
     public const TEMPLATE_VIEWS = [
-        'account_verification' => 'emails.transactional.account_verification',
-        'password_reset'       => 'emails.transactional.password_reset',
-        'billing_invoice'      => 'emails.transactional.billing_invoice',
-        'security_alert'       => 'emails.transactional.security_alert',
+        'account_verification'          => 'emails.transactional.account_verification',
+        'password_reset'                => 'emails.transactional.password_reset',
+        'billing_invoice'               => 'emails.transactional.billing_invoice',
+        'security_alert'                => 'emails.transactional.security_alert',
+        'subscription_renewal'          => 'emails.transactional.subscription_renewal',
+        'subscription_expiry_reminder'  => 'emails.transactional.subscription_expiry_reminder',
     ];
 
     public function __construct(

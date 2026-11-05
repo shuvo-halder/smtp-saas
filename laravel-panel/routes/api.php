@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\BillingApiController;
 use App\Http\Controllers\Api\DashboardApiController;
 use App\Http\Controllers\Api\DomainApiController;
 use App\Http\Controllers\Api\MailboxApiController;
+use App\Http\Controllers\Api\PasswordResetController;
 use App\Http\Controllers\Api\TenantSmtpApiController;
 use App\Http\Middleware\EnsureActiveSubscription;
 use App\Http\Middleware\EnsureAdmin;
@@ -19,6 +20,9 @@ Route::middleware([\App\Http\Middleware\IdentifyTenant::class])->group(function 
     // Public Routes
     Route::post('/auth/register', [AuthController::class, 'register']);
     Route::post('/auth/login', [AuthController::class, 'login']);
+    Route::post('/auth/verify-email', [AuthController::class, 'verifyEmail']);
+    Route::post('/auth/forgot-password', [PasswordResetController::class, 'forgotPassword']);
+    Route::post('/auth/reset-password', [PasswordResetController::class, 'resetPassword']);
 
     // Public Webhooks & Callbacks (Disable CSRF for these in middleware if necessary, though api.php has no CSRF)
     Route::post('/billing/ipn', [BillingApiController::class, 'ipn']);

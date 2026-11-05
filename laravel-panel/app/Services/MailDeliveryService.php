@@ -32,6 +32,8 @@ class MailDeliveryService
         'password_reset',
         'billing_invoice',
         'security_alert',
+        'subscription_renewal',
+        'subscription_expiry_reminder',
     ];
 
     /**
@@ -747,6 +749,27 @@ class MailDeliveryService
                     $this->validateSafeUrl($payload['action_url'], 'action_url');
                 }
                 break;
+
+            case 'subscription_renewal':
+                if (empty($payload['invoice_number'])) {
+                    throw new InvalidPayloadException("Payload missing required field: 'invoice_number' for subscription renewal.");
+                }
+                if (!isset($payload['amount'])) {
+                    throw new InvalidPayloadException("Payload missing required field: 'amount' for subscription renewal.");
+                }
+                if (!empty($payload['invoice_url'])) {
+                    $this->validateSafeUrl($payload['invoice_url'], 'invoice_url');
+                }
+                break;
+
+            case 'subscription_expiry_reminder':
+                if (!isset($payload['days_remaining']) && empty($payload['expires_at'])) {
+                    throw new InvalidPayloadException("Payload missing required field: 'days_remaining' or 'expires_at' for subscription expiry reminder.");
+                }
+                if (!empty($payload['renew_url'])) {
+                    $this->validateSafeUrl($payload['renew_url'], 'renew_url');
+                }
+                break;
         }
     }
 
@@ -823,11 +846,13 @@ class MailDeliveryService
     protected function getDefaultSubject(string $messageType, array $payload): string
     {
         return match ($messageType) {
-            'account_verification' => 'Verify your EmailSaaS account',
-            'password_reset'       => 'Reset your EmailSaaS password',
-            'billing_invoice'      => 'New Invoice from EmailSaaS #' . ($payload['invoice_number'] ?? ''),
-            'security_alert'       => 'Security Alert: ' . ($payload['alert_title'] ?? 'Notice'),
-            default                => 'Notification from EmailSaaS',
+            'account_verification'         => 'Verify your EmailSaaS account',
+            'password_reset'               => 'Reset your EmailSaaS password',
+            'billing_invoice'              => 'New Invoice from EmailSaaS #' . ($payload['invoice_number'] ?? ''),
+            'subscription_renewal'         => 'Subscription Renewal Confirmed - Invoice #' . ($payload['invoice_number'] ?? ''),
+            'subscription_expiry_reminder' => 'Action Required: Your EmailSaaS Subscription Expires Soon',
+            'security_alert'               => 'Security Alert: ' . ($payload['alert_title'] ?? 'Notice'),
+            default                        => 'Notification from EmailSaaS',
         };
     }
 

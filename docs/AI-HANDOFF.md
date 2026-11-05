@@ -901,15 +901,58 @@ This document is the operational starting point for any AI coding agent working 
     - Zero connections to remote production database `103.131.144.61`.
     - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
 
+- **Step 46 — Transactional Mail Dispatch Integration & Event Triggering (TRANSACTIONAL EVENT INTEGRATION COMPLETE — STATUS BASED ON ACTUAL EVIDENCE):**
+  - **Core Message Types & Semantic Templates:**
+    - Expanded `MailDeliveryService::MESSAGE_TYPES`: Added `subscription_renewal` and `subscription_expiry_reminder`.
+    - Mapped views in `TransactionalMail::TEMPLATE_VIEWS` and created semantic Blade email templates: `resources/views/emails/transactional/subscription_renewal.blade.php` and `resources/views/emails/transactional/subscription_expiry_reminder.blade.php`.
+    - Updated payload validation (`validatePayload`) and default subjects (`getDefaultSubject`) for new message types.
+  - **User Registration & Email Verification Event Integration:**
+    - Updated `AuthController::register`: Dispatches `Registered` event and enqueues `account_verification` mail delivery fail-safely with idempotency key `registration_verification:user_{$user->id}`.
+    - Added public email verification endpoint `POST /api/auth/verify-email`: Validates user ID and timing-safe hash, updates `email_verified_at`, and records persistent audit log (`auth.email_verified`).
+    - Fail-safe boundary: Registration never rolls back or fails if mail dispatch encounters transient queue errors.
+  - **Password Reset Request & Execution Flow:**
+    - Created `PasswordResetController` (`app/Http/Controllers/Api/PasswordResetController.php`):
+      - `POST /api/auth/forgot-password`: Generates reset token via `Password::broker()->createToken($user)`, builds frontend reset link (`/reset-password?token=...&email=...`), enqueues `password_reset` mail delivery with deterministic idempotency key, records audit log (`auth.password_reset_request`), and returns generic response preventing user enumeration.
+      - `POST /api/auth/reset-password`: Validates token, email, and password confirmation, executes reset via `Password::broker()->reset()`, fires `PasswordReset` event, updates password hash, records audit log (`auth.password_reset_success`), and returns localized response.
+    - Credential Protection Invariant: Plaintext tokens are strictly forbidden from database payloads; raw `token` keys are scrubbed by `MailDeliveryService::scrubPayload` while safe reset URLs transmit tokens via HTTPS query parameters.
+  - **Billing Payment & Subscription Renewal Integration:**
+    - Updated `BillingService::markInvoicePaid()`:
+      - Registered mail enqueue inside `\Illuminate\Support\Facades\DB::afterCommit(function () use (...) { ... })`, guaranteeing queue workers never consume jobs before database transaction commits.
+      - Discriminated initial payments (`billing_invoice`) with idempotency key `billing_paid:invoice_{id}` vs active renewals (`subscription_renewal`) with idempotency key `billing_renewal:invoice_{id}`.
+      - Fail-safe boundary: Wrap within afterCommit try/catch ensures mail failures never abort or revert confirmed payments or plan extensions.
+  - **Upcoming Subscription Expiry Reminders:**
+    - Created console command `SendSubscriptionExpiryRemindersCommand` (`subscription:send-expiry-reminders`):
+      - Scans active non-admin tenants with upcoming expiration (`--days=7,3,1`).
+      - Enqueues `subscription_expiry_reminder` transactional email with deterministic idempotency key `subscription_expiry_reminder:user_{id}:{days}d:{date}`.
+      - Dispatches corresponding in-app `TenantNotification` (category: `billing_subscription`).
+      - Supports `--dry-run` simulation mode with zero database mutations.
+      - Scheduled daily at 08:00 in `routes/console.php` with `withoutOverlapping(15)`.
+  - **Security & Abuse Incident Alerts:**
+    - Updated `AbuseIncidentService::record()`: Enqueues `security_alert` transactional email for `critical` incidents with idempotency key `security_alert:incident_{uuid}`.
+    - Strict tenant isolation: Mails are addressed strictly to the affected tenant's verified email.
+    - Evidence redaction invariant: Raw secrets, tokens, hashes, and internal server paths are strictly excluded from mail payloads.
+  - **Account Auto-Suspension Mail Dispatch:**
+    - Updated `SuspendExpiredTenants`: Enqueues `security_alert` suspension notification mail to expired tenants inside `DB::afterCommit` with idempotency key `account_suspended_mail:{tenant_id}:{date}`.
+  - **Automated Verification & Three-Level Matrix:**
+    - Dedicated Integration Suite (`tests/Feature/TransactionalMailDispatchIntegrationTest.php`): **16 passed (68 assertions)**.
+    - All 5 transactional mail test suites: **66 passed (314 assertions, 100%)**.
+    - Full regression test suite (`php artisan test`): **604 passed (3,009 assertions, 0 failures, 0 errors, 100%)**.
+    - Frontend TypeScript typecheck (`npx tsc --noEmit`): **0 errors (100%)**.
+  - **Git & Safety Invariants:**
+    - Strictly local execution on Windows 10 + Laragon (PHP 8.3.33, MySQL 8.4.3 `emailsaas_local`).
+    - Zero connections to remote production database `103.131.144.61`.
+    - Strictly 0 staged files (`git add`), 0 commits (`git commit`), and 0 pushes (`git push`).
+
 ## 5. Next Recommended Implementation Phase
-- **Step 46 — Transactional Mail Dispatch Integration & Event Triggering:**
-  - Connect transactional mail queue dispatches to application events:
-    - User registration & email verification dispatch.
-    - Password reset request dispatch.
-    - Billing invoice payment confirmation & renewal reminders.
-    - High-severity security and abuse incident alerts.
-  - Ensure background job queuing is wrapped with fail-safe boundaries so primary transactions (registration, payment, password update) never fail if mail queue dispatch encounters transient failures.
+- **Step 47 — Live External SMTP Transport Verification Drill & ESP Integration Plan:**
+  - Transition from dry-run mode (`MAIL_DELIVERY_DRY_RUN=false`) in an isolated, approved staging environment.
+  - Establish connection tests for primary SMTP transport (Postfix local port 25/587 or upstream relay).
+  - Verify TLS certificate validation, SASL authentication handshakes, and RFC 5321/5322 compliance.
 - **Dedicated Staging VPS Provisioning & Live Infrastructure Acceptance (Pending Owner Approval):**
+  - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
+  - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
+  - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
+  - Validate end-to-end outbound SMTP policy enforcement, Redis -> MariaDB usage reconciliation, and inbound alias delivery under live traffic.
   - Provision an isolated Ubuntu 22.04 LTS VPS with dedicated DNS.
   - Execute parameterized installation via `sudo bash scripts/install.sh --domain=mail.staging.domain --staging`.
   - Perform live MariaDB engine restore drill and Dovecot MDA `doveadm index` discovery drill to elevate status from `PENDING INFRASTRUCTURE` to `STAGING ACCEPTANCE — VERIFIED`.
